@@ -82,6 +82,7 @@ class VrRenderer(
     private var judgedMediaId = -1L
     private var judged = false
     private var sampleAttempts = 0
+    private var totalSampleAttempts = 0
     private var framesSinceOpen = 0
     private val samples = ArrayList<StereoFrameJudge.Verdict>(3)
 
@@ -270,15 +271,19 @@ class VrRenderer(
     // ---- V2.20 / C1：抽帧判立体布局 ----
 
     /**
-     * 画面开始播之后的第 10 帧左右抽一次，判这张片到底是 Mono / SBS / TAB。
+     * 画面开始播之后持续低频抽帧，判这张片到底是 Mono / SBS / TAB。
      *
      * 为什么不等用户确认：**证据迟到，结论可以先放**。先按现有判据起播，
      * 抽帧一到位就当场改成对的——只换 `uEyeRegion`，不动投影，片子照常往下走，
      * 用户最多觉得画面「对上了」一下。反过来要求用户先回答一个他自己也看不出答案的问题，
      * 才是这一版最该去掉的东西。
      *
-     * 抽到黑场（片头淡入）或平坦画面（大片天空 / 死黑）不算数：
-     * `StereoFrameJudge` 会给 0 置信，这里再等十帧重试，凑满三个一致样本才落地。
+     * V2.27：旧版只在开播后 0.17–2 秒里试 12 次，没凑够三个样本就 **永久判死**
+     * （`judged = true`），而很多片子的片头黑场 / Logo 就长达 2–5 秒。这类片永远
+     * 退回 MONO：整幅 SBS 铺满球面，正前方 u=0.5 正好压在两幅的接缝上。
+     * 现在起点后移到约 1.5 秒、间隔 0.5 秒、持续观察最多约 60 秒；
+     * 三帧不一致也只是清空本轮样本再观察，不再把「暂时看不出」当成「判死了」。
+     * 判据本身（相关系数、三帧一致）一个字没改，只放宽了放弃条件。
      */
     private fun maybeJudgeStereo(state: VrUiState) {
         val mediaId = state.currentMediaId
@@ -286,39 +291,52 @@ class VrRenderer(
             judgedMediaId = mediaId
             judged = false
             sampleAttempts = 0
+            totalSampleAttempts = 0
             framesSinceOpen = 0
             samples.clear()
         }
         if (judged || mediaId == 0L) return
         framesSinceOpen++
-        if (framesSinceOpen < FIRST_SAMPLE_FRAMES) return
+        // 第一帧等久一点避开片头，之后按固定间隔低频重试。
+        val need = if (totalSampleAttempts == 0) FIRST_SAMPLE_FRAMES else SAMPLE_INTERVAL_FRAMES
+        if (framesSinceOpen < need) return
         framesSinceOpen = 0
         sampleAttempts++
+        totalSampleAttempts++
 
         val verdict = runCatching { captureStereoFrame() }.getOrNull()
         if (verdict != null && verdict.confidence > 0f) samples.add(verdict)
 
         if (samples.size >= SAMPLE_COUNT) {
-            judged = true
             val combined = StereoFrameJudge.combine(samples)
             if (combined != null) {
+                judged = true
                 RunLog.append("fmt", combined.describe())
                 onFrameSample?.invoke(combined)
-            } else {
-                // 三个时刻说法不一：当作看不出。宁可维持现状，也不要把对的改成错的。
-                RunLog.append(
-                    "fmt",
-                    "抽帧三帧不一致，沿用现有判据（" +
-                        samples.joinToString(" | ") { it.layout.name } + "）"
-                )
+                return
             }
-            return
+            // 三帧说法不一，只是这一轮运气不好（片头渐入 / 切场），不是结论。
+            // 旧版在这里就把 judged 置 true，等于永远放弃。
+            RunLog.append(
+                "fmt",
+                "抽帧三帧不一致，继续观察（" +
+                    samples.joinToString(" | ") { it.layout.name } + "）"
+            )
+            samples.clear()
         }
         if (sampleAttempts >= MAX_SAMPLE_ATTEMPTS) {
+            RunLog.append(
+                "fmt",
+                "抽帧本轮只拿到 ${samples.size}/$SAMPLE_COUNT 个有效样本（黑场 / 平坦）· 继续观察"
+            )
+            sampleAttempts = 0
+            samples.clear()
+        }
+        if (totalSampleAttempts >= MAX_TOTAL_ATTEMPTS) {
             judged = true
             RunLog.append(
                 "fmt",
-                "抽帧没凑够样本（${samples.size}/$SAMPLE_COUNT，多是黑场或平坦画面）· 沿用现有判据"
+                "抽帧持续 $totalSampleAttempts 次仍无一致结论 · 沿用现有判据"
             )
         }
     }
@@ -420,14 +438,20 @@ class VrRenderer(
         private const val SAMPLE_W = 192
         private const val SAMPLE_H = 96
 
-        /** 等十来帧再抽：片头常有黑场，第一帧不能代表整部片。 */
-        private const val FIRST_SAMPLE_FRAMES = 10
+        /** 起播后先等约 1.5 秒：片头黑场 / 常要 2–5 秒，第 10 帧抽到的一定是黑的。 */
+        private const val FIRST_SAMPLE_FRAMES = 90
+
+        /** 之后约每 0.5 秒抽一次，不每帧读像素。 */
+        private const val SAMPLE_INTERVAL_FRAMES = 30
 
         /** 三个样本一致才落地：单帧误判会把对的画面切成两半，代价比慢一秒大得多。 */
         private const val SAMPLE_COUNT = 3
 
-        /** 黑场 / 平坦画面会一直给不出结论，抽这么多次就放弃（不能每帧都读像素）。 */
-        private const val MAX_SAMPLE_ATTEMPTS = 12
+        /** 一轮最多抽 40 次（约 20 秒）；到点只记一行日志并开新一轮，不判死。 */
+        private const val MAX_SAMPLE_ATTEMPTS = 40
+
+        /** 全程约 60 秒仍拿不到一致结论才真正放弃，避免一直读像素。 */
+        private const val MAX_TOTAL_ATTEMPTS = 120
 
         /** 整幅纹理区域（不切半幅）。 */
         private val FULL_REGION = floatArrayOf(1f, 1f, 0f, 0f)

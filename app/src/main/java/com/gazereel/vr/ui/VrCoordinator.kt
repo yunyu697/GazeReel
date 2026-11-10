@@ -83,6 +83,14 @@ class VrCoordinator(
     private var manualPitch: Float? = null
     private var manualYaw = 0f
     private var manualUntilMs = 0L
+    /**
+     * V2.27：点「正前方」那一刻的**姿态矩阵**。
+     *
+     * 自动路径刻意用「候选姿态」而不是按按钮那一刻的朝向（见 [confirmPosture]），
+     * 手动路径却一直传 null = 用此刻朝向，于是用户为了凝视确认按钮移开视线的
+     * 那几度被写进了新的正前方，确认完仍差一点。两条路现在一致。
+     */
+    private var manualPose: FloatArray? = null
 
     private fun degrees(rad: Float): Int = Math.toDegrees(rad.toDouble()).toInt()
 
@@ -101,7 +109,10 @@ class VrCoordinator(
             return
         }
 
-        val changed = posture.onPose(rotation, nowMs, allowBaseline = !uiState.gazeArmed)
+        // V2.27：不再因为「按过开始键」就放弃首次基准。戴稳之后那 900ms 稳定姿态
+        // 仍是唯一可信的正前方；PostureTracker 自己有 6 秒窗口 + 25° 上限兜底，
+        // 不会在用户已经看内容时抢走画面。
+        val changed = posture.onPose(rotation, nowMs, allowBaseline = true)
 
         // ① 首次基准：进 VR 后**第一个稳定姿态就是正前方**，静默转过去，不问他。
         //
@@ -165,6 +176,7 @@ class VrCoordinator(
         }
         manualPitch = pitch
         manualYaw = yaw
+        manualPose = rotation.copyOf()
         manualUntilMs = SystemClock.elapsedRealtime() + PostureTracker.CANDIDATE_TTL_MS
         uiState = uiState.copy(
             postureCandidate = pitch,
@@ -184,7 +196,7 @@ class VrCoordinator(
      */
     private fun confirmPosture() {
         val now = SystemClock.elapsedRealtime()
-        val pose = if (manualPitch == null) {
+        val pose: FloatArray? = if (manualPitch == null) {
             val confirmed = posture.confirm(now)
             if (confirmed == null) {
                 showMessage("没有需要调整的姿势")
@@ -194,8 +206,11 @@ class VrCoordinator(
         } else {
             manualPitch = null
             posture.suppress(now)
-            // null = 就用此刻的朝向（手动路径没有候选姿态可依）。
-            null
+            // V2.27：用「点正前方那一刻」的姿态，不写进凝视按钮移开视线的那几度。
+            // 万一没记到就退回 null = 用此刻朝向，行为与旧版一致。
+            val recorded = manualPose
+            manualPose = null
+            recorded
         }
         headset.recenterTo(pose, PostureTracker.ANIM_MS)
         // 缓转期间必须把凝视停留与手势窗口清零——只暂停命中不清零，
@@ -207,6 +222,7 @@ class VrCoordinator(
 
     private fun dismissPosture() {
         manualPitch = null
+        manualPose = null
         posture.dismiss(headset.headRotation())
         uiState = uiState.copy(postureCandidate = null, postureYaw = 0f, postureRemainingMs = 0L)
     }
@@ -414,11 +430,24 @@ class VrCoordinator(
             VrAction.ArmGaze -> {
                 // V2.9：戴稳之后的第一次触发键。这里只负责解锁凝视，
                 // 不顺带确认任何目标——准星此刻压着的东西要重新「进入」才算数。
+                // V2.27 只读诊断：这一刻偏离「首帧基准」多少度，就是用户感觉到的
+                // 「不正对」的量。校准生效后，这行数字应该被后面的稳定姿态吃掉。
+                RunLog.append(
+                    "posture",
+                    "戴稳 · 当前偏离首帧基准 ${degrees(posture.offsetOf(headset.headRotation()))}°"
+                )
                 uiState = uiState.copy(gazeArmed = true, consoleVisible = true)
                 RunLog.append("ui", "凝视已上膛 via $channel")
                 showMessage("已开始 · 凝视 ${settings.current.gazeDurationMs} 毫秒即确认", 2_200L)
             }
             VrAction.ResetForward -> {
+                // V2.27 只读诊断：这个按钮在面板上，凝视它时视线必然离开舒适中心几度。
+                // 记下按下时的偏角，真机若「重置完仍差一点」，这行能区分
+                // 是按钮位置带来的、还是姿态链路本身还有偏差。
+                RunLog.append(
+                    "posture",
+                    "重置正前方 · 按下时偏角 ${degrees(posture.offsetOf(headset.headRotation()))}°"
+                )
                 // V2.4：重定基准后清掉凝视停留与手势窗口，并给一条会消失的反馈。
                 headset.recenter()
                 // V2.19：基准归零了，候选与静默期也要一起清掉。

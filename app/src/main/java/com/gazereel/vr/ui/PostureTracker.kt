@@ -54,10 +54,24 @@ class PostureTracker {
         /**
          * 首次基准的容差。
          *
-         * 小于这个角度就不动画面了：进 VR 后本来就坐在那儿看片库的话，
-         * 首次重定给的方向已经是对的，再转一次纯属打扰。
+         * V2.27：原来是 0.21f（约 12°），那个值是错的。它假设「首次重定给的方向
+         * 已经是对的」，可首次重定发生在**第一帧传感器数据**到达时——用户还在往
+         * 盒子里塞手机，手机常常仍是竖直的。等他戴稳、把手机后仰 10°，这 10° 恰好
+         * 落进旧死区被当成「已经正对着了」，于是永远不修正；用户只能把手机摆回
+         * 竖直（0°）才觉得正对。真机反馈里「偏差不大、但确实不是完全正对」就是它。
+         *
+         * 现在收到 2°：只在真的几乎重合时才省掉那次缓转。
          */
-        const val BASELINE_DEADBAND_RAD = 0.21f // 约 12°
+        const val BASELINE_DEADBAND_RAD = 0.035f // 约 2°
+
+        /**
+         * 静默定基准允许的最大偏角。超过就不悄悄把画面转过去——用户可能已经在
+         * 看内容了，几十度的转向等于抢走他正在看的东西，交给 40° 候选路径问一句。
+         */
+        const val BASELINE_MAX_RAD = 0.44f       // 约 25°
+
+        /** 进 VR 之后允许静默定基准的时间窗。过了就保持现状，不再动用户的画面。 */
+        const val BASELINE_WINDOW_MS = 6_000L
 
         /** 候选没人理就自己消失，不能长期挂在画面里挡着。 */
         const val CANDIDATE_TTL_MS = 6_000L
@@ -107,6 +121,7 @@ class PostureTracker {
     private var anchor = FloatArray(3)
     private var anchorValid = false
     private var stableSince = 0L
+    private var baselineStartMs = 0L
 
     /** 缓转期间 + 落定静默期：只跟姿态，不产生候选。 */
     private var settleUntilMs = 0L
@@ -177,17 +192,23 @@ class PostureTracker {
         val forward = forwardOf(rotation)
 
         // ① 建立基准：进 VR 后的第一个稳定姿态。
+        // V2.27：戴稳（按开始键）之后再静默校准是允许的，但只在进 VR 的头 6 秒、
+        // 且偏角不超过 25° 时。旧版用 allowBaseline=false 一按开始就彻底放弃，
+        // 结果「首帧那个还没入盒的姿态」被永久留成正前方，留下 10° 左右的偏差。
         if (!baselineReady) {
-            if (!allowBaseline) {
+            if (baselineStartMs == 0L) baselineStartMs = nowMs
+            if (!allowBaseline || nowMs - baselineStartMs > BASELINE_WINDOW_MS) {
                 baselineReady = true
                 anchorValid = false
                 return false
             }
             if (!stable(forward, nowMs, BASELINE_MS)) return false
-            if (offsetOf(rotation) > BASELINE_DEADBAND_RAD) {
+            val offset = offsetOf(rotation)
+            if (offset in BASELINE_DEADBAND_RAD..BASELINE_MAX_RAD) {
                 pendingBaseline = rotation.copyOf()
             } else {
-                // 已经正对着了，不必动画面。
+                // 小于 2°：本来就正对，不必转。大于 25°：不静默抢画面，
+                // 标记基准已建立，交给后面 40° 的候选路径去问用户。
                 baselineReady = true
             }
             anchorValid = false
