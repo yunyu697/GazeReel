@@ -17,6 +17,7 @@ import android.view.View
 import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
 import com.gazereel.vr.R
+import com.gazereel.vr.core.ScreenFrame
 import com.gazereel.vr.data.RunLog
 import com.gazereel.vr.databinding.ActivityAlignBinding
 import kotlin.math.abs
@@ -29,21 +30,30 @@ import kotlin.math.atan2
  * ## 为什么要有这一屏
  *
  * 以前点了「进入 VR」就直接跳进双屏画面：用户一只手还拿着手机，画面已经在转了。
- * 而 B4 的规矩是「进 VR 后第一个稳定姿态就是正前方」——**画面在动的时候，
- * 那个「稳定姿态」抓到的其实是塞手机的动作**。于是刚戴稳就发现画面偏了，
- * 要么等 40° 检测，要么去控制台手动挪。
+ * 于是「戴上就正对」这件事无从谈起——他还没戴好，画面已经用「还在塞手机」的
+ * 姿势定了方向。
  *
  * 这一屏把「准备」显式化，一次解决三件事：
  *
  * 1. **左右对正**：整高一道中线，穿过盒子里的隔板。这是唯一看得见的对齐依据；
- * 2. **给时间**：不算体力活，但塞进去、手离开、头摆正确实要几秒。以前这几秒是
- *    黑屏和未知，现在是「还在动 → 放稳了」的明确过程；
- * 3. **稳了才放行**：要连续 900ms 不动才允许进入。进入那一刻的姿势就是基准姿势，
- *    所以戴上之后画面**本来就是正的**，不需要任何补救。
+ * 2. **给时间**：塞进去、手离开、头摆正确实要几秒。以前这几秒是黑屏和未知，
+ *    现在是「还在动 → 放稳了」的明确过程；
+ * 3. **稳了才放行**：要连续 900ms 不动才允许进入。
  *
- * ## 不进 VR 的自动跳转
+ * ## 它不负责定「正前方」
  *
- * 不做「稳了就自己进去」。戴着盒子时画面突然变成双屏，用户没法判断是不是出了故障；
+ * V2.21 曾经把「按下按键那一刻的姿势」当成基准带进 VR。那是错的，而且错得很隐蔽：
+ * 用户按完按键往往还要往沙发里靠一下、把头往枕头上放，几秒之内姿势差 40°–50° 是常态。
+ * 那个差异一旦被写成基准，画面就**永久**歪着——自动摆正也被我一起关掉了，
+ * 于是没有任何东西能把它纠回来（真机反馈：一进去就歪 45°、怎么重定都回不来）。
+ *
+ * 现在的分工很干净：**这一屏只做「准备好」，方向由 VR 页自己按用户实际姿势定。**
+ * 这里唯一留下来的一件事是屏上方向的观测——手机此刻正握在手里、窗口已经横过来，
+ * 是整条链上最能看清「屏幕上边是哪条轴」的时刻，顺手定下来给全场用（见 [ScreenFrame]）。
+ *
+ * ## 不做「稳了自动进去」
+ *
+ * 戴着盒子时画面突然变双屏，用户没法判断是不是出了故障；
  * 而且这一屏正是他确认「手机放没放好」的最后机会。按键是刻意的停一下。
  */
 class AlignActivity : AppCompatActivity(), SensorEventListener {
@@ -55,17 +65,6 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
     private val pose = FloatArray(16)
     private val anchor = FloatArray(16)
 
-    /**
-     * V2.21：把「确认那一刻」的原始姿态带进 VR。
-     *
-     * 只传屏幕姿态矩阵不够——VR 页还要自己算一遍屏幕映射，两边一旦不一致
-     * 就是 180° 的差。传 TYPE_ROTATION_VECTOR 的原值（四元数），
-     * 由 VR 页用自己的映射重建，才是同一个姿势的唯一定义。
-     */
-    private val quat = FloatArray(4)
-    private val quatAtPress = FloatArray(4)
-    private var hasQuat = false
-    private var hasPressQuat = false
     private var hasPose = false
     private var stillSince = 0L
     private var ready = false
@@ -116,22 +115,19 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
-        if (event.values.size >= 4) {
-            System.arraycopy(event.values, 0, quat, 0, 4)
-            hasQuat = true
-        }
         val raw = FloatArray(9)
         SensorManager.getRotationMatrixFromVector(raw, event.values)
-        // 与 SensorHeadsetProvider 同一套映射：设备轴要补上屏幕旋转才是屏幕轴。
-        val deviceToWorld = FloatArray(16)
-        for (col in 0..2) {
-            for (row in 0..2) {
-                deviceToWorld[col * 4 + row] = raw[row * 3 + col]
-            }
-        }
-        val screenToDevice = screenToDevice(frameOf(raw))
-        android.opengl.Matrix.multiplyMM(pose, 0, deviceToWorld, 0, screenToDevice, 0)
 
+        // 屏上方向是「手机怎么拿」的属性，与姿势无关，所以整个会话里任意一帧
+        // 置信够高都可以定——只要求窗口已经按横屏布局（否则定出来的是竖屏的答案）。
+        val frame = if (windowIsLandscape()) {
+            ScreenFrame.offer(raw, "入盒引导页")
+        } else {
+            ScreenFrame.UNKNOWN
+        }
+        val effective = if (frame != ScreenFrame.UNKNOWN) frame else displayRotation()
+
+        System.arraycopy(ScreenFrame.poseOf(raw, effective), 0, pose, 0, 16)
         updateTilt()
         updateStability(SystemClock.elapsedRealtime())
     }
@@ -139,8 +135,8 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
     /**
      * 屏幕坐标系里的重力方向 → 倾斜角。
      *
-     * 正的 `tiltDeg` 表示手机右侧偏低。用重力而不是「屏幕 up 轴与天顶的夹角」，
-     * 是因为角度本身有 ±180° 的二义性（手机倒过来也是 180°），而分量没有。
+     * 正的 `tiltDeg` 表示手机右侧偏低。用重力分量而不是「屏幕 up 轴与天顶的夹角」，
+     * 因为角度本身有 ±180° 的二义性（手机倒过来也是 180°），而分量没有。
      */
     private fun updateTilt() {
         // 列 0 = 屏幕右轴、列 1 = 屏幕上轴；屏幕坐标里的重力 g = Rᵀ·(0,0,−1)，
@@ -174,7 +170,6 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
 
     /** 两个旋转矩阵之间的夹角（度）。 */
     private fun angleBetween(a: FloatArray, b: FloatArray): Float {
-        // trace(aᵀb) 的 3x3 部分；用逐元素点积算，省一次矩阵乘法。
         var trace = 0f
         for (col in 0..2) {
             for (row in 0..2) {
@@ -182,7 +177,7 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
             }
         }
         val cos = ((trace - 1f) / 2f).coerceIn(-1f, 1f)
-        return Math.toDegrees(acos(cos).toDouble()).toFloat()
+        return Math.toDegrees(acos(cos.toDouble())).toFloat()
     }
 
     private fun setReady(value: Boolean) {
@@ -216,11 +211,6 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
                 // 避免「手上还在调位置」被当成按键。
                 downWhileReady = ready &&
                     SystemClock.elapsedRealtime() - readyAt > TAP_GUARD_MS
-                // 按下去的那一下会震到手机，所以基准要取「按下之前」的姿势。
-                if (downWhileReady && hasQuat) {
-                    System.arraycopy(quat, 0, quatAtPress, 0, 4)
-                    hasPressQuat = true
-                }
                 stillSince = SystemClock.elapsedRealtime()
                 if (ready) setReady(false)
             }
@@ -248,89 +238,26 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
     private fun enterVr() {
         if (entered) return
         entered = true
-        val source = when {
-            hasPressQuat -> quatAtPress
-            hasQuat -> quat
-            else -> null
-        }
+        // 只带一件事过去：屏上方向。姿势不带——带上就是「用一个刻舟求剑的基准」，
+        // 见类注释那段。方向由 VR 页按他真正躺好的姿势重新定。
         RunLog.append(
             "align",
-            if (source == null) "进入 VR（无姿态可带，交给第一帧数据定基准）"
-            else "进入 VR · 带上确认时的姿势作为正前方"
+            "进入 VR · 屏上方向=${ScreenFrame.name(ScreenFrame.cached())}"
         )
-        val intent = Intent(this, VrActivity::class.java)
-            .putExtra(VrActivity.EXTRA_ORIENTATION, source?.copyOf())
-            // 屏上方向由这一屏定，VR 页直接沿用：这是唯一能判准的时机
-            // （手机在手里、窗口已横过来），两边各算一遍就是上次那 90°。
-            .putExtra(VrActivity.EXTRA_SCREEN_FRAME, screenFrame)
-        startActivity(intent)
+        startActivity(Intent(this, VrActivity::class.java))
         finish()
     }
 
-    /**
-     * 屏上方向：**与 VR 页同一套判据——只看重力**，不看 `Display.getRotation()`。
-     *
-     * 这一屏的全部意义是「对准」，而中线是画在屏幕上的。如果这一屏和 VR 页对
-     * 「屏幕的上边是手机的哪条轴」理解不一致，用户在这一屏对得再准，进 VR 也歪。
-     * 所以两边用同一个规则、同一个阈值，一个数都不猜。
-     *
-     * 只定一次：中途换一次就是画面跳 90°。手机接近平放时重力没有信息，退回系统读数。
-     */
-    private var screenFrame = Int.MIN_VALUE
-
-    /** 窗口是否已经按横屏布局。在它成立之前，任何姿态读数都可能是「还没转过来」。 */
+    /** 窗口是否已经按横屏布局。在它成立之前，屏上方向定出来的是竖屏的答案。 */
     private fun windowIsLandscape(): Boolean =
         binding.root.width > 0 && binding.root.width > binding.root.height
 
-    private fun frameOf(raw9: FloatArray): Int {
-        if (screenFrame != Int.MIN_VALUE) return screenFrame
-        // 从配置页（竖屏）点进来时，头几帧手机还是竖的——那会儿重力会说
-        // 「屏幕上 = +y」，一旦照它定下来就是全程歪 90°。等窗口真的横过来再定。
-        if (!windowIsLandscape()) return displayRotation()
-        val upX = raw9[6]
-        val upY = raw9[7]
-        val scores = floatArrayOf(upY, -upX, -upY, upX)
-        val frames = intArrayOf(
-            Surface.ROTATION_0, Surface.ROTATION_90,
-            Surface.ROTATION_180, Surface.ROTATION_270
-        )
-        var best = 0
-        for (i in 1..3) if (scores[i] > scores[best]) best = i
-        var second = -2f
-        for (i in 0..3) if (i != best && scores[i] > second) second = scores[i]
-        val margin = scores[best] - second
-        // 转屏途中两个候选几乎打平，这时候定下来就是全程歪 90°：等下一帧。
-        if (scores[best] < FRAME_MIN_SCORE || margin < FRAME_MIN_MARGIN) return displayRotation()
-        screenFrame = frames[best]
-        RunLog.append(
-            "align",
-            "屏上方向=${frames[best]}（重力 置信 ${(scores[best] * 100).toInt() / 100f}" +
-                " 领先 ${(margin * 100).toInt() / 100f}）· 系统读数=${displayRotation()}"
-        )
-        return frames[best]
-    }
-
     /**
-     * 仅在重力无解（手机平放）时兜底用，所以每次读——不冻结，
-     * 窗口一按横屏布局完它自己就对了。
+     * 仅在屏上方向还没定下来时给一条仪表的读数用，所以每次读——不冻结。
+     * 它不影响 VR 里的姿态（那边只认 [ScreenFrame]），只影响这一屏水泡准不准。
      */
     private fun displayRotation(): Int =
         runCatching { panel?.rotation ?: Surface.ROTATION_0 }.getOrDefault(Surface.ROTATION_0)
-
-    private fun screenToDevice(screenRotation: Int): FloatArray {
-        val (x, y) = when (screenRotation) {
-            Surface.ROTATION_90 -> floatArrayOf(0f, 1f, 0f) to floatArrayOf(-1f, 0f, 0f)
-            Surface.ROTATION_180 -> floatArrayOf(-1f, 0f, 0f) to floatArrayOf(0f, -1f, 0f)
-            Surface.ROTATION_270 -> floatArrayOf(0f, -1f, 0f) to floatArrayOf(1f, 0f, 0f)
-            else -> floatArrayOf(1f, 0f, 0f) to floatArrayOf(0f, 1f, 0f)
-        }
-        return floatArrayOf(
-            x[0], x[1], x[2], 0f,
-            y[0], y[1], y[2], 0f,
-            0f, 0f, 1f, 0f,
-            0f, 0f, 0f, 1f
-        )
-    }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
@@ -353,11 +280,5 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
 
         /** 刚变亮的瞬间不接受按键，避免用户正在调整时被自己碰到。 */
         const val TAP_GUARD_MS = 250L
-
-        /** 重力判屏上方向的最低置信度（余弦 0.55 ≈ 与竖直方向夹角 57° 以内）。 */
-        const val FRAME_MIN_SCORE = 0.55f
-
-        /** 第一名领先第二名的最小量；转屏途中两个候选打平时不落地。 */
-        const val FRAME_MIN_MARGIN = 0.25f
     }
 }

@@ -87,15 +87,26 @@ class VrCoordinator(
     private fun degrees(rad: Float): Int = Math.toDegrees(rad.toDouble()).toInt()
 
     /**
-     * V2.21：入盒引导页已经把「正前方」定好了，通知姿态闭环不要再自动定一次。
+     * V2.23：进入 VR，开启「自动摆正」窗口。
      *
-     * 这条不改变任何朝向，只是把 [PostureTracker] 的首次基准标记为已建立。
-     * 没有它，用户按下按键后的一两秒内会看到画面又转一下——看起来就像
-     * 「重定向自己跑了」。40° 候选与手动挪正前方都不受影响。
+     * ## 为什么必须有这段窗口
+     *
+     * 画面一出现就必须是正对的（用第一帧姿态当基准，零延迟），但用户从「按按键」
+     * 到「真躺好」之间的那几秒，姿势还会变。变多少，那个基准就偏多少——
+     * 而偏多少就**永久**歪多少，之后每次重定都带着同一个偏差一起转。
+     *
+     * 真机现象正是这样：「进入 VR 不是正对，调整姿态确认重定向之后不知道定到哪」。
+     *
+     * 所以进 VR 后留一段窗口：用户在任意姿势上稳定 [PostureTracker.BASELINE_MS]，
+     * 就把基准静默挪过去（0.42 秒缓转，不瞬跳）。他会看到画面轻轻落到正前方，
+     * 而不是莫名其妙歪着或自己乱转。窗口过后不再自动动，只有 40° 候选与手动「正前方」。
      */
-    fun onSeededBaseline() {
-        posture.markBaselineFromSeed(SystemClock.elapsedRealtime())
-        RunLog.append("posture", "基准来自入盒引导页 · 不再自动重定")
+    fun beginEntry() {
+        posture.beginEntry(SystemClock.elapsedRealtime())
+        RunLog.append(
+            "posture",
+            "进入 VR · ${PostureTracker.ENTRY_MS / 1000} 秒内自动摆正到你的实际姿势"
+        )
     }
 
     /** 每帧（约 60Hz）由 VrActivity 的 tick 推一次，跑在主线程，不碰 GL 线程。 */
@@ -113,7 +124,10 @@ class VrCoordinator(
             return
         }
 
-        val changed = posture.onPose(rotation, nowMs, allowBaseline = !uiState.gazeArmed)
+        // 自动摆正在「刚进 VR 的窗口期」与「用户还没按过任何键」两种情况下都算数：
+        // 前者是纠正「按完按键又挪了姿势」，后者是刚戴好还什么都没动。
+        val allowBaseline = !uiState.gazeArmed || posture.inEntryWindow(nowMs)
+        val changed = posture.onPose(rotation, nowMs, allowBaseline)
 
         // ① 首次基准：进 VR 后**第一个稳定姿态就是正前方**，静默转过去，不问他。
         //
@@ -123,10 +137,14 @@ class VrCoordinator(
         // 与其事后问他「要不要挪」，不如把「躺好、不动」这个瞬间本身当作答案：
         // 那正是他舒服的姿势。
         posture.pendingBaseline?.let { pose ->
-            headset.recenterTo(pose, PostureTracker.ANIM_MS)
+            headset.recenterTo(pose, PostureTracker.ENTRY_ANIM_MS)
             posture.baselineEstablished(nowMs)
             onRecenter()
-            RunLog.append("posture", "首次基准 · 偏移 ${degrees(posture.offsetOf(pose))}° → 已定为你现在的姿势")
+            RunLog.append(
+                "posture",
+                "自动摆正 · 原基准偏 ${degrees(posture.totalOf(pose))}°（含横滚）→ " +
+                    "${PostureTracker.ENTRY_ANIM_MS}ms 缓转到现在这个姿势"
+            )
             return
         }
 
