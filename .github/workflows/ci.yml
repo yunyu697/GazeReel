@@ -65,7 +65,8 @@ jobs:
       # 只核对产物信息，不上传。包要装到手机上请本地构建。
       - name: 核对产物
         run: |
-          APK=app/build/outputs/apk/debug/app-debug.apk
+          # 产物名带版本号（GazeReel-<version>.apk），不再写死 app-debug.apk。
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
           ls -l "$APK"
           AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1)
           BADGING=""
@@ -79,7 +80,7 @@ jobs:
             echo "### 构建通过"
             echo
             echo "- 版本号：\`${{ steps.version.outputs.name }}\`"
-            echo "- 产物：\`$(du -h "$APK" | cut -f1)\`"
+            echo "- 产物：\`$(basename "$APK")\`（\`$(du -h "$APK" | cut -f1)\`）"
             echo "- 构建成功 ≠ 可以安装：**CI 不发布安装包**，正式版之前只打 tag，APK 在本地 \`./gradlew :app:assembleDebug\` 生成"
             if [ -n "$BADGING" ]; then echo "- aapt2：\`${BADGING}\`"; fi
           } >> "$GITHUB_STEP_SUMMARY"

@@ -81,6 +81,7 @@
 | E2 | `tools/bump_version.py` 按规则进位升版本（alpha / patch / minor / major） | `[已实现]` | 四种进位路径都有用例覆盖 |
 | E3 | CI 只验证不发布：push / PR / tag 触发校验 + 编译，**不上传任何安装包** | `[已实现]` | tag 触发的 run 里没有任何 artifact / release |
 | E4 | alpha 固定签名，覆盖安装不丢片源配置与断点 | `[已实现]` | 连装两次 alpha，片源与断点还在 |
+| E5 | 产物名带项目名与版本号（`GazeReel-<版本>.apk`），从 `version.properties` 派生 | `[已实现]` | 手机上「下载」目录里能一眼分出是哪个版本 |
 
 > **正式版之前只打 tag、不发包。** tag 只标记代码走到哪一步，APK 一律本地 `./gradlew :app:assembleDebug` 生成。
 

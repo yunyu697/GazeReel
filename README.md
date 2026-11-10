@@ -23,8 +23,11 @@
 
 ```bash
 ./gradlew :app:assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/debug/GazeReel-*.apk
 ```
+
+产物名带项目名与版本号（例如 `GazeReel-1.0.0-alpha2.apk`），不会出现「一堆 `app-debug.apk` 分不清哪个是哪个」。
+名字由 `app/build.gradle.kts` 里的 `androidComponents` 从 `version.properties` 派生，不用手改。
 
 alpha 阶段用固定签名（`keystore/gazereel-alpha.jks`），所以**装过旧 alpha 可以直接覆盖，不用卸载**——
 卸载会丢掉片源配置、观看断点和格式记忆。
@@ -79,7 +82,7 @@ tag 会触发 CI：校验 `tag == v + version.properties`（不一致直接失�
 ```bash
 # 需要 JDK 17 与 Android SDK（compileSdk 35）
 python3 tools/check_structure.py          # 结构校验，秒级
-./gradlew :app:assembleDebug              # 产出 app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:assembleDebug              # 产出 app/build/outputs/apk/debug/GazeReel-<版本>.apk
 ./gradlew -q :app:printVersion            # 打印当前版本号
 ```
 

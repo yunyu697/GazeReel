@@ -106,6 +106,23 @@ android {
     }
 }
 
+// ── 产物文件名：带上项目名与版本号 ──────────────────────────────────────
+//
+// 原来叫 app-debug.apk。装到手机上、或者在手机的「下载」目录里堆几个之后，
+// 完全分不清哪个是哪个版本——出问题时也没法让用户报「你装的是哪一版」。
+//
+// 现在直接产出 GazeReel-1.0.0-alpha2.apk（非 debug 构建再加 -release 之类的后缀）。
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            val impl = output as? com.android.build.api.variant.impl.VariantOutputImpl
+                ?: return@forEach
+            val suffix = if (variant.name == "debug") "" else "-${variant.name}"
+            impl.outputFileName.set("GazeReel-$appVersionName$suffix.apk")
+        }
+    }
+}
+
 dependencies {
     // 本地 AAR / JAR：Cardboard SDK 放这里即可（不存在时 fileTree 为空，不影响构建）。
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
