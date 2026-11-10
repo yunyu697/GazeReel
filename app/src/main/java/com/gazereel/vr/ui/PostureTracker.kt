@@ -306,6 +306,21 @@ class PostureTracker {
         baselineReady = true
     }
 
+    /**
+     * V2.21：基准已由入盒引导页给出，跳过「进 VR 后首个稳定姿态」这条自动路径。
+     *
+     * 引导页要求连续 900ms 不动才放行，按键那一刻的姿势本身就满足「稳定」，
+     * 再让这里自动重定一次只会让画面在用户已经看清片库之后又转一下。
+     * 不设 [ANIM_MS]：没有缓转发生，只需要落定静默期挡掉残差。
+     */
+    fun markBaselineFromSeed(nowMs: Long) {
+        baselineReady = true
+        pendingBaseline = null
+        anchorValid = false
+        declined = null
+        settleUntilMs = nowMs + SETTLE_MS
+    }
+
     /** 候选还有多久消失，用来画一条细进度条。 */
     fun candidateRemainingMs(nowMs: Long): Long =
         (CANDIDATE_TTL_MS - (nowMs - candidateShownAt)).coerceAtLeast(0L)

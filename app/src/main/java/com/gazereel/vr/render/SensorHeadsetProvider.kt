@@ -73,10 +73,14 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     override val supportsHardwareTrigger: Boolean = false
 
     override fun start() {
-        pendingInitialRecenter = true
-        refreshDisplayRotation()
-        // 姿态出问题时，第一个要问的就是「它以为屏幕转了多少度」。
-        RunLog.append("posture", "屏幕旋转=${rotationName(displayRotation)}·全姿态（无重力投影）")
+        // 若已经用「入盒确认时」的姿势种下基准，就不能再让第一帧数据把它覆盖掉。
+        pendingInitialRecenter = !seeded
+        // 姿态出问题时，第一个要问的就是「它以为屏上方向是多少度」。
+        RunLog.append(
+            "posture",
+            "屏上方向=${rotationName(screenRotation())}·全姿态" +
+                if (seeded) "·基准=入盒确认姿势" else "·基准=第一帧数据"
+        )
         rotationSensor?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
@@ -87,6 +91,13 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         Surface.ROTATION_180 -> "180°"
         Surface.ROTATION_270 -> "270°"
         else -> "0°"
+    }
+
+    /** 纯旋转矩阵的旋转角（度）。只取左上 3×3 的迹。 */
+    private fun angleDegOf(m: FloatArray): Int {
+        val trace = m[0] + m[5] + m[10]
+        val cos = ((trace - 1f) / 2f).coerceIn(-1f, 1f)
+        return Math.toDegrees(kotlin.math.acos(cos).toDouble()).toInt()
     }
 
     override fun stop() = sensorManager.unregisterListener(this)
@@ -220,34 +231,85 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
 
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
-        refreshDisplayRotation()
         val deviceToWorld = FloatArray(9)
         SensorManager.getRotationMatrixFromVector(deviceToWorld, event.values)
-        val matrix = screenPoseOf(deviceToWorld, displayRotation)
+        val matrix = screenPoseOf(deviceToWorld, screenRotation())
         synchronized(lock) {
             System.arraycopy(matrix, 0, rotation, 0, 16)
             if (pendingInitialRecenter) {
                 pendingInitialRecenter = false
                 recenterLocked()
             }
+            // V2.21：首帧与「确认姿势」的差就是这一条链有没有对齐的证据。
+            // 接近 0 说明两页映射一致；偏出几十度说明传过来的屏上方向或姿态不对。
+            if (seeded && !seedDriftLogged) {
+                seedDriftLogged = true
+                val head = FloatArray(16)
+                Matrix.multiplyMM(head, 0, inverseOffset, 0, matrix, 0)
+                RunLog.append("posture", "首帧与确认姿势差 ${angleDegOf(head)}°")
+            }
         }
     }
 
-    private var displayRotation: Int = Surface.ROTATION_0
-    private var lastRotationCheckMs = 0L
+    /**
+     * V2.21：屏上方向**只解析一次，整个 VR 会话冻结**。
+     *
+     * 上一版每秒重读一次 `Display.getRotation()`，这是重定向全乱的直接原因：
+     * 姿态 `R = 设备姿态 × 屏幕映射`，映射一变，`R` 就在一帧里翻 180°——
+     * 画面狂转，而此后每一次重定向都以这个突变后的姿态为基准，
+     * 用户看到的就是「越调越不知道定到哪」。
+     *
+     * VR 期间屏幕方向由 Activity 锁死（引导页与 VR 页现在都声明 landscape），
+     * 合法情况下它不会变。真变了说明 Surface 已被系统换掉，那不是换映射能补救的，
+     * 只能记一条日志留证。**宁可不动，也不要跟着乱动。**
+     */
+    private var screenRotationFixed = Int.MIN_VALUE
+
+    private fun screenRotation(): Int {
+        if (screenRotationFixed != Int.MIN_VALUE) return screenRotationFixed
+        val read = runCatching { display?.rotation ?: Surface.ROTATION_0 }
+            .getOrDefault(Surface.ROTATION_0)
+        screenRotationFixed = read
+        return read
+    }
 
     /**
-     * 屏幕旋转在 VR 期间是锁死的，但要能读出来——它决定「屏幕轴」与「设备轴」差多少。
-     * 每秒最多查一次：`Display.getRotation()` 可能触发一次显示信息的刷新，
-     * 传感器事件是 100Hz，没必要每次都问。
+     * V2.21：用「入盒引导页按下按键那一刻」的姿势作为正前方。
+     *
+     * 以前基准取的是进入本页后第一帧传感器数据。可从按下按键到第一帧，
+     * 中间隔着 Activity 启动与 GL 初始化（几百毫秒），这期间手还在盒子上，
+     * 抓到的是「正在塞手机」的姿态——所以进去就不是正对的。
+     *
+     * @param quaternion TYPE_ROTATION_VECTOR 的原值（x, y, z, w），null 忽略
+     * @param screenRotationHint 引导页当时的屏上方向；不一致就用它，
+     *        保证「用户在引导页看到的方向」与「进 VR 后看到的方向」是同一个
      */
-    private fun refreshDisplayRotation() {
-        val now = SystemClock.elapsedRealtime()
-        if (lastRotationCheckMs != 0L && now - lastRotationCheckMs < 1000L) return
-        lastRotationCheckMs = now
-        displayRotation = runCatching { display?.rotation ?: Surface.ROTATION_0 }
-            .getOrDefault(Surface.ROTATION_0)
+    fun seedOrientation(quaternion: FloatArray?, screenRotationHint: Int = Int.MIN_VALUE): Boolean {
+        if (quaternion == null || quaternion.size < 4) return false
+        if (screenRotationHint != Int.MIN_VALUE) screenRotationFixed = screenRotationHint
+        val raw = FloatArray(9)
+        runCatching { SensorManager.getRotationMatrixFromVector(raw, quaternion) }
+            .onFailure { return false }
+        val matrix = screenPoseOf(raw, screenRotation())
+        synchronized(lock) {
+            System.arraycopy(matrix, 0, rotation, 0, 16)
+            pendingInitialRecenter = false
+            seeded = true
+            easing = false
+            recenterLocked()
+        }
+        RunLog.append(
+            "posture",
+            "基准已种入 · 屏上方向=${rotationName(screenRotation())} · 偏移 0°（确认的姿势即正前方）"
+        )
+        return true
     }
+
+    /** 是否已经用入盒引导页的姿势定过基准。为 true 时不再取「第一帧数据」当基准。 */
+    private var seeded = false
+
+    /** 只记一次：首帧数据与确认姿势的差，用来判断两页的映射是否真的对齐。 */
+    private var seedDriftLogged = false
 
     /**
      * 设备姿态 → **屏幕姿态**（4x4 列主序）。

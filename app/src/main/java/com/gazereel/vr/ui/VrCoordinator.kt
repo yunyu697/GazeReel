@@ -86,6 +86,18 @@ class VrCoordinator(
 
     private fun degrees(rad: Float): Int = Math.toDegrees(rad.toDouble()).toInt()
 
+    /**
+     * V2.21：入盒引导页已经把「正前方」定好了，通知姿态闭环不要再自动定一次。
+     *
+     * 这条不改变任何朝向，只是把 [PostureTracker] 的首次基准标记为已建立。
+     * 没有它，用户按下按键后的一两秒内会看到画面又转一下——看起来就像
+     * 「重定向自己跑了」。40° 候选与手动挪正前方都不受影响。
+     */
+    fun onSeededBaseline() {
+        posture.markBaselineFromSeed(SystemClock.elapsedRealtime())
+        RunLog.append("posture", "基准来自入盒引导页 · 不再自动重定")
+    }
+
     /** 每帧（约 60Hz）由 VrActivity 的 tick 推一次，跑在主线程，不碰 GL 线程。 */
     fun updatePosture(rotation: FloatArray, nowMs: Long) {
         // 手动卡片挂着的时候，**绝不能让自动检测覆盖它**：

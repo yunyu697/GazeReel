@@ -54,6 +54,18 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
 
     private val pose = FloatArray(16)
     private val anchor = FloatArray(16)
+
+    /**
+     * V2.21：把「确认那一刻」的原始姿态带进 VR。
+     *
+     * 只传屏幕姿态矩阵不够——VR 页还要自己算一遍屏幕映射，两边一旦不一致
+     * 就是 180° 的差。传 TYPE_ROTATION_VECTOR 的原值（四元数），
+     * 由 VR 页用自己的映射重建，才是同一个姿势的唯一定义。
+     */
+    private val quat = FloatArray(4)
+    private val quatAtPress = FloatArray(4)
+    private var hasQuat = false
+    private var hasPressQuat = false
     private var hasPose = false
     private var stillSince = 0L
     private var ready = false
@@ -104,6 +116,10 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
+        if (event.values.size >= 4) {
+            System.arraycopy(event.values, 0, quat, 0, 4)
+            hasQuat = true
+        }
         val raw = FloatArray(9)
         SensorManager.getRotationMatrixFromVector(raw, event.values)
         // 与 SensorHeadsetProvider 同一套映射：设备轴要补上屏幕旋转才是屏幕轴。
@@ -200,6 +216,11 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
                 // 避免「手上还在调位置」被当成按键。
                 downWhileReady = ready &&
                     SystemClock.elapsedRealtime() - readyAt > TAP_GUARD_MS
+                // 按下去的那一下会震到手机，所以基准要取「按下之前」的姿势。
+                if (downWhileReady && hasQuat) {
+                    System.arraycopy(quat, 0, quatAtPress, 0, 4)
+                    hasPressQuat = true
+                }
                 stillSince = SystemClock.elapsedRealtime()
                 if (ready) setReady(false)
             }
@@ -227,13 +248,33 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
     private fun enterVr() {
         if (entered) return
         entered = true
-        RunLog.append("align", "进入 VR")
-        startActivity(Intent(this, VrActivity::class.java))
+        val source = when {
+            hasPressQuat -> quatAtPress
+            hasQuat -> quat
+            else -> null
+        }
+        RunLog.append(
+            "align",
+            if (source == null) "进入 VR（无姿态可带，交给第一帧数据定基准）"
+            else "进入 VR · 带上确认时的姿势作为正前方"
+        )
+        val intent = Intent(this, VrActivity::class.java)
+            .putExtra(VrActivity.EXTRA_ORIENTATION, source?.copyOf())
+            .putExtra(VrActivity.EXTRA_SCREEN_ROTATION, displayRotation())
+        startActivity(intent)
         finish()
     }
 
-    private fun displayRotation(): Int =
-        runCatching { panel?.rotation ?: Surface.ROTATION_0 }.getOrDefault(Surface.ROTATION_0)
+    /** V2.21：屏上方向只解析一次。它决定「屏幕右 / 上」对应设备的哪条轴，中途变会让中线跳。 */
+    private var fixedRotation = Int.MIN_VALUE
+
+    private fun displayRotation(): Int {
+        if (fixedRotation == Int.MIN_VALUE) {
+            fixedRotation = runCatching { panel?.rotation ?: Surface.ROTATION_0 }
+                .getOrDefault(Surface.ROTATION_0)
+        }
+        return fixedRotation
+    }
 
     private fun screenToDevice(screenRotation: Int): FloatArray {
         val (x, y) = when (screenRotation) {

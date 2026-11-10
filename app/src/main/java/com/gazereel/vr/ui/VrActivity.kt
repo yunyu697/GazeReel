@@ -191,7 +191,15 @@ class VrActivity : AppCompatActivity() {
         // （需要 LensDistortion 的畸变网格）时再切回来并真机校准。
         bootMode = "sensor"
         stage("headset")
-        headset = SensorHeadsetProvider(this)
+        val sensorHeadset = SensorHeadsetProvider(this)
+        headset = sensorHeadset
+        // V2.21：正前方用「入盒引导页按下按键那一刻」的姿势，不再是本页第一帧数据。
+        // 从按键到第一帧隔着 Activity 启动与 GL 初始化，这几百毫秒里手还在盒子上，
+        // 取第一帧等于把「正在塞手机」的动作写进基准——这就是「进去不是正对」。
+        val seededBaseline = sensorHeadset.seedOrientation(
+            intent.getFloatArrayExtra(EXTRA_ORIENTATION),
+            intent.getIntExtra(EXTRA_SCREEN_ROTATION, Int.MIN_VALUE)
+        )
         stage("player")
         val dispatcher = ActionDispatcher { action, channel -> coordinator.handle(action, channel) }
         player = PlayerController(this, dataSourceFactory, library) { state ->
@@ -211,6 +219,10 @@ class VrActivity : AppCompatActivity() {
             onExit = { finish() },
             onRecenter = { gaze.reset(); gesture.reset() }
         )
+        // 基准只能有一个来源：引导页已经攒满 900ms 稳定才放行，它那一刻的姿势
+        // 就是答案。若这里再让 B4「首个稳定姿态」跑一遍，用户会看到
+        // 「进去正对 → 一秒后又自己转走」——这正是上一版最容易被感知的坏体验。
+        if (seededBaseline) coordinator.onSeededBaseline()
 
         stage("inputs")
         // V2.14：不再把头动当「操作」。准星落点抖 8px 就调 touch()，
@@ -416,5 +428,19 @@ class VrActivity : AppCompatActivity() {
         runCatching { pool?.close() }
         pool = null
         super.onDestroy()
+    }
+
+    companion object {
+        /**
+         * V2.21：入盒引导页带来的「确认姿势」。
+         *
+         * 传的是 TYPE_ROTATION_VECTOR 的**原值**（四元数 x,y,z,w），不是算好的姿态矩阵：
+         * 姿态矩阵里已经含了屏幕映射，若两页的映射不一致，传过来就是错的。
+         * 四元数与映射无关，由收方用自己的映射重建，才是同一个姿势的唯一定义。
+         */
+        const val EXTRA_ORIENTATION = "com.gazereel.vr.extra.ORIENTATION"
+
+        /** 引导页当时的屏上方向，保证两页用的是同一套屏幕映射。 */
+        const val EXTRA_SCREEN_ROTATION = "com.gazereel.vr.extra.SCREEN_ROTATION"
     }
 }
