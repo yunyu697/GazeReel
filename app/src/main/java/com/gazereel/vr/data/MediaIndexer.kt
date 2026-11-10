@@ -127,20 +127,36 @@ class MediaIndexer(
         return changed.size
     }
 
-    /** 阶段二 FR-10：可由配置页或后台任务单独触发的海报刷新入口。 */
-    suspend fun refreshPosters(sourceId: Long) = withContext(Dispatchers.IO) {
-        val source = db.sourceDao().byId(sourceId) ?: return@withContext
-        updatePosters(source, decodeCredentials(credentialStore.get(source.credentialRef)))
+    /** 阶段二 FR-10：可由配置页或后台任务单独触发的海报刷新入口。返回新生成张数。 */
+    suspend fun refreshPosters(
+        sourceId: Long,
+        shouldContinue: () -> Boolean = { true }
+    ): Int = withContext(Dispatchers.IO) {
+        val source = db.sourceDao().byId(sourceId) ?: return@withContext 0
+        updatePosters(
+            source,
+            decodeCredentials(credentialStore.get(source.credentialRef)),
+            shouldContinue
+        )
     }
 
-    private suspend fun updatePosters(source: SourceEntity, credentials: SmbCredentials) {
+    private suspend fun updatePosters(
+        source: SourceEntity,
+        credentials: SmbCredentials,
+        shouldContinue: () -> Boolean = { true }
+    ): Int {
         val items = db.mediaDao().all().filter { it.sourceId == source.id }
-        val generated = runCatching { posters.refresh(items, source, credentials) }
+        val generated = runCatching { posters.refresh(items, source, credentials, shouldContinue) }
+            .onFailure { RunLog.append("poster", "封面生成失败 · ${source.displayName} · ${it.message}") }
             .getOrDefault(emptyMap())
         val updated = items.mapNotNull { item ->
             generated[item.id]?.takeIf { it != item.posterPath }?.let { item.copy(posterPath = it) }
         }
         updated.chunked(PAGE_SIZE).forEach { db.mediaDao().upsert(it) }
+        if (updated.isNotEmpty()) {
+            RunLog.append("poster", "${source.displayName} · 新封面 ${updated.size} 张（共 ${items.size} 部）")
+        }
+        return updated.size
     }
 
     /**

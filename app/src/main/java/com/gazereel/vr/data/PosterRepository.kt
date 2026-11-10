@@ -87,11 +87,17 @@ class PosterRepository(private val appContext: Context) {
     fun refresh(
         items: List<MediaItemEntity>,
         source: SourceEntity,
-        credentials: SmbCredentials
+        credentials: SmbCredentials,
+        /**
+         * 每处理一条之前问一次。抽帧是重活（每条几十毫秒），
+         * 用户点「进入 VR」之后必须能立刻停下，否则会和播放抢 CPU。
+         */
+        shouldContinue: () -> Boolean = { true }
     ): Map<Long, String> {
         val type = runCatching { SourceType.valueOf(source.type) }.getOrDefault(SourceType.LOCAL)
         val out = HashMap<Long, String>()
         for (item in items) {
+            if (!shouldContinue()) break
             if (isCurrent(item.posterPath)) continue
             val real = when (type) {
                 SourceType.WEBDAV, SourceType.HTTP, SourceType.DLNA ->

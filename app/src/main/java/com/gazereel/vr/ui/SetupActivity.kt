@@ -15,6 +15,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import com.gazereel.vr.R
 import com.gazereel.vr.core.SourceType
@@ -112,6 +113,39 @@ class SetupActivity : AppCompatActivity() {
         showLastCrash()
         lifecycleScope.launch {
             database.sourceDao().observeAll().collect { renderSources(it) }
+        }
+        refreshStalePosters()
+    }
+
+    /**
+     * V2.19：封面换代后必须主动补一次，不能等用户重扫。
+     *
+     * 真机反馈「封面没换」。查下来：`PosterRepository` 换了生成规则（文件名带 `g2`），
+     * 旧路径自然全部失效，但**重生成只挂在 `scan()` 后面**——用户不重新扫描，
+     * 库里那批「一个 V」的旧封面就永远躺在手机上。
+     *
+     * 这里在配置页启动时补一次：串行、跑在 IO、只处理「路径不是当前代号」的条目，
+     * 已经换好的下次直接跳过。进 VR 时 Activity 暂停，协程随 lifecycleScope 取消，
+     * 不会在戴镜后继续抽帧抢 CPU。
+     */
+    private fun refreshStalePosters() {
+        lifecycleScope.launch {
+            val sources = withContext(Dispatchers.IO) { database.sourceDao().all() }
+            if (sources.isEmpty()) return@launch
+            RunLog.append("poster", "开始补封面 · ${sources.size} 个片源")
+            var total = 0
+            for (source in sources) {
+                // 点「进入 VR」之后立刻停手：抽帧是重活，不能和播放抢 CPU。
+                total += runCatching {
+                    withContext(Dispatchers.IO) {
+                        indexer.refreshPosters(source.id) {
+                            lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+                        }
+                    }
+                }.getOrDefault(0)
+                if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) break
+            }
+            RunLog.append("poster", "补封面完成 · 共 $total 张")
         }
     }
 

@@ -67,30 +67,44 @@
             android:layout_height="1dp"
             android:layout_weight="1" />
 
+        <!--
+          V2.19：日志降级。
+          用户原话「日志对用户来说是什么很关键的信息吗，那么大个按钮」——不是。
+          它是出问题才点一次的兜底入口，不该和主行动抢同一条视觉权重。
+          这里去掉底色，只留一行小字。
+        -->
         <TextView
             android:id="@+id/logEntry"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:minHeight="40dp"
+            android:minHeight="32dp"
             android:gravity="center"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:background="@drawable/bg_setup_chip"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
             android:text="@string/setup_log_entry"
-            android:textSize="12sp"
+            android:textSize="11sp"
             android:textColor="@color/setup_muted" />
 
+        <!--
+          V2.19：进入 VR 是这一屏唯一的主行动，它必须最大。
+          上一版它和一个带底色的「运行日志」并排、字号还更小，
+          结果就是「次要入口比主要入口显眼」。
+        -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/enterVrButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:minHeight="40dp"
+            android:layout_marginStart="6dp"
+            android:minWidth="132dp"
+            android:minHeight="52dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
             android:text="@string/setup_enter"
-            android:textSize="13sp"
-            android:textColor="@color/setup_bg"
-            app:backgroundTint="@color/brand_cyan"
-            app:cornerRadius="10dp" />
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:textColor="@color/setup_deep"
+            app:backgroundTint="@color/setup_cyan"
+            app:cornerRadius="14dp" />
     </LinearLayout>
 
     <!-- 两栏主体 -->
@@ -114,30 +128,45 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
-                <TextView
+                <!--
+                  横屏的「主张句」排成一行：标题在左、kicker 在右。
+                  竖屏里它是两行（29sp + kicker），但横屏缺的正是纵向空间——
+                  同一句话横向排开只花一行，既保住了设计语言，又不把两张入口卡挤出首屏。
+                -->
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/setup_big"
-                    android:textSize="22sp"
-                    android:textStyle="bold"
-                    android:lineSpacingExtra="3dp"
-                    android:textColor="@color/setup_text" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:baselineAligned="true">
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="@string/setup_kicker"
-                    android:textSize="11sp"
-                    android:letterSpacing="0.14"
-                    android:textColor="@color/setup_muted" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/setup_big"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/setup_text" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="12dp"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="@string/setup_kicker"
+                        android:textSize="11sp"
+                        android:letterSpacing="0.14"
+                        android:textColor="@color/setup_muted" />
+                </LinearLayout>
 
                 <!-- 入口 1：手机里的视频 -->
                 <LinearLayout
                     android:id="@+id/localCard"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
+                    android:layout_marginTop="14dp"
                     android:orientation="vertical"
                     android:background="@drawable/bg_setup_box"
                     android:clickable="true"
@@ -488,48 +517,48 @@
     <!--
       状态条贴底通栏。
       它是全局状态（空闲 / 扫描中 / 就绪 / 需要检查），不该挤在某一栏里跟着滚。
-      横屏最缺的是高度，贴在底部既不占内容区，也永远看得见——
-      这正是「转横屏之后状态条内容会消失」那个问题的根治办法。
+
+      V2.19 修：上一版这里是「圆点 + 标题 + 副标题两行 + 胶囊」套 bg_setup_box，
+      上下内边距 32dp 再加两行字，一条状态吃掉纵向四分之一——而我在同一版里
+      刚说完「横屏最缺的是高度」。现在压成一行：标题与说明同一行，
+      说明单行省略，底色换成 8dp 的细条（bg_setup_strip）。
     -->
     <LinearLayout
         android:id="@+id/statusBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="8dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:background="@drawable/bg_setup_box">
+        android:background="@drawable/bg_setup_strip">
 
         <View
             android:id="@+id/statusDot"
-            android:layout_width="9dp"
-            android:layout_height="9dp"
-            android:layout_marginEnd="12dp"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:layout_marginEnd="10dp"
             android:background="@drawable/bg_setup_dot" />
 
-        <LinearLayout
+        <TextView
+            android:id="@+id/statusTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/setup_text" />
+
+        <TextView
+            android:id="@+id/statusDetail"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/statusTitle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:textColor="@color/setup_text" />
-
-            <TextView
-                android:id="@+id/statusDetail"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:textSize="11sp"
-                android:lineSpacingExtra="2dp"
-                android:textColor="@color/setup_muted" />
-        </LinearLayout>
+            android:layout_marginStart="10dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="11sp"
+            android:textColor="@color/setup_muted" />
 
         <TextView
             android:id="@+id/statusChip"

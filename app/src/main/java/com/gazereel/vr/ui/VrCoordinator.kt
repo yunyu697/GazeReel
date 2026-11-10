@@ -23,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.abs
 import com.gazereel.vr.data.db.mediaKeyOf
 
 /**
@@ -65,8 +66,30 @@ class VrCoordinator(
     /** V2.19 / B4+B5：姿态闭环。它只发现「姿势变了」，动画面的是 Provider。 */
     private val posture = PostureTracker()
 
+    /**
+     * V2.19 修订：主动「挪正前方」时记下的目标角度。
+     *
+     * 非 null 表示这张确认卡是用户自己点出来的，不是检测到的——
+     * 确认时不需要走 [PostureTracker.confirm]（没有候选），只需要静默期。
+     */
+    private var manualPosturePitch: Float? = null
+    private var manualUntilMs = 0L
+
     /** 每帧（约 60Hz）由 VrActivity 的 tick 推一次，跑在主线程，不碰 GL 线程。 */
     fun updatePosture(rotation: FloatArray, nowMs: Long) {
+        // 手动卡片挂着的时候，**绝不能让自动检测覆盖它**：
+        // 此刻 tracker 没有候选，下面的 copy 会把 postureCandidate 写回 null，
+        // 卡片就只闪一帧。所以这里单独走一条分支，只负责倒计时。
+        if (manualPosturePitch != null) {
+            val left = (manualUntilMs - nowMs).coerceAtLeast(0L)
+            if (left == 0L) {
+                dismissPosture()
+            } else if (left != uiState.postureRemainingMs) {
+                uiState = uiState.copy(postureRemainingMs = left)
+            }
+            return
+        }
+
         val pitch = posture.pitchOf(rotation)
         val changed = posture.onPose(pitch, nowMs)
         val candidate = posture.candidate
@@ -74,11 +97,42 @@ class VrCoordinator(
         if (changed || candidate != uiState.postureCandidate ||
             remaining != uiState.postureRemainingMs
         ) {
+            // 只在候选出现 / 消失时记一行。真机若仍觉得「没反应」，
+            // 日志里有没有这行就是「检测没跑」和「检测跑了但没到阈值」的分界。
+            if (candidate != uiState.postureCandidate) {
+                RunLog.append(
+                    "posture",
+                    if (candidate == null) "候选撤销" else
+                        "候选出现 · 俯仰 ${Math.toDegrees(candidate.toDouble()).toInt()}°"
+                )
+            }
             uiState = uiState.copy(
                 postureCandidate = candidate,
                 postureRemainingMs = remaining
             )
         }
+    }
+
+    /**
+     * V2.19 修订：用户主动点「正前方」。
+     *
+     * 真机反馈「B4 完全没功能」，根因是设计假设：检测「换了姿势」要求先戴着看一会儿、
+     * 再改变姿势；而真实场景是**先躺好、再把手机塞进纸盒**——那一刻初始重定已经把
+     * 正前方定成躺姿，之后永远不会有 40° 偏差。所以这条路必须存在，且必须明摆着。
+     */
+    private fun askAlignForward() {
+        val pitch = posture.pitchOf(headset.headRotation())
+        RunLog.append("posture", "手动挪正前方 · 当前俯仰 ${Math.toDegrees(pitch.toDouble()).toInt()}°")
+        if (abs(pitch) < 0.05f) {
+            showMessage("你现在正对着画面正中 · 不用挪")
+            return
+        }
+        manualPosturePitch = pitch
+        manualUntilMs = SystemClock.elapsedRealtime() + PostureTracker.CANDIDATE_TTL_MS
+        uiState = uiState.copy(
+            postureCandidate = pitch,
+            postureRemainingMs = PostureTracker.CANDIDATE_TTL_MS
+        )
     }
 
     /**
@@ -89,9 +143,15 @@ class VrCoordinator(
      */
     private fun confirmPosture() {
         val now = SystemClock.elapsedRealtime()
-        if (!posture.confirm(now)) {
-            showMessage("没有需要调整的姿势")
-            return
+        val manual = manualPosturePitch
+        if (manual == null) {
+            if (!posture.confirm(now)) {
+                showMessage("没有需要调整的姿势")
+                return
+            }
+        } else {
+            manualPosturePitch = null
+            posture.suppress(now)
         }
         headset.recenterSmooth(PostureTracker.ANIM_MS)
         // 缓转期间必须把凝视停留与手势窗口清零——只暂停命中不清零，
@@ -102,6 +162,7 @@ class VrCoordinator(
     }
 
     private fun dismissPosture() {
+        manualPosturePitch = null
         posture.dismiss()
         uiState = uiState.copy(postureCandidate = null, postureRemainingMs = 0L)
     }
@@ -271,6 +332,7 @@ class VrCoordinator(
             // V2.19：姿态闭环
             VrAction.ConfirmPosture -> confirmPosture()
             VrAction.DismissPosture -> dismissPosture()
+            VrAction.AlignForward -> askAlignForward()
             VrAction.ResumePlayback -> resumePlayback()
             VrAction.TogglePlay -> player.togglePlay()
             // V2.8：片库里 Next / Previous 只能是翻页。

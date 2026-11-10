@@ -538,16 +538,17 @@ class VrUiLayer(
         stroke.strokeWidth = 2.5f
         canvas.drawRoundRect(card, 26f, 26f, stroke)
 
-        heading("现在这个姿势更舒服吗？", 158f)
+        heading("把正前方挪到这里？", 158f)
 
         // 说出「我看到了什么」，用户才知道这次打断不是误判。
+        // 这句话对「自动检测」和「自己点正前方」都成立，所以不带「检测到」。
         val degrees = Math.toDegrees((state.postureCandidate ?: 0f).toDouble()).toInt()
         val where = when {
-            degrees > 12 -> "检测到你抬头约 $degrees°"
-            degrees < -12 -> "检测到你低头约 ${-degrees}°"
-            else -> "检测到你换了姿势"
+            degrees > 12 -> "你现在抬头约 $degrees°"
+            degrees < -12 -> "你现在低头约 ${-degrees}°"
+            else -> "你现在不是正对画面"
         }
-        centerText("$where · 画面会转到你现在看的方向", 200f, 21f, C_MUTED)
+        centerText("$where · 画面会转到你看的方向，视频和界面一起转", 200f, 21f, C_MUTED)
 
         button(
             "postureOk", "挪到这里",
@@ -702,8 +703,12 @@ class VrUiLayer(
         // 之前播放页只有「退出」，想回片库只能长按触发键——戴镜后看不见键盘提示，
         // 等于没有出口。这里补一个明摆着的「片库」，语义就是已有的 VrAction.Back
         // （存断点 → 暂停 → 回片库，并落回正在看的这一部所在的页）。
+        //
+        // V2.19：加「正前方」。这是姿态闭环唯一的明路——躺好再戴镜的人，
+        // 初始重定已经把正前方定成躺姿，自动检测永远不会触发，只能自己点。
         val quick = listOf(
             "片库" to VrAction.Back,
+            "正前方" to VrAction.AlignForward,
             "格式" to VrAction.OpenFormat,
             // V2.11：亮度是 3 档，一次跳一档（原来是 +10% 的连续值）。
             "亮度" to VrAction.Adjust("brightness", 1),
@@ -711,9 +716,12 @@ class VrUiLayer(
             "设置" to VrAction.OpenSettings,
             "退出" to VrAction.Exit
         )
+        // 7 个按钮均分面板内部宽度（面板 40..984，左右各留 20），间隔 8px。
+        // 6 个时是 153px 间距，加到 7 个必须重算，否则最后一个会越出面板右边界。
+        val quickW = (904f - 6 * 8f) / 7f
         quick.forEachIndexed { i, (caption, action) ->
-            val qx = 60f + i * 153f
-            button("quick$i", caption, RectF(qx, 448f, qx + 140f, 490f), action)
+            val qx = 60f + i * (quickW + 8f)
+            button("quick$i", caption, RectF(qx, 448f, qx + quickW, 490f), action)
         }
     }
 
@@ -781,7 +789,8 @@ class VrUiLayer(
             button("dec$i", "−", RectF(160f, y, 240f, y + 44f), VrAction.Adjust(key, -1))
             button("inc$i", "+", RectF(784f, y, 864f, y + 44f), VrAction.Adjust(key, 1))
         }
-        // 三行三列，7 个开关（V2.14 加入「虚拟光标」）。
+        // 三行三列，8 个目标（V2.14 加入「虚拟光标」，V2.19 加入「挪到这里」）。
+        // 「重置正前方」是瞬跳回水平，「挪到这里」是缓转到现在的姿势——两件事，不能合并。
         val toggles = listOf(
             Triple("自动连播", s.autoNext, "autoNext"),
             Triple("自动淡出", s.autoFade, "autoFade"),
@@ -789,6 +798,7 @@ class VrUiLayer(
             Triple("锁定视角", s.lockView, "lockView"),
             Triple("字幕", s.subtitlesEnabled, "subtitles"),
             Triple("虚拟光标", s.cursorEnabled, "cursor"),
+            Triple("挪到这里", false, "align"),
             Triple("重置正前方", false, "recenter")
         )
         toggles.forEachIndexed { i, (label, enabled, key) ->
@@ -796,15 +806,16 @@ class VrUiLayer(
             val row = i / 3
             val x = 110f + col * 270f
             val y = 286f + row * 48f
-            val action: VrAction = if (key == "recenter") {
-                VrAction.ResetForward
-            } else {
-                VrAction.ToggleOption(key)
+            val action: VrAction = when (key) {
+                "recenter" -> VrAction.ResetForward
+                "align" -> VrAction.AlignForward
+                else -> VrAction.ToggleOption(key)
             }
+            val isAction = key == "recenter" || key == "align"
             button(
-                "toggle$i", label + if (key == "recenter") "" else if (enabled) " · 开" else " · 关",
+                "toggle$i", label + if (isAction) "" else if (enabled) " · 开" else " · 关",
                 RectF(x, y, x + 250f, y + 46f), action,
-                highlighted = enabled && key != "recenter"
+                highlighted = enabled && !isAction
             )
         }
         button("clearMem", "清除格式记忆", RectF(140f, 438f, 430f, 490f), VrAction.ClearFormatMemory)

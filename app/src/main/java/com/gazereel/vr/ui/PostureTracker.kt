@@ -150,6 +150,18 @@ class PostureTracker {
         stableSince = 0L
     }
 
+    /**
+     * V2.19 修订：主动挪正前方之后进入静默期。
+     *
+     * 主动路径没有「候选」这一步（用户是点了按钮才动的），
+     * 但缓转结束后同样会留下一段残差，必须一起静默。
+     */
+    fun suppress(nowMs: Long) {
+        candidate = null
+        stableSince = 0L
+        settleUntilMs = nowMs + ANIM_MS + SETTLE_MS
+    }
+
     /** 「重置正前方」：基准归零，候选与静默期一起清掉。 */
     fun reset() {
         candidate = null
