@@ -193,16 +193,6 @@ class VrActivity : AppCompatActivity() {
         stage("headset")
         val sensorHeadset = SensorHeadsetProvider(this)
         headset = sensorHeadset
-        // V2.21：正前方用「入盒引导页按下按键那一刻」的姿势，不再是本页第一帧数据。
-        // 从按键到第一帧隔着 Activity 启动与 GL 初始化，这几百毫秒里手还在盒子上，
-        // 取第一帧等于把「正在塞手机」的动作写进基准——这就是「进去不是正对」。
-        //
-        // 这里只把姿势交出去，真正落地要等 surface 就绪：那一刻窗口才按横屏布局完，
-        // 「屏幕上」对应设备的哪条轴才是确定的（见 lockScreenRotation 的注释）。
-        sensorHeadset.seedOrientation(intent.getFloatArrayExtra(EXTRA_ORIENTATION))
-        sensorHeadset.onSeeded = {
-            if (::coordinator.isInitialized) coordinator.onSeededBaseline()
-        }
         stage("player")
         val dispatcher = ActionDispatcher { action, channel -> coordinator.handle(action, channel) }
         player = PlayerController(this, dataSourceFactory, library) { state ->
@@ -222,6 +212,19 @@ class VrActivity : AppCompatActivity() {
             onExit = { finish() },
             onRecenter = { gaze.reset(); gesture.reset() }
         )
+
+        // V2.22：正前方用「入盒引导页按下按键那一刻」的姿势，不再是本页第一帧数据——
+        // 从按键到第一帧隔着 Activity 启动与 GL 初始化，那几百毫秒里手还在盒子上，
+        // 取第一帧等于把「正在塞手机」的动作写进基准。
+        //
+        // 必须在 coordinator 建好**之后**才 seed：seed 会回调 onSeeded，
+        // 而 onSeeded 的作用是告诉姿态闭环「首次基准已建立、别再自动定一次」。
+        // 上一版在 coordinator 之前 seed，回调打空，于是进 VR 一秒后画面又自己转一下。
+        sensorHeadset.onSeeded = { coordinator.onSeededBaseline() }
+        // 屏上方向在种姿态之前落地：姿态矩阵 = 设备姿态 × 屏幕映射，映射不对，
+        // 参考系跟着错——这正是「一进 VR 画面就歪 90°」的全部原因。
+        sensorHeadset.setScreenFrame(intent.getIntExtra(EXTRA_SCREEN_FRAME, Int.MIN_VALUE))
+        sensorHeadset.seedOrientation(intent.getFloatArrayExtra(EXTRA_ORIENTATION))
 
         stage("inputs")
         // V2.14：不再把头动当「操作」。准星落点抖 8px 就调 touch()，
@@ -247,12 +250,7 @@ class VrActivity : AppCompatActivity() {
         )
         renderer.onGlReady = { surface ->
             RunLog.append(this, "gl", "surface ready")
-            runOnUiThread {
-                player.setSurface(surface)
-                // surface 尺寸就是窗口尺寸，此时窗口一定已按横屏布局，
-                // 「屏上方向」才代表玩家看到的方向。全流程只有这一刻有据可依。
-                sensorHeadset.lockScreenRotation()
-            }
+            runOnUiThread { player.setSurface(surface) }
         }
         renderer.onGlError = { t ->
             RunLog.append(this, "gl", "失败 ${t.javaClass.simpleName}: ${t.message?.take(200)}")
@@ -443,5 +441,14 @@ class VrActivity : AppCompatActivity() {
          * 四元数与映射无关，由收方用自己的映射重建，才是同一个姿势的唯一定义。
          */
         const val EXTRA_ORIENTATION = "com.gazereel.vr.extra.ORIENTATION"
+
+        /**
+         * 入盒引导页定下的屏上方向（`Surface.ROTATION_*`）。
+         *
+         * 传的是**决定**，不是原始读数：引导页在手机还握在手里、窗口已横过来的时候
+         * 判它，比 VR 页在盒子里（可能已躺平）猜它可靠得多。缺省 -1 表示没定，
+         * 由 Provider 自己按重力兜底。
+         */
+        const val EXTRA_SCREEN_FRAME = "com.gazereel.vr.extra.SCREEN_FRAME"
     }
 }

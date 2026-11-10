@@ -73,10 +73,13 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     override val supportsHardwareTrigger: Boolean = false
 
     override fun start() {
-        // 基准等 surface 就绪后再定：那时屏上方向才可信（见 lockScreenRotation）。
-        // 这里不清空 pendingSeedQuat —— 方向还没定，种子只能等着。
-        pendingInitialRecenter = false
-        RunLog.append("posture", "全姿态 · 屏上方向待 surface 就绪后确定")
+        // 没有入盒确认姿势时，基准取第一帧数据（旧路径，行为不变）。
+        pendingInitialRecenter = !seeded
+        RunLog.append(
+            "posture",
+            "全姿态 · 屏上方向由重力确定" +
+                if (seeded) " · 基准=入盒确认姿势" else " · 基准=首帧数据"
+        )
         rotationSensor?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
@@ -227,12 +230,15 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
 
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
-        // 屏上方向未定之前，映射不可信，宁可不动：这时算出来的姿态会把
-        // 「屏幕上」当成设备 +y，画面绕视轴歪 90°。
-        if (screenRotationFixed == Int.MIN_VALUE) return
         val deviceToWorld = FloatArray(9)
         SensorManager.getRotationMatrixFromVector(deviceToWorld, event.values)
-        val matrix = screenPoseOf(deviceToWorld, screenRotationFixed)
+        // 没有入盒确认姿势的路径：用首帧数据把屏上方向与基准一起定下来。
+        val frame = if (screenFrame == Int.MIN_VALUE) {
+            latchFrame(deviceToWorld, "首帧数据")
+        } else {
+            screenFrame
+        }
+        val matrix = screenPoseOf(deviceToWorld, frame)
         synchronized(lock) {
             System.arraycopy(matrix, 0, rotation, 0, 16)
             if (pendingInitialRecenter) {
@@ -249,75 +255,107 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         }
     }
 
+    // ── 屏上方向：屏幕轴 ↔ 设备轴 ────────────────────────────────────────
+    //
+    // `screenToDevice()` 需要知道「屏幕的上边是手机的哪条轴」。这个值只有两种取法：
+    // 问系统（`Display.getRotation()`）或者问重力（哪条轴朝天）。
+    //
+    // V2.22 改成**只信重力**。系统的读数错了两版：页面已经横屏、窗口刚建好时它仍
+    // 返回 0°，一旦被冻结下来就永久固化——于是「屏幕上」被当成设备 +y，
+    // 整幅画面绕视轴歪 90°：视频地平线竖着、卡片跟着倒、为转向弹出的确认卡也歪到
+    // 视野之外，用户根本看不到。
+    //
+    // 重力没有这个歧义：横握手机时，指向天空的那条轴就是「屏幕上」。四个候选恰好
+    // 一一对应 `Surface.ROTATION_0/90/180/270` 四种映射，选出来直接喂给
+    // `screenToDevice()`，渲染与输入层一行都不用改。
+    //
+    // 唯一的失效场景是手机**平放**（重力落在屏幕法线上，面内没有信息）——而那正是
+    // 「躺姿看天花板」。所以这个值必须在还握在手里、页面朝前的时候定下来：
+    // 入盒引导页按下按键那一刻就是最好的时机（也正好是「正前方」的取样时刻）。
+    private var screenFrame: Int = Int.MIN_VALUE
+    private var screenFrameSource = ""
+
     /**
-     * 屏上方向：**由 [lockScreenRotation] 在 surface 就绪后确定，之后整个会话冻结**。
+     * 由入盒引导页直接给出屏上方向。
      *
-     * ## 为什么不能在 onCreate / 首帧传感器里读
-     *
-     * V2.21 就是这么读的，结果画面绕视轴歪了 90°。原因很简单：那一刻窗口还没按
-     * 横屏重新布局，`Display.getRotation()` 返回的是转屏之前的 0°，于是「屏幕上」
-     * 被当成设备 +y —— 映射本身没错，错的是喂给它的那个数。
-     * 上一版每秒重读，错一秒后会被自动修正；改成只读一次，错值就被永久固化了。
-     *
-     * ## 为什么是 surface 就绪
-     *
-     * surface 的尺寸就是窗口尺寸，它创建完成时窗口一定已经按横屏布局，
-     * `Display.getRotation()` 才代表玩家真正看到的方向。这是全流程里唯一
-     * 有据可依的时机，其余都靠猜。
+     * 引导页是唯一能判准这件事的地方：手机还握在手里、窗口已经横过来、用户正对着
+     * 中线。它算完把这个 Int 带过来，VR 页就不再自己猜——**一个决定，一个来源**。
+     * 上一版两边各算一遍，差值就是用户看到的「歪 90°」。
      */
-    private var screenRotationFixed = Int.MIN_VALUE
-
-    /** 入盒确认的姿势：在屏上方向确定之前先存着，方向一确定立刻落地。 */
-    private var pendingSeedQuat: FloatArray? = null
-
-    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    private var lockAttempts = 0
+    fun setScreenFrame(frame: Int, source: String = "入盒引导页") {
+        if (frame != Surface.ROTATION_0 && frame != Surface.ROTATION_90 &&
+            frame != Surface.ROTATION_180 && frame != Surface.ROTATION_270
+        ) {
+            return
+        }
+        screenFrame = frame
+        screenFrameSource = source
+        RunLog.append("posture", "屏上方向=${rotationName(frame)}（来源：$source）")
+    }
 
     /** seed 真正落地后的回调（UI 线程）。调用方据此通知姿态闭环「基准已建立」。 */
     var onSeeded: (() -> Unit)? = null
 
     /**
-     * 由 VrActivity 在 GL surface 就绪后调用，确定屏上方向并落地入盒确认的姿势。
+     * 由重力定屏上方向。
      *
-     * ## 为什么要重试
+     * 行主序 3×3 的第 j 列是「设备轴 j 在世界坐标里的方向」，天顶是 (0,0,1)，
+     * 所以「设备 +x 指天多少」就是 `d2w[6]`、「+y 指天多少」是 `d2w[7]`。
+     * 四个候选的分数即「屏幕上轴指向天空的分量」，取最大者。
      *
-     * `Display.getRotation()` 是这条链上唯一没有确定性来源的输入。窗口还没按横屏
-     * 布局完时，它会如实返回转屏之前的 0°——映射照此计算，「屏幕上」就被当成设备 +y，
-     * 画面绕视轴歪 90°。**这不是映射算错，是喂进去的数错了。**
+     * 但「最大」不够，还要看**领先多少**：手机从竖屏往横屏转的途中，x 与 y 的分数
+     * 会一起接近 √2/2，这时谁大一点纯属噪声——照它定下来就是全程歪 90°。
+     * 所以同时返回第一与第二的差，小于 [FRAME_MIN_MARGIN] 就当作「还没转到位」。
      *
-     * 所以这里不假设一次就读对：横屏页面读到 0°/180° 时（手机上不可能出现）等下一拍
-     * 再读，最多 6 次、约 0.7 秒。拿到 90°/270° 才落地。平板自然横屏时 0° 是合法的，
-     * 重试几次后会接受，代价只是慢半秒，不会给出错误映射。
-     *
-     * 重复调用是安全的：方向一旦落定就直接返回。
+     * @return (映射, 置信度, 与次优的差)
      */
-    fun lockScreenRotation() {
-        if (screenRotationFixed != Int.MIN_VALUE) return
-        val read = runCatching { display?.rotation ?: Surface.ROTATION_0 }
+    private fun gravityFrame(d2w: FloatArray): Triple<Int, Float, Float> {
+        val upX = d2w[6]
+        val upY = d2w[7]
+        val scores = floatArrayOf(upY, -upX, -upY, upX)   // 对应 0 / 90 / 180 / 270
+        val frames = intArrayOf(
+            Surface.ROTATION_0, Surface.ROTATION_90,
+            Surface.ROTATION_180, Surface.ROTATION_270
+        )
+        var bestIndex = 0
+        for (i in 1..3) if (scores[i] > scores[bestIndex]) bestIndex = i
+        var second = -2f
+        for (i in 0..3) if (i != bestIndex && scores[i] > second) second = scores[i]
+        return Triple(frames[bestIndex], scores[bestIndex], scores[bestIndex] - second)
+    }
+
+    private fun displayRotation(): Int =
+        runCatching { display?.rotation ?: Surface.ROTATION_0 }
             .getOrDefault(Surface.ROTATION_0)
 
-        val looksUpright = read == Surface.ROTATION_0 || read == Surface.ROTATION_180
-        if (looksUpright && lockAttempts < MAX_LOCK_ATTEMPTS) {
-            lockAttempts++
-            mainHandler.postDelayed({ lockScreenRotation() }, LOCK_RETRY_MS)
-            return
+    /**
+     * 定下屏上方向，**只定一次，之后整个会话不变**（中途变一次就是画面跳 90°）。
+     *
+     * 优先重力；重力给不出结论（手机平放、正对天花板）时才退回系统读数，并记日志。
+     * 日志里两者都写出来——下次真机再歪，一行就能看出是哪一环。
+     */
+    private fun latchFrame(d2w: FloatArray, why: String): Int {
+        if (screenFrame != Int.MIN_VALUE) {
+            RunLog.append("posture", "屏上方向=${rotationName(screenFrame)}（沿用${screenFrameSource}）")
+            return screenFrame
         }
-
-        screenRotationFixed = read
+        val (byGravity, score, margin) = gravityFrame(d2w)
+        val system = displayRotation()
+        val useGravity = score >= FRAME_MIN_SCORE && margin >= FRAME_MIN_MARGIN
+        val frame = if (useGravity) byGravity else system
+        screenFrame = frame
+        screenFrameSource = if (useGravity) "重力" else "系统读数"
+        val how = if (useGravity) {
+            "重力 置信 ${(score * 100).toInt() / 100f}"
+        } else {
+            "重力给不出结论(置信 ${(score * 100).toInt() / 100f} 领先 ${(margin * 100).toInt() / 100f})，退回系统"
+        }
         RunLog.append(
             "posture",
-            "屏上方向确定=${rotationName(read)}" +
-                if (lockAttempts > 0) "（重试 $lockAttempts 次）" else ""
+            "屏上方向=${rotationName(frame)}（$how · $why）· 系统读数=${rotationName(system)}" +
+                if (frame != system) " · 两者不一致" else ""
         )
-
-        val quat = pendingSeedQuat
-        if (quat != null) {
-            pendingSeedQuat = null
-            applySeed(quat)
-        } else {
-            // 没有入盒确认的姿势：等第一帧数据定基准（旧路径，行为不变）。
-            synchronized(lock) { pendingInitialRecenter = true }
-        }
+        return frame
     }
 
     /**
@@ -327,26 +365,23 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
      * 中间隔着 Activity 启动与 GL 初始化，这期间手还在盒子上，
      * 抓到的是「正在塞手机」的姿态——所以进去就不是正对的。
      *
-     * 屏上方向还没确定时只暂存，等 [lockScreenRotation] 再算。
+     * 屏上方向也从这一帧的**重力**里取：此刻手机还握在手里、页面朝前，
+     * 是整条链上唯一能判准「屏幕上是哪条轴」的时刻。
      *
      * @param quaternion TYPE_ROTATION_VECTOR 的原值（x, y, z, w），null 忽略
      */
     fun seedOrientation(quaternion: FloatArray?) {
         if (quaternion == null || quaternion.size < 4) return
-        if (screenRotationFixed == Int.MIN_VALUE) {
-            pendingSeedQuat = quaternion.copyOf(4)
-            RunLog.append("posture", "已收到入盒确认姿势，等 surface 就绪再种入")
-        } else {
-            applySeed(quaternion)
-        }
+        applySeed(quaternion)
     }
 
-    /** 用确认姿势重建屏幕姿态并直接定基准。调用前屏上方向必须已确定。 */
+    /** 用确认姿势定下屏上方向、重建屏幕姿态并直接定基准。 */
     private fun applySeed(quaternion: FloatArray) {
         val raw = FloatArray(9)
         runCatching { SensorManager.getRotationMatrixFromVector(raw, quaternion) }
             .onFailure { return }
-        val matrix = screenPoseOf(raw, screenRotationFixed)
+        val frame = latchFrame(raw, "入盒确认姿势")
+        val matrix = screenPoseOf(raw, frame)
         synchronized(lock) {
             System.arraycopy(matrix, 0, rotation, 0, 16)
             pendingInitialRecenter = false
@@ -356,7 +391,7 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         }
         RunLog.append(
             "posture",
-            "基准已种入 · 屏上方向=${rotationName(screenRotationFixed)} · 偏移 0°"
+            "基准已种入 · 屏上方向=${rotationName(frame)} · 偏移 0°（确认的姿势即正前方）"
         )
         onSeeded?.invoke()
     }
@@ -426,8 +461,21 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
     private companion object {
-        /** 屏上方向读数疑似「窗口还没转好」时的重试次数与间隔。6 × 120ms ≈ 0.7s。 */
-        const val MAX_LOCK_ATTEMPTS = 6
-        const val LOCK_RETRY_MS = 120L
+        /**
+         * 重力判屏上方向的最低置信度。
+         *
+         * 余弦 0.55 ≈ 手机与竖直方向夹角 57° 以内。低于这个值说明手机已经接近平放，
+         * 重力落在屏幕法线上、面内没有可取的信息，只能退回系统读数。
+         */
+        const val FRAME_MIN_SCORE = 0.55f
+
+        /**
+         * 第一名必须领先第二名这么多，才允许落地。
+         *
+         * 手机从竖屏转向横屏的途中，两个候选一起逼近 √2/2、差只有零点零几——
+         * 那时候「选大的那个」等于掷骰子，选错就是全程歪 90°。0.25 的领先量
+         * 约等于离 45° 分界线 14°，手抖与正常摆放都在这个范围之外。
+         */
+        const val FRAME_MIN_MARGIN = 0.25f
     }
 }

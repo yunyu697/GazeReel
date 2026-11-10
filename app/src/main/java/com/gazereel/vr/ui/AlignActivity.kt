@@ -129,7 +129,7 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
                 deviceToWorld[col * 4 + row] = raw[row * 3 + col]
             }
         }
-        val screenToDevice = screenToDevice(displayRotation())
+        val screenToDevice = screenToDevice(frameOf(raw))
         android.opengl.Matrix.multiplyMM(pose, 0, deviceToWorld, 0, screenToDevice, 0)
 
         updateTilt()
@@ -260,16 +260,59 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
         )
         val intent = Intent(this, VrActivity::class.java)
             .putExtra(VrActivity.EXTRA_ORIENTATION, source?.copyOf())
+            // 屏上方向由这一屏定，VR 页直接沿用：这是唯一能判准的时机
+            // （手机在手里、窗口已横过来），两边各算一遍就是上次那 90°。
+            .putExtra(VrActivity.EXTRA_SCREEN_FRAME, screenFrame)
         startActivity(intent)
         finish()
     }
 
     /**
-     * 退出这屏就不用再算了，所以这里每次读——**不能冻结**。
+     * 屏上方向：**与 VR 页同一套判据——只看重力**，不看 `Display.getRotation()`。
      *
-     * 本页的第一次读数发生在传感器首帧，那会儿窗口可能还没按横屏布局完，
-     * 读到的会是转屏前的 0°。冻结等于把这个错值永久固化成「屏幕上」的方向。
-     * 每次读的话，窗口一就绪读数自己就正确了，水平仪最多错两帧。
+     * 这一屏的全部意义是「对准」，而中线是画在屏幕上的。如果这一屏和 VR 页对
+     * 「屏幕的上边是手机的哪条轴」理解不一致，用户在这一屏对得再准，进 VR 也歪。
+     * 所以两边用同一个规则、同一个阈值，一个数都不猜。
+     *
+     * 只定一次：中途换一次就是画面跳 90°。手机接近平放时重力没有信息，退回系统读数。
+     */
+    private var screenFrame = Int.MIN_VALUE
+
+    /** 窗口是否已经按横屏布局。在它成立之前，任何姿态读数都可能是「还没转过来」。 */
+    private fun windowIsLandscape(): Boolean =
+        binding.root.width > 0 && binding.root.width > binding.root.height
+
+    private fun frameOf(raw9: FloatArray): Int {
+        if (screenFrame != Int.MIN_VALUE) return screenFrame
+        // 从配置页（竖屏）点进来时，头几帧手机还是竖的——那会儿重力会说
+        // 「屏幕上 = +y」，一旦照它定下来就是全程歪 90°。等窗口真的横过来再定。
+        if (!windowIsLandscape()) return displayRotation()
+        val upX = raw9[6]
+        val upY = raw9[7]
+        val scores = floatArrayOf(upY, -upX, -upY, upX)
+        val frames = intArrayOf(
+            Surface.ROTATION_0, Surface.ROTATION_90,
+            Surface.ROTATION_180, Surface.ROTATION_270
+        )
+        var best = 0
+        for (i in 1..3) if (scores[i] > scores[best]) best = i
+        var second = -2f
+        for (i in 0..3) if (i != best && scores[i] > second) second = scores[i]
+        val margin = scores[best] - second
+        // 转屏途中两个候选几乎打平，这时候定下来就是全程歪 90°：等下一帧。
+        if (scores[best] < FRAME_MIN_SCORE || margin < FRAME_MIN_MARGIN) return displayRotation()
+        screenFrame = frames[best]
+        RunLog.append(
+            "align",
+            "屏上方向=${frames[best]}（重力 置信 ${(scores[best] * 100).toInt() / 100f}" +
+                " 领先 ${(margin * 100).toInt() / 100f}）· 系统读数=${displayRotation()}"
+        )
+        return frames[best]
+    }
+
+    /**
+     * 仅在重力无解（手机平放）时兜底用，所以每次读——不冻结，
+     * 窗口一按横屏布局完它自己就对了。
      */
     private fun displayRotation(): Int =
         runCatching { panel?.rotation ?: Surface.ROTATION_0 }.getOrDefault(Surface.ROTATION_0)
@@ -310,5 +353,11 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
 
         /** 刚变亮的瞬间不接受按键，避免用户正在调整时被自己碰到。 */
         const val TAP_GUARD_MS = 250L
+
+        /** 重力判屏上方向的最低置信度（余弦 0.55 ≈ 与竖直方向夹角 57° 以内）。 */
+        const val FRAME_MIN_SCORE = 0.55f
+
+        /** 第一名领先第二名的最小量；转屏途中两个候选打平时不落地。 */
+        const val FRAME_MIN_MARGIN = 0.25f
     }
 }
