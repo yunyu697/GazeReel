@@ -260,21 +260,19 @@ class AlignActivity : AppCompatActivity(), SensorEventListener {
         )
         val intent = Intent(this, VrActivity::class.java)
             .putExtra(VrActivity.EXTRA_ORIENTATION, source?.copyOf())
-            .putExtra(VrActivity.EXTRA_SCREEN_ROTATION, displayRotation())
         startActivity(intent)
         finish()
     }
 
-    /** V2.21：屏上方向只解析一次。它决定「屏幕右 / 上」对应设备的哪条轴，中途变会让中线跳。 */
-    private var fixedRotation = Int.MIN_VALUE
-
-    private fun displayRotation(): Int {
-        if (fixedRotation == Int.MIN_VALUE) {
-            fixedRotation = runCatching { panel?.rotation ?: Surface.ROTATION_0 }
-                .getOrDefault(Surface.ROTATION_0)
-        }
-        return fixedRotation
-    }
+    /**
+     * 退出这屏就不用再算了，所以这里每次读——**不能冻结**。
+     *
+     * 本页的第一次读数发生在传感器首帧，那会儿窗口可能还没按横屏布局完，
+     * 读到的会是转屏前的 0°。冻结等于把这个错值永久固化成「屏幕上」的方向。
+     * 每次读的话，窗口一就绪读数自己就正确了，水平仪最多错两帧。
+     */
+    private fun displayRotation(): Int =
+        runCatching { panel?.rotation ?: Surface.ROTATION_0 }.getOrDefault(Surface.ROTATION_0)
 
     private fun screenToDevice(screenRotation: Int): FloatArray {
         val (x, y) = when (screenRotation) {
