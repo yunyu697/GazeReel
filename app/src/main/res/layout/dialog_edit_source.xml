@@ -101,6 +101,16 @@
         app:strokeWidth="1dp"
         style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
 
+    <CheckBox
+        android:id="@+id/editNoSubfolders"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:buttonTint="@color/setup_cyan"
+        android:text="@string/setup_no_subfolders"
+        android:textSize="13sp"
+        android:textColor="@color/setup_text" />
+
     <TextView
         android:id="@+id/editNote"
         android:layout_width="match_parent"

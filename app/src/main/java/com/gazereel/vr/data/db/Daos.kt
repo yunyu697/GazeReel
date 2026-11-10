@@ -33,8 +33,17 @@ interface MediaDao {
 
 @Dao
 interface SourceDao {
+    /** VR 用：只把没被隐藏的片库喂给片库页。 */
     @Query("SELECT * FROM source WHERE enabled = 1 ORDER BY id")
     fun observeEnabled(): Flow<List<SourceEntity>>
+
+    /**
+     * 配置页用：**必须包含被隐藏的片库**。
+     * V2.17 一开始这里接成了 `observeEnabled()`，结果是「隐藏之后配置页也不显示它」——
+     * 用户再也没有地方把它显示回来，等于删了还回不去。
+     */
+    @Query("SELECT * FROM source ORDER BY id")
+    fun observeAll(): Flow<List<SourceEntity>>
 
     @Query("SELECT * FROM source")
     suspend fun all(): List<SourceEntity>
@@ -55,6 +64,10 @@ interface SourceDao {
 
     @Query("UPDATE source SET last_scan_at = :at WHERE id = :id")
     suspend fun touchScan(id: Long, at: Long)
+
+    /** V2.17：临时在 VR 里藏起一个片库，不用删掉再重新添加。 */
+    @Query("UPDATE source SET enabled = :enabled WHERE id = :id")
+    suspend fun setEnabled(id: Long, enabled: Boolean)
 }
 
 @Dao

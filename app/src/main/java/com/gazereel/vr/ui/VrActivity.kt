@@ -248,8 +248,16 @@ class VrActivity : AppCompatActivity() {
         player.onError = { message -> coordinator.showMessage(message) }
 
         lifecycleScope.launch {
-            val sources = withContext(Dispatchers.IO) { database.sourceDao().all() }
-            coordinator.sources = sources.associateBy { it.id }
+            // V2.17：这里必须是「只含未隐藏的片库」，而且要和「全部片源」一起给——
+            // 原来读的是 all()，隐藏对 VR 完全无效；而配置页反过来只读 enabled，
+            // 隐藏之后再也显示不回来。两个查询接反了，是两个方向的死路。
+            database.sourceDao().observeEnabled().collect { enabled ->
+                val all = withContext(Dispatchers.IO) { database.sourceDao().all() }
+                coordinator.setSources(
+                    all.associateBy { it.id },
+                    enabled.map { it.id }.toSet()
+                )
+            }
         }
         lifecycleScope.launch {
             database.mediaDao().observeAll().collect { items -> coordinator.loadItems(items) }

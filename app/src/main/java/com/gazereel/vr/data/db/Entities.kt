@@ -35,7 +35,15 @@ data class SourceEntity(
     @ColumnInfo(name = "display_name") val displayName: String,
     @ColumnInfo(name = "credential_ref") val credentialRef: String = "",
     @ColumnInfo(name = "last_scan_at") val lastScanAt: Long = 0L,
-    @ColumnInfo(name = "enabled") val enabled: Boolean = true
+    /** V2.17：片库在 VR 里是否显示。隐藏只影响片库列表，索引与断点都保留。 */
+    @ColumnInfo(name = "enabled") val enabled: Boolean = true,
+    /**
+     * V2.17：扫描是否连下层文件夹一起扫。
+     *
+     * 用户真机反馈「添加片库有的时候扫不出来文件，但文件夹里确定是有文件的」——
+     * 原来的扫描只收选中那一层的视频，视频放在子文件夹里就一个也看不见。
+     */
+    @ColumnInfo(name = "recursive") val recursive: Boolean = true
 )
 
 /** 断点续播与最近播放。 */

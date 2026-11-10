@@ -32,11 +32,13 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.GazeReel">
 
-        <!-- 戴镜前：所有文本输入、共享配置、片库扫描都在这里完成 -->
+        <!-- 戴镜前：所有文本输入、共享配置、片库扫描都在这里完成。
+             V2.17：不再锁竖屏——VR 场景都是横屏，每次退出都转回竖屏太割裂。
+             横屏有独立布局 layout-land/activity_setup.xml（左右两栏重排，不是拉伸）。 -->
         <activity
             android:name=".ui.SetupActivity"
             android:exported="true"
-            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

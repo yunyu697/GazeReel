@@ -39,6 +39,9 @@ internal object SrvsvcShareEnum {
     private const val PFC_LAST_FRAG = 0x02
     private const val CALL_ID = 1
 
+    /** V2.17：两种入参排布都试，见 [enumStub]。 */
+    private const val STUB_VARIANTS = 2
+
     /** 服务器上的共享列表；`IPC$` 之类以 `$` 结尾的管理共享由调用方过滤。 */
     fun list(session: Session, host: String): List<String> {
         val ipc = session.connectShare("IPC\$") as? PipeShare
@@ -56,13 +59,44 @@ internal object SrvsvcShareEnum {
             try {
                 val bindAck = readFully(pipe, pipe.transact(bindPdu(CALL_ID)))
                 if (bindAck.size < 16 || (bindAck[2].toInt() and 0xFF) != PTYPE_BIND_ACK) {
-                    throw IOException("srvsvc 拒绝绑定")
+                    val type = if (bindAck.size >= 3) bindAck[2].toInt() and 0xFF else -1
+                    throw IOException(
+                        "srvsvc 绑定被拒（应答类型 $type，${bindAck.size} 字节）"
+                    )
                 }
-                val response = readFully(
-                    pipe,
-                    pipe.transact(requestPdu(CALL_ID + 1, enumStub(host)))
+                // V2.17：入参有两种合法排布（联合体成员是指针 / 不是指针），
+                // 我无法在真机上确认这台设备认哪一种，所以两种都发一次。
+                // 错的那种只会换来一个 fault，代价是一次往返，换来的是不必再猜。
+                var lastError: Throwable? = null
+                for (variant in 0 until STUB_VARIANTS) {
+                    // 注意：这里不能用 runCatching{}.getOrElse{ continue }——
+                    // getOrElse 是内联 lambda，里面的 continue 属于实验特性，编译不过。
+                    val response = try {
+                        readFully(
+                            pipe,
+                            pipe.transact(requestPdu(CALL_ID + 1, enumStub(host, variant)))
+                        )
+                    } catch (e: Exception) {
+                        lastError = e
+                        null
+                    }
+                    if (response == null) continue
+
+                    val names = try {
+                        parseShares(response)
+                    } catch (e: Exception) {
+                        lastError = e
+                        null
+                    }
+                    if (names == null) continue
+
+                    RunLog.append("smb", "共享枚举成功 · $host · 变体 $variant · ${names.size} 个共享")
+                    return names
+                }
+                throw IOException(
+                    lastError?.message ?: "srvsvc 两种入参排布都没被接受",
+                    lastError
                 )
-                return parseShares(response)
             } finally {
                 runCatching { pipe.close() }
             }
@@ -123,19 +157,31 @@ internal object SrvsvcShareEnum {
      * 定长部分（28 字节）：ServerName 引用 / Level / EntriesRead / Buffer / 最大长度 /
      * TotalEntries 引用 / ResumeHandle 引用；变长部分：ServerName 字符串、两个引用指向的值。
      */
-    internal fun enumStub(host: String): ByteArray = ByteArrayOutputStream().apply {
-        writeLe32(0x0002_0000L)                 // ServerName 引用
-        writeLe32(1)                            // Level = 1
-        writeLe32(0)                            // EntriesRead = 0
-        writeLe32(0)                            // Buffer = NULL
-        writeLe32(0xFFFF_FFFFL)                 // PreferedMaximumLength
-        writeLe32(0x0002_0004L)                 // TotalEntries 引用
-        writeLe32(0x0002_0008L)                 // ResumeHandle 引用
-        // ↓ 以下才是延迟数据，必须排在全部定长字段之后。
-        writeWString("\\\\$host")
-        writeLe32(0)                            // *TotalEntries = 0
-        writeLe32(0)                            // *ResumeHandle = 0
-    }.toByteArray()
+    internal fun enumStub(host: String, variant: Int): ByteArray =
+        ByteArrayOutputStream().apply {
+            writeLe32(0x0002_0000L)                 // ServerName 引用
+            writeLe32(1)                            // Level = 1
+            if (variant == 0) {
+                // 变体 0：联合体成员是「指向容器的指针」，容器内容延后。
+                writeLe32(0x0002_0004L)             // ShareInfo1 容器引用
+                writeLe32(0xFFFF_FFFFL)             // PreferedMaximumLength
+                writeLe32(0x0002_0008L)             // TotalEntries 引用
+                writeLe32(0x0002_000CL)             // ResumeHandle 引用
+                writeWString("\\\\$host")
+                writeLe32(0)                        // EntriesRead = 0
+                writeLe32(0)                        // Buffer = NULL
+            } else {
+                // 变体 1：容器内容直接摊在定长部分里（上一版的写法）。
+                writeLe32(0)                        // EntriesRead = 0
+                writeLe32(0)                        // Buffer = NULL
+                writeLe32(0xFFFF_FFFFL)             // PreferedMaximumLength
+                writeLe32(0x0002_0004L)             // TotalEntries 引用
+                writeLe32(0x0002_0008L)             // ResumeHandle 引用
+                writeWString("\\\\$host")
+            }
+            writeLe32(0)                            // *TotalEntries = 0
+            writeLe32(0)                            // *ResumeHandle = 0
+        }.toByteArray()
 
     /** NDR 的 [string] WCHAR*：max_count / offset / actual_count 三个 DWORD，再是字符。 */
     private fun ByteArrayOutputStream.writeWString(value: String) {

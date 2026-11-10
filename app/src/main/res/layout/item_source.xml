@@ -72,6 +72,18 @@
             android:layout_weight="1" />
 
         <TextView
+            android:id="@+id/sourceHide"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="56dp"
+            android:minHeight="32dp"
+            android:gravity="center"
+            android:background="@drawable/bg_setup_chip"
+            android:text="@string/setup_hide"
+            android:textSize="12sp"
+            android:textColor="@color/setup_muted" />
+
+        <TextView
             android:id="@+id/sourceEdit"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

@@ -62,6 +62,24 @@ class VrCoordinator(
     var sources: Map<Long, SourceEntity> = emptyMap()
     private var pendingOpen: Triple<MediaItemEntity, MediaRef, com.gazereel.vr.core.VrFormat>? = null
 
+    /**
+     * V2.17：被隐藏的片库不进 VR 的片库页。
+     *
+     * `null` 表示「还不知道有哪些片库」——首帧时片源列表可能比媒体列表晚到，
+     * 这时若按空集过滤，片库会先空一下再跳出来。所以 null 不做过滤。
+     */
+    private var enabledSourceIds: Set<Long>? = null
+
+    /** 过滤之前的全量，片源列表晚到时用它重算一次，不必等媒体表再变一次。 */
+    private var rawItems: List<MediaItemEntity> = emptyList()
+
+    /** 片源列表 + 「哪些没被隐藏」一起给，隐藏/显示立刻反映到片库页。 */
+    fun setSources(map: Map<Long, SourceEntity>, enabled: Set<Long>) {
+        sources = map
+        enabledSourceIds = enabled
+        loadItems(rawItems)
+    }
+
     init {
         // 上次退出时若锁定视角，重建后仍保持一致。
         headset.setViewLocked(settings.current.lockView)
@@ -89,19 +107,22 @@ class VrCoordinator(
      * 现在只要当前页还存在就原地不动，选中项尽量保住。
      */
     fun loadItems(items: List<MediaItemEntity>) {
+        rawItems = items
+        // V2.17：隐藏的片库连它的片子一起不进片库页。索引与断点都还在库里，只是不显示。
+        val visible = enabledSourceIds?.let { ids -> items.filter { it.sourceId in ids } } ?: items
         val keepId = uiState.selectedItem?.id
-        val index = items.indexOfFirst { it.id == keepId }
+        val index = visible.indexOfFirst { it.id == keepId }
             .takeIf { it >= 0 }
             ?: 0
         // V2.16：叠跟着片子一起重算；原来待着的那一叠如果没了（换了片源、重扫后文件夹改名），
         // 就退回「全部叠」，不要留一个指向空列表的 activeStack。
-        val stacks = StackBuilder.build(items)
+        val stacks = StackBuilder.build(visible)
         val activeStack = uiState.activeStack?.takeIf { key -> stacks.any { it.key == key } }
         val next = uiState.copy(
-            items = items,
+            items = visible,
             stacks = stacks,
             activeStack = activeStack,
-            selectedIndex = index.coerceIn(0, maxOf(0, items.size - 1))
+            selectedIndex = index.coerceIn(0, maxOf(0, visible.size - 1))
         )
         // 页码要按「这一屏现在有几个格子」收敛：成叠之后页数会少一大截。
         uiState = next.copy(page = uiState.page.coerceIn(0, next.pageCount - 1))

@@ -44,9 +44,13 @@
     <string name="setup_lan_pick">选一台设备</string>
     <!-- V2.6：「添加片库」不再是填空题 -->
     <string name="setup_address_hint">例如 192.168.1.10 或 192.168.1.10:8080</string>
-    <string name="setup_edit">改</string>
+    <string name="setup_edit">编辑</string>
     <string name="setup_rescan">重扫</string>
-    <string name="setup_delete">删</string>
+    <string name="setup_hide">隐藏</string>
+    <string name="setup_show">显示</string>
+    <string name="setup_no_subfolders">不扫描子文件夹（只收当前这一层）</string>
+    <string name="setup_no_subfolders_hint">默认连下层文件夹一起扫；只想收当前这一层时勾上它</string>
+    <string name="setup_delete">删除</string>
     <string name="folder_title">选择文件夹</string>
     <string name="folder_up">返回上一层</string>
     <string name="folder_cancel">取消</string>

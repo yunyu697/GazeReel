@@ -1,5 +1,6 @@
 package com.gazereel.vr.data
 
+import android.content.Context
 import java.io.ByteArrayOutputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -23,7 +24,7 @@ import java.util.concurrent.TimeUnit
  * 这里换成直接问网络：本机所在的 /24 网段里，谁在 445 端口上等连接。
  * 扫到之后再问一次 NetBIOS 名称，界面上就能写「客厅的群晖」而不是「192.168.1.10」。
  */
-class LanSmbScanner {
+class LanSmbScanner(private val context: Context? = null) {
 
     data class Host(val address: String, val name: String = "") {
         /** 有名字就用名字；没问到就老老实实显示 IP，不要编一个假名字。 */
@@ -38,7 +39,14 @@ class LanSmbScanner {
         private const val WORKERS = 48
         private const val MAX_HOSTS = 254
         private const val NBNS_PORT = 137
-        private const val NBNS_TIMEOUT_MS = 350
+        /**
+         * V2.17：原来 350ms 太短。名字查询和 254 个 TCP 连接挤在同一个线程池里，
+         * 无线电被压满，UDP 回包不是迟到就是丢掉——真机上飞牛、极空间、Windows PC
+         * 全都只显示 IP 就是这么来的（PC 一定会应答 NBSTAT，所以不是设备的问题）。
+         * 现在名字放到端口扫描之后单独问，一次一个，窗口放宽到 900ms，还允许重试一次。
+         */
+        private const val NBNS_TIMEOUT_MS = 900
+        private const val NBNS_ATTEMPTS = 2
     }
 
     /** 反向 DNS 专用：缓存池，被卡住的线程不会拖住后面的查询。 */
@@ -53,17 +61,23 @@ class LanSmbScanner {
     fun scan(): List<Host> {
         val targets = candidates()
         if (targets.isEmpty()) return emptyList()
+
+        // mDNS 要 2.5 秒，和端口扫描并行跑，等满也不会让用户多等。
+        val mdns = HashMap<String, String>()
+        val mdnsThread = Thread {
+            val ctx = context ?: return@Thread
+            runCatching { mdns.putAll(MdnsNames(ctx).discover(2_500)) }
+        }.apply {
+            isDaemon = true
+            start()
+        }
+
         val pool = Executors.newFixedThreadPool(WORKERS) { runnable ->
             Thread(runnable, "lan-smb-probe").apply { isDaemon = true }
         }
         val alive = try {
             val tasks = targets.map { ip ->
-                Callable {
-                    if (!reachable(ip)) return@Callable null
-                    // 先问 NetBIOS（最快、最像用户在电脑上看到的那个名字），
-                    // 问不到再试反向 DNS；都没有就显示 IP，不编名字。
-                    Host(ip, netbiosName(ip) ?: reverseName(ip).orEmpty())
-                }
+                Callable { if (reachable(ip)) ip else null }
             }
             pool.invokeAll(tasks).mapNotNull { future ->
                 runCatching { future.get() }.getOrNull()
@@ -71,7 +85,18 @@ class LanSmbScanner {
         } finally {
             pool.shutdownNow()
         }
-        return alive.sortedBy { numeric(it.address) }
+        runCatching { mdnsThread.join(2_600) }
+
+        // 第二遍：等端口扫描彻底安静下来，再一个一个问名字。
+        // 顺序是 mDNS → NetBIOS → 反向 DNS；都没有就显示 IP，不编名字。
+        val hosts = alive.map { ip ->
+            val name = synchronized(mdns) { mdns[ip] }
+                ?: netbiosName(ip)
+                ?: reverseName(ip)
+                ?: ""
+            Host(ip, name)
+        }
+        return hosts.sortedBy { numeric(it.address) }
     }
 
     private fun reachable(ip: String): Boolean = runCatching {
@@ -129,17 +154,24 @@ class LanSmbScanner {
      * 一直在答的东西，问到的就是用户在电脑「网络」里看到的那个名字。
      * 任何一步失败都返回 null —— 名字是锦上添花，不能因为它让设备从列表里消失。
      */
-    private fun netbiosName(ip: String): String? = runCatching {
-        DatagramSocket().use { socket ->
-            socket.soTimeout = NBNS_TIMEOUT_MS
-            val query = nbstatQuery()
-            socket.send(DatagramPacket(query, query.size, InetAddress.getByName(ip), NBNS_PORT))
-            val buffer = ByteArray(1024)
-            val packet = DatagramPacket(buffer, buffer.size)
-            socket.receive(packet)
-            parseNbstat(buffer, packet.length)
+    private fun netbiosName(ip: String): String? {
+        val query = nbstatQuery()
+        val target = runCatching { InetAddress.getByName(ip) }.getOrNull() ?: return null
+        repeat(NBNS_ATTEMPTS) {
+            val name = runCatching {
+                DatagramSocket().use { socket ->
+                    socket.soTimeout = NBNS_TIMEOUT_MS
+                    socket.send(DatagramPacket(query, query.size, target, NBNS_PORT))
+                    val buffer = ByteArray(1024)
+                    val packet = DatagramPacket(buffer, buffer.size)
+                    socket.receive(packet)
+                    parseNbstat(buffer, packet.length)
+                }
+            }.getOrNull()
+            if (name != null) return name
         }
-    }.getOrNull()
+        return null
+    }
 
     /**
      * NBSTAT 查询包：12 字节头 + 编码后的通配名「*」+ QTYPE 0x0021 / QCLASS 0x0001。

@@ -28,6 +28,7 @@ import com.gazereel.vr.data.MediaIndexer
 import com.gazereel.vr.data.SmbCredentials
 import com.gazereel.vr.data.SmbSessionPool
 import com.gazereel.vr.data.SourceAddress
+import com.gazereel.vr.data.parseUncFull
 import com.gazereel.vr.data.db.AppDatabase
 import com.gazereel.vr.data.db.SourceEntity
 import com.gazereel.vr.data.decodeCredentials
@@ -125,7 +126,7 @@ class SetupActivity : AppCompatActivity() {
         )
         showLastCrash()
         lifecycleScope.launch {
-            database.sourceDao().observeEnabled().collect { renderSources(it) }
+            database.sourceDao().observeAll().collect { renderSources(it) }
         }
     }
 
@@ -362,15 +363,27 @@ class SetupActivity : AppCompatActivity() {
     private fun openSmbHost(host: LanSmbScanner.Host) {
         setBusy(true, "正在连「${host.label}」…")
         lifecycleScope.launch {
-            val guest = SmbCredentials("", "")
+            // V2.17：这台设备之前配过，就直接用记下的账号，不再走一遍空账号试探。
+            val known = credentialsForHost(host.address)
+            val guest = known ?: SmbCredentials("", "")
             val opened = withContext(Dispatchers.IO) {
                 runCatching { browser.root(SourceType.SMB, host.address, guest) }
             }
             setBusy(false)
             opened.getOrNull()?.let { state ->
                 showFolderDialog(state, guest) { chosen ->
-                    saveNew(SourceType.SMB, chosen, "", "")
+                    saveNew(SourceType.SMB, chosen, guest.user, guest.password)
                 }
+                return@launch
+            }
+            if (known != null) {
+                prefillManual(SourceType.SMB, host.address)
+                renderStatus(
+                    Status.ERR,
+                    "「${host.label}」这次没连上",
+                    "用的是上次记下的账号。检查设备是否在线，或者点「编辑」改一下账号密码。",
+                    "需检查"
+                )
                 return@launch
             }
             prefillManual(SourceType.SMB, host.address)
@@ -381,6 +394,34 @@ class SetupActivity : AppCompatActivity() {
                 "待填账号"
             )
         }
+    }
+
+    /**
+     * V2.17：同一台设备已经配过片库，就不该再让用户输一次 IP 和账号。
+     * 返回这台设备记下的账号；没配过、或者本来就是访客访问，返回 null。
+     */
+    private fun credentialsForHost(rawHost: String): SmbCredentials? {
+        val host = rawHost.trim().trimStart('\\')
+        if (host.isBlank()) return null
+        val existing = currentSources.firstOrNull {
+            it.type == SourceType.SMB.name && it.credentialRef.isNotBlank() &&
+                parseUncFull(it.address).first.equals(host, true)
+        } ?: return null
+        val known = decodeCredentials(credentials.get(existing.credentialRef))
+        if (known.user.isBlank()) return null
+        return known
+    }
+
+    /** 地址一填、设备一认出来，就把记下的账号补进表单，用户只剩「连接」这一下。 */
+    private fun prefillKnownCredentials() {
+        if (binding.shareUser.text.isNotBlank() || binding.sharePass.text.isNotEmpty()) return
+        val type = sourceTypeAt(binding.shareType.selectedItemPosition) ?: return
+        if (type != SourceType.SMB) return
+        val normalized = SourceAddress.normalize(type, binding.shareAddress.text.toString())
+        val host = parseUncFull(normalized).first
+        val known = credentialsForHost(host) ?: return
+        binding.shareUser.setText(known.user)
+        binding.sharePass.setText(known.password)
     }
 
     /** 把类型和地址替用户填好并展开表单——他只需要补自己知道的那部分。 */
@@ -472,6 +513,7 @@ class SetupActivity : AppCompatActivity() {
             renderStatus(Status.ERR, "先选一种设备", "从上面的列表里挑一个。", "未选")
             return
         }
+        prefillKnownCredentials()
         val raw = binding.shareAddress.text.toString().trim()
         val user = binding.shareUser.text.toString().trim()
         val pass = binding.sharePass.text.toString()
@@ -506,17 +548,29 @@ class SetupActivity : AppCompatActivity() {
         setBusy(true, "正在扫描「${state.displayName}」…")
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                val alias = if (user.isNotBlank() || pass.isNotEmpty()) {
-                    credentials.put(
+                // V2.17：同一台设备上再开一个文件夹时，不必再造一份凭证。
+                val reusable = currentSources.firstOrNull {
+                    it.type == type.name && it.credentialRef.isNotBlank() &&
+                        parseUncFull(it.address).first ==
+                        parseUncFull(state.address).first &&
+                        decodeCredentials(credentials.get(it.credentialRef)).let { known ->
+                            known.user == user && known.password == pass
+                        }
+                }?.credentialRef.orEmpty()
+                val alias = when {
+                    reusable.isNotBlank() -> reusable
+                    user.isNotBlank() || pass.isNotEmpty() -> credentials.put(
                         "src_${type.name.lowercase()}_${System.currentTimeMillis()}",
                         encodeCredentials(user, pass)
                     )
-                } else ""
+                    else -> ""
+                }
                 val entity = SourceEntity(
                     type = type.name,
                     address = state.address,
                     displayName = state.displayName,
-                    credentialRef = alias
+                    credentialRef = alias,
+                    recursive = !binding.scanNoSubfolders.isChecked
                 )
                 val id = database.sourceDao().upsert(entity)
                 runCatching { indexer.scan(entity.copy(id = id)) }.getOrElse { -1 }
@@ -638,6 +692,7 @@ class SetupActivity : AppCompatActivity() {
         val view = DialogEditSourceBinding.inflate(layoutInflater)
         val dialog = darkDialog(view.root)
         var chosen = source.address
+        view.editNoSubfolders.isChecked = !source.recursive
         view.editName.setText(source.displayName)
         view.editAddress.text = source.address
         view.editNote.text = "换文件夹不用重新添加；账号密码留空表示保持原样。"
@@ -653,6 +708,11 @@ class SetupActivity : AppCompatActivity() {
                     showFolderDialog(initial, creds) { state ->
                         chosen = state.address
                         view.editAddress.text = state.address
+                        // V2.17：换了文件夹，名字跟着换 —— 用户没自己改过名字时才动，
+                        // 否则会把他特意起的名字冲掉。
+                        if (view.editName.text.toString().trim() == source.displayName) {
+                            view.editName.setText(state.displayName)
+                        }
                         view.editNote.text = "已选「${state.displayName}」· 点保存生效"
                     }
                 } catch (error: Exception) {
@@ -666,11 +726,15 @@ class SetupActivity : AppCompatActivity() {
         }
         view.editCancel.setOnClickListener { dialog.dismiss() }
         view.editSave.setOnClickListener {
-            val name = view.editName.text.toString().trim()
+            // 名字留在原来的值上（= 用户没自己改过），就交给 saveEdit 按新地址重新生成，
+            // 免得换了文件夹之后卡片上还写着旧文件夹的名字。
+            val typed = view.editName.text.toString().trim()
+            val name = if (typed == source.displayName) "" else typed
             val user = view.editUser.text.toString().trim()
             val pass = view.editPass.text.toString()
+            val recursive = !view.editNoSubfolders.isChecked
             dialog.dismiss()
-            saveEdit(source, chosen, name, user, pass)
+            saveEdit(source, chosen, name, user, pass, recursive)
         }
         dialog.show()
     }
@@ -680,7 +744,8 @@ class SetupActivity : AppCompatActivity() {
         address: String,
         name: String,
         user: String,
-        pass: String
+        pass: String,
+        recursive: Boolean
     ) {
         setBusy(true, "正在保存并重新扫描…")
         lifecycleScope.launch {
@@ -697,15 +762,35 @@ class SetupActivity : AppCompatActivity() {
                 } else source.credentialRef
                 val label = name.ifBlank { SourceAddress.displayName(type, address) }
                 val updated = source.copy(
-                    address = address, displayName = label, credentialRef = newRef
+                    address = address, displayName = label, credentialRef = newRef,
+                    recursive = recursive
                 )
                 database.sourceDao().update(updated)
-                // 换了目录就丢掉旧索引，否则会留下一批打不开的幽灵条目。
-                if (address != source.address) purgeMedia(source.id)
+                // 换了目录、或者改了递归范围，旧索引都要丢掉，否则会留下打不开的幽灵条目。
+                if (address != source.address || recursive != source.recursive) {
+                    purgeMedia(source.id)
+                }
                 runCatching { indexer.scan(updated) }.getOrElse { -1 }
             }
             setBusy(false)
             renderScanResult(result, "「${name.ifBlank { source.displayName }}」已更新")
+        }
+    }
+
+    /**
+     * V2.17：临时在 VR 里藏起一个片库。
+     * 只改 enabled，索引、断点、凭证全部保留 —— 用户要的是「先别看它」，不是「删掉」。
+     */
+    private fun toggleVisible(source: SourceEntity) {
+        val next = !source.enabled
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) { database.sourceDao().setEnabled(source.id, next) }
+            renderStatus(
+                Status.OK,
+                if (next) "「${source.displayName}」已显示" else "「${source.displayName}」已隐藏",
+                if (next) "进 VR 就能看到它。" else "索引和断点都还在；点「显示」就回来。",
+                if (next) "已显示" else "已隐藏"
+            )
         }
     }
 
@@ -790,6 +875,18 @@ class SetupActivity : AppCompatActivity() {
             row.sourceChip.text = chipFor(source)
             row.sourceChip.setTextColor(cyan)
             tintRow(row, cyan)
+            row.sourceHide.text = getString(
+                if (source.enabled) R.string.setup_hide else R.string.setup_show
+            )
+            row.sourceHide.setTextColor(
+                getColor(if (source.enabled) R.color.setup_muted else R.color.setup_cyan)
+            )
+            if (!source.enabled) {
+                // 隐藏的片库压暗一点，但仍然留在列表里，随时能点回来。
+                row.sourceTitle.alpha = 0.55f
+                row.sourceSubtitle.alpha = 0.55f
+            }
+            row.sourceHide.setOnClickListener { toggleVisible(source) }
             row.sourceEdit.setOnClickListener { showEditDialog(source) }
             row.sourceRescan.setOnClickListener { rescan(source) }
             row.sourceDelete.setOnClickListener { confirmDelete(source) }

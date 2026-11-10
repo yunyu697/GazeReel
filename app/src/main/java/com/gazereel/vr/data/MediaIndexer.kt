@@ -27,11 +27,14 @@ class MediaIndexer(
 ) {
     companion object {
         private const val PAGE_SIZE = 100
+        private const val MAX_SCAN_DIRS = 300
+        private const val MAX_SCAN_ENTRIES = 20_000
     }
 
     private val posters = PosterRepository(context.applicationContext)
     private val dlna = DlnaScanner(context.applicationContext)
-    private val smbHosts = LanSmbScanner()
+    // V2.17：名字解析要用系统的 mDNS，所以把 Context 递进去。
+    private val smbHosts = LanSmbScanner(context.applicationContext)
     // V2.7：手机视频走 MediaStore，不再用 File 单层遍历。
     private val local = LocalVideoScanner(context.applicationContext)
 
@@ -67,7 +70,7 @@ class MediaIndexer(
 
     suspend fun scan(source: SourceEntity): Int = withContext(Dispatchers.IO) {
         val credentials = decodeCredentials(credentialStore.get(source.credentialRef))
-        val entries = list(source, credentials)
+        val entries = list(source, credentials, source.recursive)
         val existing = db.mediaDao().all()
             .filter { it.sourceId == source.id }
             .associateBy { it.path }
@@ -125,24 +128,14 @@ class MediaIndexer(
      * V2.6：公开给 FolderBrowser 复用——选文件夹和扫描片库必须是同一套列目录逻辑，
      * 否则「选的时候看得见、扫的时候看不见」。返回值同时含目录与视频，调用方各自筛。
      */
-    fun list(source: SourceEntity, credentials: SmbCredentials): List<IndexEntry> {
+    fun list(
+        source: SourceEntity,
+        credentials: SmbCredentials,
+        recursive: Boolean = false
+    ): List<IndexEntry> {
         val type = runCatching { SourceType.valueOf(source.type) }.getOrDefault(SourceType.LOCAL)
         return when (type) {
-            SourceType.SMB -> {
-                val (host, share, folder) = parseUncFull(source.address)
-                val ref = MediaRef(source.id, SourceType.SMB, host, share, path = "")
-                pool.list(ref, credentials, folder).map { entry ->
-                    // path 必须是 share 内的完整相对路径，否则选中子目录后播放会打不开文件。
-                    val relative = if (folder.isBlank()) entry.name else "$folder\\${entry.name}"
-                    IndexEntry(
-                        path = relative,
-                        title = if (entry.isDirectory) entry.name
-                        else entry.name.substringBeforeLast('.'),
-                        sizeBytes = entry.sizeBytes,
-                        isDirectory = entry.isDirectory
-                    )
-                }
-            }
+            SourceType.SMB -> smbEntries(source, credentials, recursive)
             SourceType.WEBDAV -> WebDavScanner(credentials).list(source.address)
             SourceType.HTTP -> HttpDirectoryScanner(credentials).list(source.address)
             SourceType.DLNA -> if (source.address.startsWith("http", true)) {
@@ -157,6 +150,52 @@ class MediaIndexer(
                 "FTP / SFTP 随机读与列举计划在阶段三接入"
             )
         }
+    }
+
+    /**
+     * V2.17：SMB 片源的列举。**浏览只列一层，扫描才递归**——
+     * 浏览时递归会把整棵树摊平，用户就没法一层层点进去了。
+     *
+     * 递归带两道闸：最多 [MAX_SCAN_DIRS] 个目录、最多 [MAX_SCAN_ENTRIES] 个条目。
+     * 一个共享根下几十万个文件时宁可少收，也不能让「添加片库」卡死。
+     */
+    private fun smbEntries(
+        source: SourceEntity,
+        credentials: SmbCredentials,
+        recursive: Boolean
+    ): List<IndexEntry> {
+        val (host, share, folder) = parseUncFull(source.address)
+        val ref = MediaRef(source.id, SourceType.SMB, host, share, path = "")
+        val result = mutableListOf<IndexEntry>()
+        val queue = ArrayDeque<String>()
+        queue.addLast(folder)
+        var dirs = 0
+        while (queue.isNotEmpty() && dirs < MAX_SCAN_DIRS && result.size < MAX_SCAN_ENTRIES) {
+            val current = queue.removeFirst()
+            dirs++
+            // 起点这一层列不出来必须报错（否则用户以为片库是空的）；
+            // 下层某个子文件夹没权限就跳过，不能因为一个目录让整次扫描失败。
+            val listing = if (current == folder) {
+                pool.list(ref, credentials, current)
+            } else {
+                runCatching { pool.list(ref, credentials, current) }.getOrNull() ?: continue
+            }
+            for (entry in listing) {
+                // path 必须是 share 内的完整相对路径，否则选中子目录后播放会打不开文件。
+                val relative = if (current.isBlank()) entry.name else "$current\\${entry.name}"
+                if (entry.isDirectory) {
+                    if (recursive) queue.addLast(relative)
+                }
+                result += IndexEntry(
+                    path = relative,
+                    title = if (entry.isDirectory) entry.name
+                    else entry.name.substringBeforeLast('.'),
+                    sizeBytes = entry.sizeBytes,
+                    isDirectory = entry.isDirectory
+                )
+            }
+        }
+        return result
     }
 }
 

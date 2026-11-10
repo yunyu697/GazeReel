@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V2.17 横屏专用文案覆盖。
+
+  横屏顶栏是一条窄带，品牌、日志、进入 VR 三样挤在一行。
+  竖屏那句「运行日志 · 出问题请截图给我」在横屏会把品牌区挤掉三分之一，
+  这里只保留「运行日志」四个字——它在横屏是个图标位，不是说明文字。
+-->
+<resources>
+    <string name="setup_log_entry">运行日志</string>
+    <string name="setup_enter">进入 VR</string>
+</resources>
