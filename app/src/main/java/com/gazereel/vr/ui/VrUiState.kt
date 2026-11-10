@@ -102,6 +102,14 @@ data class VrUiState(
      */
     val stacks: List<MediaStack> = emptyList(),
     val activeStack: String? = null,
+    /**
+     * V2.18：换柜子整层（B2）。
+     * - [cabinetsOpen] 为真时，片库页整层换成「柜子」；
+     * - [cabinet] 是当前柜子的 sourceId，`0` 表示全部片库。
+     */
+    val cabinetsOpen: Boolean = false,
+    val cabinet: Long = 0L,
+    val cabinets: List<Cabinet> = emptyList(),
     val currentMediaId: Long = 0L,
     val currentTitle: String = "",
     val format: VrFormat = VrFormat.DEFAULT,
@@ -113,7 +121,8 @@ data class VrUiState(
     val lastActivityMs: Long = 0L,
     val settings: VrSettings = VrSettings(),
     /** mediaId → 断点续播记录（阶段二 FR-10）。 */
-    val progress: Map<Long, PlayProgressEntity> = emptyMap(),
+    /** V2.18：键是 `sourceId:path`，不再是可以变的自增 id。 */
+    val progress: Map<String, PlayProgressEntity> = emptyMap(),
     /** 当前片源的同名字幕，GL 线程按 positionMs 取当前行。 */
     val subtitles: List<SubtitleCue> = emptyList(),
     val message: String? = null,

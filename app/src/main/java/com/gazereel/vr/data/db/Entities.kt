@@ -46,15 +46,28 @@ data class SourceEntity(
     @ColumnInfo(name = "recursive") val recursive: Boolean = true
 )
 
-/** 断点续播与最近播放。 */
+/**
+ * 断点续播与最近播放。
+ *
+ * V2.18：主键从自增的 `media_id` 改成 **`media_key = sourceId:path`**。
+ *
+ * 真机反馈「隐藏之后再显示回来，断点被清除了」。查下来不是隐藏的锅：
+ * 隐藏只改 `enabled`。真正的链路是——只要 `media_item` 的行被重建过
+ * （改递归范围、换文件夹、重扫时行被删掉重插），自增 id 就会变，
+ * 而 `play_progress` 还挂在那串已经不存在的 id 上，断点就成了孤儿。
+ * 路径是稳定的，所以断点要挂在路径上，不要挂在自增主键上。
+ */
 @Entity(tableName = "play_progress")
 data class PlayProgressEntity(
     @PrimaryKey
-    @ColumnInfo(name = "media_id") val mediaId: Long,
+    @ColumnInfo(name = "media_key") val mediaKey: String,
     @ColumnInfo(name = "position_ms") val positionMs: Long = 0L,
     @ColumnInfo(name = "updated_at") val updatedAt: Long = 0L,
     @ColumnInfo(name = "finished") val finished: Boolean = false
 )
+
+/** `sourceId:path` —— 断点与格式记忆共用这一把钥匙。 */
+fun mediaKeyOf(item: MediaItemEntity): String = "${item.sourceId}:${item.path}"
 
 /** 用户手动覆盖的格式，键为 media_key（sourceId:path）。 */
 @Entity(tableName = "format_override")

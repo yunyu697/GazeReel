@@ -23,6 +23,7 @@ import com.gazereel.vr.data.db.MediaItemEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.gazereel.vr.data.db.mediaKeyOf
 
 /**
  * PRD 5.2 播放启动链路：
@@ -234,7 +235,7 @@ class PlayerController(
             val item = currentItem ?: return@onMain
             val position = player.currentPosition.coerceAtLeast(0L)
             val duration = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-            ioScope.launch { library.saveProgress(item.id, position, duration) }
+            ioScope.launch { library.saveProgress(mediaKeyOf(item), position, duration) }
         }
     }
 

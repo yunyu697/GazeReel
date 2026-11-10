@@ -130,11 +130,22 @@ class VrActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * V2.18：池子必须是字段，退出时要关。
+     *
+     * 真机反馈「取消勾选之后再扫描提示失败，要完全退出 APP 重开才能成功」。
+     * 查下来是一次**连接泄漏**：这里原本是局部变量，`onDestroy` 够不着它，
+     * 于是每进一次 VR 就在 NAS 上留下一条没关的 SMB 会话。
+     * 进出几次之后 NAS 的并发连接被占满，配置页再扫描就连不上了——
+     * 而重启 App 会把所有连接放掉，所以「重开就好了」。
+     */
+    private var pool: SmbSessionPool? = null
+
     private fun boot() {
         stage("database")
         val database = AppDatabase.get(this)
         val credentials = CredentialStore(this)
-        val pool = SmbSessionPool()
+        val pool = SmbSessionPool().also { this.pool = it }
         val settings = SettingsRepository(this)
         val library = LibraryRepository(database)
 
@@ -395,6 +406,9 @@ class VrActivity : AppCompatActivity() {
         if (::renderer.isInitialized) runCatching { renderer.release() }
         if (::headset.isInitialized) runCatching { headset.stop() }
         runCatching { stopService(Intent(this, PlaybackService::class.java)) }
+        // V2.18：把 SMB 会话还给 NAS。不关就是每次进出 VR 泄漏一条连接。
+        runCatching { pool?.close() }
+        pool = null
         super.onDestroy()
     }
 }

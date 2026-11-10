@@ -233,6 +233,18 @@ class SmbSessionPool {
         closeQuietly()
     }
 
+    /**
+     * V2.18：把会话还给设备。
+     *
+     * 以前只有 [invalidate] 能走到这里，而它只在「连接看起来坏了」的时候被调用。
+     * 于是退出界面时连接根本没关——每进一次 VR 就在 NAS 上留一条。
+     * 进出几次之后设备那边的并发连接被占满，下一次扫描就连不上，
+     * 用户看到的是「必须完全退出 App 重开才能扫描」。
+     */
+    fun close() {
+        closeQuietly()
+    }
+
     private fun closeQuietly() {
         // README 官方示例以 try-with-resources 关闭的正是这两个对象；
         // 其余引用随 Connection 一起释放，避免依赖未公开的 close() 签名。

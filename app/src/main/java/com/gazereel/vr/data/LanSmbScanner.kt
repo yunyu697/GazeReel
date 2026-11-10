@@ -93,11 +93,19 @@ class LanSmbScanner(private val context: Context? = null) {
             val name = synchronized(mdns) { mdns[ip] }
                 ?: netbiosName(ip)
                 ?: reverseName(ip)
+                // V2.18：Windows 默认不应答 137，也不注册 mDNS，前三条对它全断。
+                // 但 445 是开着的，所以顺着这条已经通了的路问它自己叫什么。
+                // 放在最后，只有前面全失败才多花一次连接（通常只有 PC 会走到这里）。
+                ?: smbName(ip)
                 ?: ""
             Host(ip, name)
         }
         return hosts.sortedBy { numeric(it.address) }
     }
+
+    /** srvsvc 的 NetrWkstaGetInfo：不依赖 137，只要 445 通就能拿到计算机名。 */
+    private fun smbName(ip: String): String? =
+        runCatching { sanitize(SmbNameProbe.machineName(ip).orEmpty()) }.getOrNull()
 
     private fun reachable(ip: String): Boolean = runCatching {
         Socket().use { socket ->

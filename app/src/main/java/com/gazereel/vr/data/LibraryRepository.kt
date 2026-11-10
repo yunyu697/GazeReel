@@ -76,14 +76,15 @@ class LibraryRepository(private val db: AppDatabase) {
 
     suspend fun clearFormatMemory() = db.formatOverrideDao().clear()
 
-    suspend fun resumePosition(mediaId: Long): Long =
-        db.progressDao().get(mediaId)?.positionMs ?: 0L
+    /** V2.18：断点挂在 `sourceId:path` 上，不再挂在会变的自增 id 上。 */
+    suspend fun resumePosition(mediaKey: String): Long =
+        db.progressDao().get(mediaKey)?.positionMs ?: 0L
 
-    suspend fun saveProgress(mediaId: Long, positionMs: Long, durationMs: Long) {
+    suspend fun saveProgress(mediaKey: String, positionMs: Long, durationMs: Long) {
         val finished = durationMs > 0 && positionMs >= durationMs - 1_000L
         db.progressDao().put(
             PlayProgressEntity(
-                mediaId = mediaId,
+                mediaKey = mediaKey,
                 positionMs = positionMs,
                 updatedAt = System.currentTimeMillis(),
                 finished = finished

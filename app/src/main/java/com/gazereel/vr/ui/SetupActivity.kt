@@ -3,6 +3,7 @@ package com.gazereel.vr.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
@@ -25,6 +26,7 @@ import com.gazereel.vr.data.FolderBrowser
 import com.gazereel.vr.data.LanScan
 import com.gazereel.vr.data.LanSmbScanner
 import com.gazereel.vr.data.MediaIndexer
+import com.gazereel.vr.data.RunLog
 import com.gazereel.vr.data.SmbCredentials
 import com.gazereel.vr.data.SmbSessionPool
 import com.gazereel.vr.data.SourceAddress
@@ -96,12 +98,79 @@ class SetupActivity : AppCompatActivity() {
         indexer = MediaIndexer(this, database, pool, credentials)
         browser = FolderBrowser(indexer, pool)
 
+        bindViews()
+
+        renderStatus(
+            Status.IDLE,
+            "点一个就行，不用填东西",
+            "手机里的视频，或者同一 Wi-Fi 下的设备。",
+            "未添加"
+        )
+        showLastCrash()
+        lifecycleScope.launch {
+            database.sourceDao().observeAll().collect { renderSources(it) }
+        }
+    }
+
+    override fun onDestroy() {
+        // V2.18：退出配置页也把会话还回去，不然它和 VR 各留一条。
+        runCatching { pool.close() }
+        super.onDestroy()
+    }
+
+    /**
+     * V2.18：横屏真的重排，而不是被拉伸。
+     *
+     * 上一版在 manifest 里加了 `configChanges="orientation|screenSize"`，本意是
+     * 「旋转时不重建，正在填的表单别丢」。但 `setContentView` 只在 onCreate 里调过一次，
+     * 旋转时 Activity 不重建 → **仍是竖屏那套 layout 被横向拉宽**，用户看到的就是
+     * 「完全没有重排，就只是简单拉伸了一下」。
+     *
+     * 正确做法：方向变化时自己重新 inflate 一套（横屏会用 layout-land），
+     * 再把视图绑一遍、按当前数据重画一次。表单里的文字按 id 搬过去，不丢输入。
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // 先把正在填的东西记下来，重新 inflate 之后填回去。
+        val keptType = binding.shareType.selectedItemPosition
+        val keptAddress = binding.shareAddress.text?.toString().orEmpty()
+        val keptUser = binding.shareUser.text?.toString().orEmpty()
+        val keptPass = binding.sharePass.text?.toString().orEmpty()
+        val keptNoSub = binding.scanNoSubfolders.isChecked
+        val manualOpen = binding.manualBlock.visibility == View.VISIBLE
+
+        binding = ActivitySetupBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        bindViews()
+
+        binding.shareType.setSelection(keptType)
+        binding.shareAddress.setText(keptAddress)
+        binding.shareUser.setText(keptUser)
+        binding.sharePass.setText(keptPass)
+        binding.scanNoSubfolders.isChecked = keptNoSub
+        if (manualOpen) showManual(true)
+
+        renderSources(currentSources)
+    }
+
+    /**
+     * 视图绑定集中在这里，因为 [onConfigurationChanged] 换了一整套 view 之后
+     * 必须重新绑一遍——漏掉任何一个，横屏下那个按钮就是死的。
+     */
+    private fun bindViews() {
         // 两个大入口：都不需要用户输入任何东西
         binding.localCard.setOnClickListener { addLocalVideos() }
         binding.lanCard.setOnClickListener { discoverLan() }
         binding.manualToggle.setOnClickListener { toggleManual() }
 
         binding.scanButton.setOnClickListener { connectAndBrowse() }
+        // V2.18：「＋ 加片库」直接把手动区展开并把焦点放到地址那一格。
+        // 用户要加同一台设备下的第二个文件夹时，最自然的动作是「再加一个片库」，
+        // 而不是先想「我该点哪个已有片库去编辑」。
+        binding.sourceAdd.setOnClickListener {
+            showManual(true)
+            binding.shareAddress.requestFocus()
+        }
         binding.enterVrButton.setOnClickListener {
             startActivity(Intent(this, VrActivity::class.java))
         }
@@ -117,17 +186,6 @@ class SetupActivity : AppCompatActivity() {
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
         syncFormForType()
-
-        renderStatus(
-            Status.IDLE,
-            "点一个就行，不用填东西",
-            "手机里的视频，或者同一 Wi-Fi 下的设备。",
-            "未添加"
-        )
-        showLastCrash()
-        lifecycleScope.launch {
-            database.sourceDao().observeAll().collect { renderSources(it) }
-        }
     }
 
     /**
@@ -239,7 +297,11 @@ class SetupActivity : AppCompatActivity() {
                     displayName = getString(R.string.setup_local_title)
                 )
                 val id = database.sourceDao().upsert(entity)
-                runCatching { indexer.scan(entity.copy(id = id)) }.getOrElse { -1 }
+                runCatching { indexer.scan(entity.copy(id = id)) }.getOrElse { error ->
+                    // V2.18：失败原因必须落到日志里，否则用户只能看到「扫描没成功」。
+                    RunLog.append("scan", "扫描失败 · ${entity.address} · ${error.message}")
+                    -1
+                }
             }
             setBusy(false)
             binding.localChip.text = getString(R.string.setup_local_chip)
@@ -348,7 +410,11 @@ class SetupActivity : AppCompatActivity() {
                     displayName = server.label
                 )
                 val id = database.sourceDao().upsert(entity)
-                runCatching { indexer.scan(entity.copy(id = id)) }.getOrElse { -1 }
+                runCatching { indexer.scan(entity.copy(id = id)) }.getOrElse { error ->
+                    // V2.18：失败原因必须落到日志里，否则用户只能看到「扫描没成功」。
+                    RunLog.append("scan", "扫描失败 · ${entity.address} · ${error.message}")
+                    -1
+                }
             }
             setBusy(false)
             renderScanResult(count, "已加入「${server.label}」")
@@ -387,11 +453,16 @@ class SetupActivity : AppCompatActivity() {
                 return@launch
             }
             prefillManual(SourceType.SMB, host.address)
+            // V2.18：两条死路都写清楚，并且给一条**不用记语法**的出路。
+            // 共享名不是「机器的语法」——用户在 NAS 管理界面里就叫它「影片」，
+            // 这里只让他补这一个看得见的名字，分隔符由程序补。
             renderStatus(
                 Status.ERR,
-                "「${host.label}」要账号才能进",
-                "IP 已经替你填好了，补上这台设备的账号密码，点「连接并选文件夹」就行。",
-                "待填账号"
+                "「${host.label}」没能进到共享列表",
+                "要么它要账号密码，要么它不允许程序枚举共享（Windows 常见）。" +
+                    "补上账号试一次；还不行就把地址写成「${host.address}/共享名」" +
+                    "——共享名在设备的管理界面里能看到。",
+                "待补信息"
             )
         }
     }
@@ -443,10 +514,13 @@ class SetupActivity : AppCompatActivity() {
     // ------------------------------------------------------------ 手动兜底
 
     private fun toggleManual() {
-        val open = binding.manualBlock.visibility == View.VISIBLE
-        binding.manualBlock.visibility = if (open) View.GONE else View.VISIBLE
+        showManual(binding.manualBlock.visibility != View.VISIBLE)
+    }
+
+    private fun showManual(open: Boolean) {
+        binding.manualBlock.visibility = if (open) View.VISIBLE else View.GONE
         binding.manualToggle.text =
-            if (open) getString(R.string.setup_manual_toggle) else "收起手动添加 ▴"
+            if (open) "收起 ▴" else getString(R.string.setup_manual_toggle)
     }
 
     private fun expandManual() {
@@ -573,7 +647,11 @@ class SetupActivity : AppCompatActivity() {
                     recursive = !binding.scanNoSubfolders.isChecked
                 )
                 val id = database.sourceDao().upsert(entity)
-                runCatching { indexer.scan(entity.copy(id = id)) }.getOrElse { -1 }
+                runCatching { indexer.scan(entity.copy(id = id)) }.getOrElse { error ->
+                    // V2.18：失败原因必须落到日志里，否则用户只能看到「扫描没成功」。
+                    RunLog.append("scan", "扫描失败 · ${entity.address} · ${error.message}")
+                    -1
+                }
             }
             setBusy(false)
             renderScanResult(result, "已添加「${state.displayName}」")
@@ -582,22 +660,25 @@ class SetupActivity : AppCompatActivity() {
 
     private fun renderScanResult(count: Int, prefix: String) {
         when {
+            // V2.18：真机反馈「再取消勾选之后提示扫描不成功」——但当时那句话没给任何线索，
+            // 用户只能退出 App 重开。现在把原因写进运行日志，并在界面上指路。
             count < 0 -> renderStatus(
                 Status.ERR,
                 "$prefix，但扫描没成功",
-                "片库已保存。检查设备是否在线，然后点这一行的「重扫」。",
+                "片库已保存。点右上角「运行日志」能看到具体原因；" +
+                    "常见原因是设备刚才断开了，点这一行的「重扫」再试一次。",
                 "需重扫"
             )
             count == 0 -> renderStatus(
                 Status.OK,
-                "$prefix · 这一层暂时没有视频",
-                "下层文件夹不会自动展开；想换一层点「改」→「换个文件夹」。",
+                "$prefix · 这次没找到视频",
+                "确认那个文件夹里真的有视频；或者点这一行进「编辑」，换一个文件夹。",
                 "已就绪"
             )
             else -> renderStatus(
                 Status.OK,
                 "$prefix，扫描到 $count 个视频",
-                "只收这一层的视频。换文件夹点「改」，不用重新添加。",
+                "子文件夹也一起扫了。想只收当前这一层，进「编辑」勾上「不扫描子文件夹」。",
                 "已就绪"
             )
         }
@@ -770,7 +851,10 @@ class SetupActivity : AppCompatActivity() {
                 if (address != source.address || recursive != source.recursive) {
                     purgeMedia(source.id)
                 }
-                runCatching { indexer.scan(updated) }.getOrElse { -1 }
+                runCatching { indexer.scan(updated) }.getOrElse { error ->
+                    RunLog.append("scan", "扫描失败 · ${updated.address} · ${error.message}")
+                    -1
+                }
             }
             setBusy(false)
             renderScanResult(result, "「${name.ifBlank { source.displayName }}」已更新")
@@ -798,7 +882,10 @@ class SetupActivity : AppCompatActivity() {
         setBusy(true, "正在重新扫描「${source.displayName}」…")
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { indexer.scan(source) }.getOrElse { -1 }
+                runCatching { indexer.scan(source) }.getOrElse { error ->
+                    RunLog.append("scan", "重扫失败 · ${source.address} · ${error.message}")
+                    -1
+                }
             }
             setBusy(false)
             renderScanResult(result, "「${source.displayName}」已重扫")
@@ -818,7 +905,7 @@ class SetupActivity : AppCompatActivity() {
         setBusy(true, "正在移除片库…")
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
-                purgeMedia(source.id)
+                purgeEverything(source.id)
                 database.sourceDao().deleteById(source.id)
                 if (source.credentialRef.isNotBlank()) {
                     credentials.remove(source.credentialRef)
@@ -834,12 +921,24 @@ class SetupActivity : AppCompatActivity() {
         }
     }
 
-    /** 顺序要紧：断点与格式记忆依赖 media_item，必须先清再删媒体行。 */
+    /**
+     * V2.18：**只清索引，不清断点。**
+     *
+     * 真机反馈「隐藏之后再显示回来，断点被清除了」——隐藏本身没动断点，
+     * 是改递归范围 / 换文件夹时这里把断点一起删了。断点是用户攒下来的东西，
+     * 改一次扫描范围不该丢；断点现在挂在 `sourceId:path` 上，路径没变就还能续上。
+     * 只有真正删除片库（[performDelete]）才连断点一起清。
+     */
     private suspend fun purgeMedia(sourceId: Long) {
-        database.progressDao().deleteBySource(sourceId)
         database.formatOverrideDao().deleteBySourcePrefix("$sourceId:")
         database.mediaDao().deleteBySource(sourceId)
         indexer.deletePosters(sourceId)
+    }
+
+    /** 删片库才用这个：断点也一起清，不留孤儿数据。 */
+    private suspend fun purgeEverything(sourceId: Long) {
+        purgeMedia(sourceId)
+        database.progressDao().deleteBySourcePrefix("$sourceId:")
     }
 
     // ------------------------------------------------------------ 片库列表
@@ -886,6 +985,10 @@ class SetupActivity : AppCompatActivity() {
                 row.sourceTitle.alpha = 0.55f
                 row.sourceSubtitle.alpha = 0.55f
             }
+            // V2.18：整行可点 = 编辑。真机反馈「点现有的片库也完全没有反应」——
+            // 原来只有右下角那个 12sp 的「编辑」小字能点，卡片本身是死的。
+            // 用户想「在同一台设备上再选一个文件夹」，第一反应就是点那张卡片。
+            row.root.setOnClickListener { showEditDialog(source) }
             row.sourceHide.setOnClickListener { toggleVisible(source) }
             row.sourceEdit.setOnClickListener { showEditDialog(source) }
             row.sourceRescan.setOnClickListener { rescan(source) }

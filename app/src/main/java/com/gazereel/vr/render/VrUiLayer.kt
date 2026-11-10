@@ -16,6 +16,7 @@ import com.gazereel.vr.core.VrFormat
 import com.gazereel.vr.data.db.MediaItemEntity
 import com.gazereel.vr.player.SubtitleParser
 import com.gazereel.vr.ui.AdjustFeedback
+import com.gazereel.vr.ui.Cabinet
 import com.gazereel.vr.ui.MediaStack
 import com.gazereel.vr.ui.VrOverlay
 import com.gazereel.vr.ui.VrScreen
@@ -27,6 +28,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
+import com.gazereel.vr.data.db.mediaKeyOf
 
 /**
  * PRD 4.4 / 4.3：把世界锁定 UI 用 Canvas 画到一张纹理，再由 VrRenderer
@@ -158,7 +160,9 @@ class VrUiLayer(
             VrOverlay.FORMAT -> drawFormat(state)
             VrOverlay.SETTINGS -> drawSettings(state)
             VrOverlay.NONE -> when (state.screen) {
-                VrScreen.LIBRARY -> drawLibrary(state)
+                // V2.18：柜子层盖在片库上，不另开一个 screen——它只换「看哪个片源」，
+                // 其余状态（翻页、断点、播放器）都不用重建。
+                VrScreen.LIBRARY -> if (state.cabinetsOpen) drawCabinets(state) else drawLibrary(state)
                 VrScreen.PLAYER -> drawPlayer(state)
             }
         }
@@ -319,12 +323,14 @@ class VrUiLayer(
         val page = state.page.coerceIn(0, pageCount - 1)
         val stack = state.currentStack
 
-        // V2.16：进了某一叠就写这一叠的名字，否则写「片库 · 共 N 部」。
-        // 成叠时括号里补一句「共 M 叠」，用户才知道自己现在在哪一层。
+        // V2.18：用户要求把这个层级叫「集合」——「叠」不是人话，改掉。
+        // 有集合时括号里补一句「共 M 个集合」，用户才知道自己现在在哪一层。
+        // V2.18：选了某个柜子就把柜名写在最前面，用户一眼知道自己在看哪个设备。
+        val root = state.cabinets.firstOrNull { it.sourceId == state.cabinet }?.label ?: "片库"
         val title = when {
-            stack != null -> "叠 · ${stack.label} · ${stack.items.size} 部"
-            state.showingStacks -> "片库 · ${state.items.size} 部 · ${state.stacks.size} 叠"
-            else -> "片库 · ${state.items.size} 部"
+            stack != null -> "集合 · ${stack.label} · ${stack.items.size} 部"
+            state.showingStacks -> "$root · ${state.items.size} 部 · ${state.stacks.size} 个集合"
+            else -> "$root · ${state.items.size} 部"
         }
         small.textSize = 30f
         label(ellipsize(title, 420f, small), 44f, 76f, 30f, C_TEXT)
@@ -378,7 +384,7 @@ class VrUiLayer(
                     // 配戴过程中手机一直在动，准星照样会扫到卡片上，主力是 V2.9 的触发键上膛。
                     val left = CELL_LEFT[slot % 4]
                     val top = CELL_TOP[slot / 4]
-                    val resume = state.progress[item.id]
+                    val resume = state.progress[mediaKeyOf(item)]
                         ?.takeIf { !it.finished && it.positionMs > 0L }
                     cell(
                         id = "cell$index",
@@ -394,7 +400,7 @@ class VrUiLayer(
 
         // ── 底栏（V2.16）────────────────────────────────────────────────
         // 播放中调出片库之后，必须有明摆着的路回到正在看的那一部；
-        // 进了某一叠，也要有明摆着的路退回全部叠。两个都放在底栏，靠左排。
+        // 进了某个集合，也要有明摆着的路退回全部集合。两个都放在底栏，靠左排。
         var barRight = 24f
         if (state.currentMediaId != 0L) {
             button(
@@ -406,14 +412,24 @@ class VrUiLayer(
         }
         if (state.activeStack != null) {
             button(
-                "closeStack", "← 全部叠",
+                "closeStack", "← 全部集合",
                 RectF(barRight, 424f, barRight + 184f, 490f), VrAction.CloseStack
             )
             barRight += 196f
         }
 
+        // V2.18：换片库靠右。只有两个以上真实片源时才出现——
+        // 只有一个片源时这个按钮什么也换不了，摆着只会让人点一次白点。
+        val showCabinets = state.cabinets.size > 2
+        if (showCabinets) {
+            button(
+                "openCabinets", "换片库",
+                RectF(1000f - 176f, 424f, 1000f, 490f), VrAction.OpenCabinets
+            )
+        }
+
         val hint = state.message ?: if (state.showingStacks) {
-            "凝视一叠即进入 · 摇头或左右箭头翻页"
+            "凝视一个集合即进入 · 摇头或左右箭头翻页"
         } else {
             "凝视一格即播放 · 摇头或左右箭头翻页"
         }
@@ -421,8 +437,9 @@ class VrUiLayer(
         if (barRight > 24f) {
             // 有按钮时提示靠右让位，避免压住按钮上的字。
             small.textSize = 18f
+            val hintRight = if (showCabinets) 1000f - 176f - 16f else 1000f
             label(
-                ellipsize(hint, 1000f - barRight - 16f, small), 1000f, 464f, 18f,
+                ellipsize(hint, hintRight - barRight - 16f, small), hintRight, 464f, 18f,
                 hintColor, Paint.Align.RIGHT
             )
             small.textSize = 18f
@@ -463,6 +480,90 @@ class VrUiLayer(
         label(
             stack.detail, rect.centerX() + 4f, baseY + lines.size * 32f + 6f, 20f,
             C_ACCENT, Paint.Align.CENTER
+        )
+    }
+
+    // ── 柜子层（V2.18 / B2）────────────────────────────────────────────
+    /**
+     * 换柜子整层：一屏摆出全部片源，凝视一次换整柜。
+     *
+     * 为什么值得单独一层：用户手里有两台 NAS、一台 PC、一个手机，戴镜后不能取手机，
+     * 想换个设备看只能退出 VR。这一层把「换设备」变成一次凝视。
+     *
+     * 3 列 × 2 行 = 6 个目标，仍在「单屏 ≤9」以内。第一个固定是「全部片库」——
+     * 不选柜子的时候才是默认视图，用户永远有一条回到全部的近路。
+     */
+    private fun drawCabinets(state: VrUiState) {
+        panel(RectF(20f, 14f, 1004f, 498f))
+
+        label(ellipsize("换片库", 420f, small), 44f, 76f, 30f, C_TEXT)
+        iconButton(
+            "exitCabinets", "退出", RectF(912f, 28f, 1008f, 94f),
+            VrAction.Exit, Glyph.POWER
+        )
+
+        val cabinets = state.cabinets.take(6)
+        if (cabinets.isEmpty()) {
+            centerText("还没有片源 · 请回到戴镜前配置添加共享", 250f, 22f, C_MUTED)
+            return
+        }
+
+        val gap = 18f
+        val left0 = 44f
+        val cellW = (1000f - left0 - gap * 2f) / 3f
+        for ((slot, cabinet) in cabinets.withIndex()) {
+            val left = left0 + (slot % 3) * (cellW + gap)
+            val top = if (slot < 3) 114f else 266f
+            cabinetCard(
+                cabinet,
+                RectF(left, top, left + cellW, top + CELL_H),
+                selected = cabinet.sourceId == state.cabinet
+            )
+        }
+
+        // 底栏：左边回片库，右边说清这一层是干什么的。
+        button(
+            "closeCabinets", "← 回片库",
+            RectF(24f, 424f, 208f, 490f), VrAction.CloseCabinets
+        )
+        small.textSize = 18f
+        label(
+            ellipsize("凝视一个柜子就切过去 · 每柜的片子不混在一起", 740f, small),
+            1000f, 464f, 18f, C_MUTED, Paint.Align.RIGHT
+        )
+        small.textSize = 18f
+    }
+
+    /** 一个柜子：名字 + 部数 + 类型胶囊；当前柜子加一道青色边框。 */
+    private fun cabinetCard(cabinet: Cabinet, rect: RectF, selected: Boolean) {
+        targets += GazeTarget(
+            "cabinet:${cabinet.sourceId}", cabinet.label, RectF(rect),
+            VrAction.SwitchCabinet(cabinet.sourceId)
+        )
+        fill.color = C_POSTER
+        canvas.drawRoundRect(rect, 14f, 14f, fill)
+        fill.color = if (selected) C_ACCENT else C_MUTED
+        canvas.drawRoundRect(
+            RectF(rect.left + 8f, rect.top + 12f, rect.left + 14f, rect.bottom - 12f),
+            3f, 3f, fill
+        )
+        stroke.color = if (selected) C_ACCENT else C_BORDER
+        stroke.strokeWidth = if (selected) 2.5f else 1.5f
+        canvas.drawRoundRect(rect, 14f, 14f, stroke)
+
+        strong.textSize = 28f
+        val lines = wrapTwoLines(cabinet.label, rect.width() - 52f)
+        val baseY = rect.centerY() - 6f - (lines.size - 1) * 16f
+        lines.forEachIndexed { index, line ->
+            strongLabel(
+                line, rect.centerX() + 4f, baseY + index * 32f, 28f, C_TEXT, Paint.Align.CENTER
+            )
+        }
+        val detail = if (cabinet.chip.isBlank()) "${cabinet.count} 部"
+        else "${cabinet.chip} · ${cabinet.count} 部"
+        label(
+            detail, rect.centerX() + 4f, baseY + lines.size * 32f + 6f, 20f,
+            if (selected) C_ACCENT else C_MUTED, Paint.Align.CENTER
         )
     }
 

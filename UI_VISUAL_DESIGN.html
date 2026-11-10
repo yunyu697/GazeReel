@@ -1450,8 +1450,91 @@ footer{margin-top:72px;padding-top:22px;border-top:1px solid var(--line);font-si
 
 <div class="note">① <b>以上全部没有真机验证</b>——名字的第三次修、srvsvc 两种排布、递归扫描、凭证复用、隐藏/显示、横屏版式，都只经过静态校验（53 Kotlin / 9,782 行 / 25 对 id 一致）、真实编译与离屏推演；② 横屏只做了配置页，<b>对话框（编辑片库、选文件夹）没有横屏变体</b>，横屏下打开会是竖屏比例居中；③ 隐藏的片库在 VR 里不出现，但<b>「换柜子」整层还没做（B2）</b>，所以「临时藏起来」目前只能靠退出 VR 改配置；④ 子文件夹扫描是单次深度优先展开，<b>不做增量</b>——改了远端目录要手动重扫。</div>
 
+<h2>16 / V2.18 增补：横屏、断点、连接泄漏与「换片库」</h2>
+
+<p class="sub">alpha7 真机反馈九条。两条好消息：两台 NAS 的名字对了，子文件夹也能扫到了。其余七条里，三条是真正的实现缺陷（横屏没重排、断点被清、扫描要重启 App），两条是入口找不到，两条是文案与版式。这一章逐条说清根因，并补上 B2「换柜子整层」。</p>
+
+<h4>16.1 横屏为什么「只是拉伸」</h4>
+
+<div class="quote">用户原话：「横屏完全没有重排，就只是简单拉伸了一下。」——上一版我确实写了 <code>layout-land</code>，两栏、独立滚动、短文案全都做了，但它根本没被用上。</div>
+
+<table>
+<tr><th>环节</th><th>上一版</th><th>结果</th></tr>
+<tr><td>manifest</td><td>加了 <code>configChanges="orientation|screenSize"</code>，本意是旋转时不重建、别把正在填的表单弄丢</td><td>方向变化时 Activity <b>不重建</b></td></tr>
+<tr><td>布局切换</td><td><code>setContentView</code> 只在 <code>onCreate</code> 里调过一次</td><td>横过来仍然是竖屏那套 layout，被横向拉宽——<b>写好的 layout-land 一次都没加载</b></td></tr>
+</table>
+
+<p>修法：在 <code>onConfigurationChanged</code> 里自己重新 inflate 一套（系统这时才会按 <code>layout-land</code> 取资源）、重新绑视图、按当前数据重画一次；表单里已经填的内容按 id 搬过去，不丢输入。视图绑定抽成 <code>bindViews()</code>——漏掉任何一个，横屏下那个按钮就是死的。</p>
+
+<div class="note"><strong>教训：</strong>「旋转不重建」是个好目标，但它和「按方向换布局」是两件事。加了 <code>configChanges</code> 就等于<strong>自己接管</strong>方向变化的全部后果，包括换布局。只加 configChanges 不写 <code>onConfigurationChanged</code>，等于既没重建、也没换布局。</div>
+
+<h4>16.2 断点为什么丢了</h4>
+
+<p>用户看到的是「隐藏之后再显示回来，断点没了」，于是以为是隐藏的锅。回源码核对：隐藏只改 <code>enabled</code> 一列，不碰断点。真正的原因在更下面——</p>
+
+<table>
+<tr><th>表</th><th>上一版</th><th>问题</th></tr>
+<tr><td><code>media_item</code></td><td>主键是自增 <code>id</code></td><td>改递归范围、换文件夹、重扫时行会被删掉重插，<b>自增 id 就变了</b></td></tr>
+<tr><td><code>play_progress</code></td><td>主键是 <code>media_id</code>，外挂在那串 id 上</td><td>id 一变，断点全成孤儿。<b>用户攒了几十个小时的进度，被一次「改个扫描范围」清空。</b></td></tr>
+</table>
+
+<p>修法：断点主键改成 <code>media_key = sourceId:path</code>——路径是稳定的。同时 <code>purgeMedia()</code> 不再删断点，只有真正删除片库才连断点一起清。数据库 2→3 的迁移用 <code>media_item</code> 把旧 <code>media_id</code> 翻译成路径接续过来，升级一次不会清掉已有断点。</p>
+
+<h4>16.3 「要完全退出 App 重开才能扫描」</h4>
+
+<div class="quote">用户原话：「取消勾选之后提示扫描不成功，要完全退出 APP 再重新打开才能扫描成功。」——「重开就好」这四个字指向内存或连接，不是网络。</div>
+
+<p>查到的是<b>连接泄漏</b>：<code>VrActivity.boot()</code> 里的 <code>SmbSessionPool</code> 是<b>局部变量</b>，<code>onDestroy</code> 够不着它，于是每进一次 VR 就在 NAS 上留下一条没关的 SMB 会话。进出几次之后，设备那边的并发连接被占满，配置页再扫描就连不上——而重启 App 会把所有连接放掉，所以「重开就好了」。</p>
+
+<p>修法：池子提升为字段，<code>onDestroy</code> 里 <code>close()</code>；配置页退出时也关；<code>SmbSessionPool</code> 补一个 public <code>close()</code>（原来只有「连接看起来坏了」才走的 <code>invalidate()</code>）。另外把扫描失败的具体原因写进运行日志并在界面上指路——上一版只说「扫描没成功」，用户除了重启没有第二条路可走。</p>
+
+<h4>16.4 加片库的入口，和整行可点</h4>
+
+<div class="quote">用户原话：「加第二个文件夹根本不知道怎么操作，点现有的片库也完全没有反应。」</div>
+
+<div class="grid2">
+<div class="card"><span class="num">入口</span><h4>「＋ 加片库」和已有片库放在一起</h4><p>原来唯一的入口是列表下面的「手动添加」折叠区——位置在片库之后，文案又像设置项。现在「我的片库」标题行右侧直接一个「＋ 加片库」，点开把手动区展开、焦点落在地址格。</p></div>
+<div class="card"><span class="num">整行</span><h4>点卡片就是编辑</h4><p>原来只有右下角那个 12sp 的「编辑」小字能点，卡片本身是死的。用户想「在同一台设备上再选一个文件夹」，第一反应就是点那张卡片——现在点了就进编辑。</p></div>
+</div>
+
+<h4>16.5 隐藏按钮和别的按钮叠在一起</h4>
+
+<p>两个原因一起改：卡片根布局原来<b>没有 padding</b>，按钮行直接贴着卡片右边缘；「隐藏」与「编辑」之间又<b>没有 marginStart</b>，两块带底色的按钮紧挨着，看起来就是叠着的。现在统一 14dp 内边距 + 每个按钮 8dp 间距，四个按钮等宽 52dp。</p>
+
+<h4>16.6 「叠」改成「集合」</h4>
+
+<div class="quote">用户原话：「还有『叠』改成『集合』，不要用些奇奇怪怪的名称。」</div>
+
+<p>全部用户可见文案改掉：标题里的「N 个集合」、底栏的「← 全部集合」、提示里的「凝视一个集合即进入」。内部代码里的 <code>MediaStack</code> / <code>StackBuilder</code> 不动——那是实现，不是用户读到的字。<b>产品里的词必须是人话，代码里的词只要准确就行。</b></p>
+
+<h4>16.7 名字的第四条路，与共享列表的出路</h4>
+
+<div class="grid2">
+<div class="card"><span class="num">PC 名字</span><h4>Windows 默认不应答 137</h4><p>两台 NAS 名字对了、PC 还是 IP。原因很具体：Windows 关着「网络发现」时不应答 NBSTAT（137/UDP），mDNS 里也不注册 <code>_smb._tcp</code>，家用路由器又常常没有 PTR。三条路全断。但 445 是开着的——那就顺着这条已经通了的路问它自己：srvsvc 的 <code>NetrWkstaGetInfo</code>（opnum 6），<code>wki100_computername</code> 就是「网络」里那个名字。放在最后才试，只有前面全失败才多花一次连接。</p></div>
+<div class="card"><span class="num">共享列表</span><h4>枚举失败时给一条不用记语法的出路</h4><p>只输 IP 的设备仍然不回报共享列表。这一版把 srvsvc 每一步（绑定 / 请求 / 解析）的失败原因都写进运行日志，并在界面上直说：「要么它要账号，要么它不允许程序枚举共享（Windows 常见）。把地址写成 <code>IP/共享名</code> 就能直接连——共享名在设备管理界面里能看到。」共享名不是机器的语法，是用户看得见的名字；分隔符由程序补。</p></div>
+</div>
+
+<h4>16.8 B2 换柜子整层（新做）</h4>
+
+<p>设计 08.2 的三层里，「柜子」这一层一直空着——片库是全部片源混在一起。用户手里有两台 NAS、一台 PC、一个手机，戴镜后不能取手机，想换个设备看只能退出 VR。这一版补上：</p>
+
+<table>
+<tr><th>位置</th><th>做法</th><th>为什么</th></tr>
+<tr><td>入口</td><td>片库底栏右侧「换片库」</td><td>底栏左侧已被「返回播放 / ← 全部集合」占住，右侧本来只有提示文字，让位即可</td></tr>
+<tr><td>出现条件</td><td>只有<b>两个以上真实片源</b>才出现</td><td>只有一个片源时这个按钮什么也换不了，摆着只会让人点一次白点</td></tr>
+<tr><td>柜子层</td><td>3 列 × 2 行 = 6 个目标，第一个固定是「全部片库」</td><td>仍在「单屏 ≤9」以内；「全部」永远在最前面，用户有一条回到全部的近路</td></tr>
+<tr><td>换柜之后</td><td>回到「全部集合」，页码归零</td><td>上一个柜子的集合和这个柜子没有关系，留着只会指向空列表</td></tr>
+<tr><td>片库标题</td><td>选中的柜名写在最前面（如「飞牛 NAS · 832 部」）</td><td>戴镜后一眼知道自己在看哪个设备</td></tr>
+</table>
+
+<div class="note"><strong>离屏预览核对（<code>tools/preview_cabinets.py</code> → <code>output/library-cabinets.png</code>）：</strong>5 个柜子排成 3 + 2，卡片不越出面板、名字两行与「共享 · N 部」不重叠、底栏按钮与右侧提示不打架。<b>这类问题只有画出来才看得见。</b></div>
+
+<h4>16.9 这一章明确没做</h4>
+
+<div class="note">① <b>以上全部没有真机验证</b>——横屏重排、断点迁移、连接释放、加片库入口、按钮间距、集合改名、srvsvc 取名、换柜子整层，都只经过静态校验（54 Kotlin / 10,341 行 / 26 对 id 一致）、真实编译与离屏预览；② <b>共享列表本身仍未打通</b>：这一版加的是日志与出路，不是修复；③ <b>每柜记住上次那一叠（B3）没做</b>，换柜往返会回到该柜的「全部集合」；④ <b>柜子层不支持超过 6 个片源</b>，第 7 个起不显示（实际使用里几乎不会遇到）；⑤ 姿态闭环（B4）、舒适俯角（B5）、UI 三层拆分（B6）、看图选格式（B7）仍全部是设计。</div>
+
 <footer>
-GazeReel 凝影 · 视觉设计 V2.17 · 熄灯后的放映室 / 私人影带柜 · 标语：目光所及，皆是片库
+GazeReel 凝影 · 视觉设计 V2.18 · 熄灯后的放映室 / 私人影带柜 · 标语：目光所及，皆是片库
 </footer>
 
 </div>

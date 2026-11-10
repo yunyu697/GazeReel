@@ -57,13 +57,7 @@ internal object SrvsvcShareEnum {
                 null
             )
             try {
-                val bindAck = readFully(pipe, pipe.transact(bindPdu(CALL_ID)))
-                if (bindAck.size < 16 || (bindAck[2].toInt() and 0xFF) != PTYPE_BIND_ACK) {
-                    val type = if (bindAck.size >= 3) bindAck[2].toInt() and 0xFF else -1
-                    throw IOException(
-                        "srvsvc 绑定被拒（应答类型 $type，${bindAck.size} 字节）"
-                    )
-                }
+                bind(pipe, host, "共享枚举")
                 // V2.17：入参有两种合法排布（联合体成员是指针 / 不是指针），
                 // 我无法在真机上确认这台设备认哪一种，所以两种都发一次。
                 // 错的那种只会换来一个 fault，代价是一次往返，换来的是不必再猜。
@@ -102,6 +96,57 @@ internal object SrvsvcShareEnum {
             }
         } finally {
             runCatching { ipc.close() }
+        }
+    }
+
+    /**
+     * V2.18：设备叫什么名字 —— 走 srvsvc 的 NetrWkstaGetInfo（opnum 6），
+     * **不依赖 137 端口**。
+     *
+     * 真机反馈「两台 NAS 的名字对了，但 PC 还是显示 IP」。原因是 Windows 默认
+     * 关着「网络发现」时**不应答 NBSTAT（137/UDP）**，mDNS 里也不注册 `_smb._tcp`，
+     * 家用路由器又常常没有 PTR 记录 —— 三条路全断，只能显示 IP。
+     * 但只要 445 连得上，就能问它自己：`wki100_computername` 就是「网络」里那个名字。
+     *
+     * 解析故意写得宽松：在应答里找第一个形态合法的 NDR WCHAR 字符串。
+     * WKSTA_INFO_100 的 computername 就是第一个变长字符串，比死抠偏移更耐各家实现差异。
+     */
+    fun machineName(session: Session, host: String): String? {
+        val ipc = session.connectShare("IPC\$") as? PipeShare ?: return null
+        try {
+            val pipe = ipc.open(
+                PIPE_NAME,
+                SMB2ImpersonationLevel.Impersonation,
+                EnumSet.of(AccessMask.GENERIC_READ, AccessMask.GENERIC_WRITE),
+                null,
+                EnumSet.of(SMB2ShareAccess.FILE_SHARE_READ, SMB2ShareAccess.FILE_SHARE_WRITE),
+                SMB2CreateDisposition.FILE_OPEN,
+                null
+            )
+            try {
+                bind(pipe, host, "取设备名")
+                val pdu = pipe.transact(requestPdu(CALL_ID + 2, wkstaStub(host)))
+                val stub = pdu.copyOfRange(24, pdu.size)
+                return parseFirstString(stub)
+            } finally {
+                runCatching { pipe.close() }
+            }
+        } finally {
+            runCatching { ipc.close() }
+        }
+    }
+
+    /** 绑定上下文；失败时把应答类型与字节数写进日志，不再只说「没返回」。 */
+    private fun bind(pipe: NamedPipe, host: String, what: String) {
+        val bindAck = runCatching { readFully(pipe, pipe.transact(bindPdu(CALL_ID))) }
+            .getOrElse { error ->
+                RunLog.append("smb", "$what · 绑定失败 · $host · ${error.message}")
+                throw IOException("srvsvc 绑定失败：${error.message}", error)
+            }
+        val type = if (bindAck.size >= 3) bindAck[2].toInt() and 0xFF else -1
+        if (bindAck.size < 16 || type != PTYPE_BIND_ACK) {
+            RunLog.append("smb", "$what · 绑定被拒 · $host · 类型 $type · ${bindAck.size} 字节")
+            throw IOException("srvsvc 绑定被拒（应答类型 $type，${bindAck.size} 字节）")
         }
     }
 
@@ -183,9 +228,48 @@ internal object SrvsvcShareEnum {
             writeLe32(0)                            // *ResumeHandle = 0
         }.toByteArray()
 
+    /**
+     * NetrWkstaGetInfo 的入参：ServerName 引用 + Level 100。
+     * 定长部分只有 8 字节，字符串按 NDR 规则延后。
+     */
+    internal fun wkstaStub(host: String): ByteArray =
+        ByteArrayOutputStream().apply {
+            writeLe32(0x0002_0000L)                 // ServerName 引用
+            writeLe32(100)                          // Level = 100（WKSTA_INFO_100）
+            writeWString("\\\\$host")
+        }.toByteArray()
+
+    /**
+     * 从应答里取第一个形态合法的 NDR WCHAR 字符串。
+     *
+     * WKSTA_INFO_100 的定长部分是 20 字节（platform_id / computername 指针 /
+     * lan_group 指针 / 主次版本号），之后按出现顺序排 computername、lan_group。
+     * 所以第一个字符串就是计算机名。这里按 4 字节步进扫，不去死抠偏移——
+     * 各家在 padding 上不完全一致，扫比算更耐。
+     */
+    private fun parseFirstString(stub: ByteArray): String? {
+        var p = 0
+        while (p + 12 <= stub.size) {
+            val maxCount = runCatching { u32(stub, p).toInt() }.getOrNull() ?: return null
+            val offset = runCatching { u32(stub, p + 4).toInt() }.getOrNull() ?: return null
+            val actual = runCatching { u32(stub, p + 8).toInt() }.getOrNull() ?: return null
+            if (maxCount in 2..64 && offset == 0 && actual in 1..64 && actual <= maxCount) {
+                val begin = p + 12
+                val bytes = (actual - 1) * 2
+                if (bytes > 0 && begin + bytes <= stub.size) {
+                    val text = String(stub, begin, bytes, Charsets.UTF_16LE)
+                    val clean = text.all { it.code in 0x20..0x7E || it.code > 0x00A0 } &&
+                        text.none { it == '\\' || it == '/' }
+                    if (text.isNotBlank() && clean) return text.trim()
+                }
+            }
+            p += 4
+        }
+        return null
+    }
+
     /** NDR 的 [string] WCHAR*：max_count / offset / actual_count 三个 DWORD，再是字符。 */
-    private fun ByteArrayOutputStream.writeWString(value: String) {
-        val units = value.length + 1                       // 含结尾 0
+    private fun ByteArrayOutputStream.writeWString(value: String) {        val units = value.length + 1                       // 含结尾 0
         writeLe32(units.toLong())                          // max_count
         writeLe32(0)                                       // offset
         writeLe32(units.toLong())                          // actual_count

@@ -1,11 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- V2.6：片库不再「加进去就锁死」。每张卡片自带 改 / 重扫 / 删 三个可见动作，
-     不用长按、不用进二级菜单，也不让用户为了换文件夹而重新添加一遍。 -->
+<!--
+  V2.6：片库不再「加进去就锁死」。每张卡片自带可见动作，不用长按、不用进二级菜单。
+
+  V2.18：真机反馈「隐藏按钮和其它按钮重叠了」。两个原因一起改：
+  ① 根布局原来**没有 padding**，按钮行直接贴着卡片右边缘；
+  ② 隐藏与编辑之间没有 marginStart，两块带底色的按钮紧挨在一起，看起来就是叠着的。
+  现在统一 14dp 内边距 + 每个按钮 8dp 间距；整行本身可点 = 编辑，
+  按钮只是「不用找也能看见」的快捷方式。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="8dp"
     android:minHeight="58dp"
+    android:padding="14dp"
     android:orientation="vertical"
     android:background="@drawable/bg_setup_box">
 
@@ -66,16 +74,11 @@
         android:orientation="horizontal"
         android:gravity="end">
 
-        <View
-            android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
-
         <TextView
             android:id="@+id/sourceHide"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:minWidth="56dp"
+            android:minWidth="52dp"
             android:minHeight="32dp"
             android:gravity="center"
             android:background="@drawable/bg_setup_chip"
@@ -87,7 +90,8 @@
             android:id="@+id/sourceEdit"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:minWidth="48dp"
+            android:layout_marginStart="8dp"
+            android:minWidth="52dp"
             android:minHeight="32dp"
             android:gravity="center"
             android:background="@drawable/bg_setup_chip"
@@ -100,7 +104,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:minWidth="56dp"
+            android:minWidth="52dp"
             android:minHeight="32dp"
             android:gravity="center"
             android:background="@drawable/bg_setup_chip"
@@ -113,7 +117,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:minWidth="48dp"
+            android:minWidth="52dp"
             android:minHeight="32dp"
             android:gravity="center"
             android:background="@drawable/bg_setup_chip"

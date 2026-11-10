@@ -76,8 +76,8 @@ interface ProgressDao {
     @Query("SELECT * FROM play_progress")
     fun observeAll(): Flow<List<PlayProgressEntity>>
 
-    @Query("SELECT * FROM play_progress WHERE media_id = :mediaId")
-    suspend fun get(mediaId: Long): PlayProgressEntity?
+    @Query("SELECT * FROM play_progress WHERE media_key = :mediaKey")
+    suspend fun get(mediaKey: String): PlayProgressEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(progress: PlayProgressEntity)
@@ -85,9 +85,13 @@ interface ProgressDao {
     @Query("SELECT * FROM play_progress WHERE finished = 0 ORDER BY updated_at DESC LIMIT 1")
     suspend fun lastPlayed(): PlayProgressEntity?
 
-    // V2.6：删除片库时先删断点（依赖 media_item.id，必须在 deleteBySource 之前调用）。
-    @Query("DELETE FROM play_progress WHERE media_id IN (SELECT id FROM media_item WHERE source_id = :sourceId)")
-    suspend fun deleteBySource(sourceId: Long)
+    /**
+     * V2.18：断点挂在 `sourceId:path` 上，所以删片库时按前缀清，不再依赖 media_item 的 id。
+     * 注意 [com.gazereel.vr.ui.SetupActivity.purgeMedia] 已经**不再**调用它——
+     * 改递归范围或换文件夹不该丢掉断点，那是用户攒下来的东西。
+     */
+    @Query("DELETE FROM play_progress WHERE substr(media_key, 1, length(:prefix)) = :prefix")
+    suspend fun deleteBySourcePrefix(prefix: String)
 }
 
 @Dao

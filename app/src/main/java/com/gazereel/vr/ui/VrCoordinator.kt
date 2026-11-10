@@ -23,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import com.gazereel.vr.data.db.mediaKeyOf
 
 /**
  * PRD 4.5 界面状态机 + 6.5 动作分发落点：
@@ -109,7 +110,16 @@ class VrCoordinator(
     fun loadItems(items: List<MediaItemEntity>) {
         rawItems = items
         // V2.17：隐藏的片库连它的片子一起不进片库页。索引与断点都还在库里，只是不显示。
-        val visible = enabledSourceIds?.let { ids -> items.filter { it.sourceId in ids } } ?: items
+        val allowed = enabledSourceIds?.let { ids -> items.filter { it.sourceId in ids } } ?: items
+
+        // V2.18：柜子那一层。选中的柜子要是已经没片子了（片源被删/被隐藏），回落到「全部」，
+        // 否则用户会看到一个空片库，而且不知道为什么会空。
+        val cabinets = buildCabinets(allowed)
+        val cabinet = uiState.cabinet
+            .takeIf { id -> id == 0L || allowed.any { it.sourceId == id } }
+            ?: 0L
+        val visible = if (cabinet == 0L) allowed else allowed.filter { it.sourceId == cabinet }
+
         val keepId = uiState.selectedItem?.id
         val index = visible.indexOfFirst { it.id == keepId }
             .takeIf { it >= 0 }
@@ -122,6 +132,8 @@ class VrCoordinator(
             items = visible,
             stacks = stacks,
             activeStack = activeStack,
+            cabinets = cabinets,
+            cabinet = cabinet,
             selectedIndex = index.coerceIn(0, maxOf(0, visible.size - 1))
         )
         // 页码要按「这一屏现在有几个格子」收敛：成叠之后页数会少一大截。
@@ -130,7 +142,58 @@ class VrCoordinator(
 
     /** 阶段二 FR-10：片库卡片据此显示「上次看到 mm:ss」。 */
     fun loadProgress(all: List<PlayProgressEntity>) {
-        uiState = uiState.copy(progress = all.associateBy { it.mediaId })
+        uiState = uiState.copy(progress = all.associateBy { it.mediaKey })
+    }
+
+    /**
+     * V2.18：把「柜子」这一层算出来。第一个永远是「全部片库」。
+     *
+     * 只有一个片源时这一层没有意义，UI 会据此不画「换片库」按钮——
+     * 多一层就是多一次要理解的选择，没有收益就别加。
+     */
+    private fun buildCabinets(items: List<MediaItemEntity>): List<Cabinet> {
+        if (items.isEmpty()) return emptyList()
+        val out = mutableListOf(Cabinet(0L, "全部片库", items.size))
+        val groups = items.groupBy { it.sourceId }
+        for ((id, list) in groups) {
+            val source = sources[id] ?: continue
+            out += Cabinet(
+                sourceId = id,
+                label = source.displayName.ifBlank { "片库 $id" },
+                count = list.size,
+                chip = cabinetChip(source.type)
+            )
+        }
+        // 柜子按名字排，和戴镜前配置页里的顺序一致，用户不用重新建立方位感。
+        return listOf(out.first()) + out.drop(1).sortedBy { it.label }
+    }
+
+    /** 卡片上不写协议缩写，写「这是什么」。与配置页 `chipFor` 保持同一套说法。 */
+    private fun cabinetChip(type: String): String = when (type) {
+        "LOCAL" -> "本机"
+        "SMB" -> "共享"
+        "WEBDAV" -> "网盘"
+        "HTTP" -> "网页目录"
+        "DLNA" -> "媒体服务器"
+        else -> type
+    }
+
+    /**
+     * 换整柜：一次凝视换一个片源，不弹菜单、不重新扫描。
+     * 换柜之后回到「全部集合」，因为上一个柜子的集合和这个柜子没有关系。
+     */
+    private fun switchCabinet(sourceId: Long) {
+        val label = uiState.cabinets.firstOrNull { it.sourceId == sourceId }?.label ?: "全部片库"
+        uiState = uiState.copy(
+            cabinet = sourceId,
+            cabinetsOpen = false,
+            activeStack = null,
+            page = 0,
+            selectedIndex = 0
+        )
+        loadItems(rawItems)
+        RunLog.append("ui", "换柜 → $label")
+        showMessage("现在是「$label」")
     }
 
     fun handle(action: VrAction, channel: InputChannel) {
@@ -157,6 +220,10 @@ class VrCoordinator(
             is VrAction.PageFlip -> flipPage(action.delta)
             is VrAction.OpenStack -> openStack(action.key)
             VrAction.CloseStack -> closeStack()
+            // V2.18：换柜子整层（B2）
+            VrAction.OpenCabinets -> uiState = uiState.copy(cabinetsOpen = true)
+            VrAction.CloseCabinets -> uiState = uiState.copy(cabinetsOpen = false)
+            is VrAction.SwitchCabinet -> switchCabinet(action.sourceId)
             VrAction.ResumePlayback -> resumePlayback()
             VrAction.TogglePlay -> player.togglePlay()
             // V2.8：片库里 Next / Previous 只能是翻页。
@@ -256,7 +323,7 @@ class VrCoordinator(
             lastActivityMs = SystemClock.elapsedRealtime()
         )
         scope.launch {
-            val resume = withContext(Dispatchers.IO) { library.resumePosition(item.id) }
+            val resume = withContext(Dispatchers.IO) { library.resumePosition(mediaKeyOf(item)) }
             // V2.14：播放器自身固定满增益，音量交给系统媒体音量，
             // 不再出现「app 存 75 / 系统是 0」这种两套数值打架的情况。
             player.setVolume(100)
@@ -337,7 +404,7 @@ class VrCoordinator(
     private fun openStack(key: String) {
         val stack = uiState.stacks.firstOrNull { it.key == key } ?: return
         uiState = uiState.copy(activeStack = key, page = 0, consoleVisible = true)
-        RunLog.append("ui", "进入叠 ${stack.label}（${stack.items.size} 部）")
+        RunLog.append("ui", "进入集合 ${stack.label}（${stack.items.size} 部）")
     }
 
     private fun closeStack() {
@@ -393,6 +460,8 @@ class VrCoordinator(
                     page = if (index >= 0) index / VrUiState.PAGE_SIZE else state.page
                 )
             }
+            // V2.18：柜子层按返回，退回片库，不要直接说「已在首页」。
+            state.cabinetsOpen -> uiState = state.copy(cabinetsOpen = false)
             // V2.16：在某一叠里按返回，先退回「全部叠」，而不是直接说「已在首页」。
             state.activeStack != null -> closeStack()
             else -> showMessage("已在片库首页 · 凝视「退出」可返回配置")

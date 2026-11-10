@@ -51,6 +51,20 @@ sealed class VrAction {
     object CloseStack : VrAction()
 
     /**
+     * V2.18：换柜子整层（B2）。
+     *
+     * 「柜子」= 一台设备或一个片源。戴镜后不取手机，所以要换片源只能在这里换：
+     * 一屏摆出全部柜子（含「全部」），凝视一次就换整柜，不弹菜单、不重新扫描。
+     * 这是设计 08.2 的三层里唯一还空着的一层。
+     */
+    object OpenCabinets : VrAction()
+
+    object CloseCabinets : VrAction()
+
+    /** `sourceId = 0` 表示「全部片库」。 */
+    data class SwitchCabinet(val sourceId: Long) : VrAction()
+
+    /**
      * V2.16：播放中调出片库之后，一个动作回到正在看的那一部。
      *
      * 原来从播放页按「片库」只有长按触发键或重新凝视那一格才能回去，

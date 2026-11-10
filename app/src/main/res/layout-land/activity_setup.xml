@@ -290,6 +290,22 @@
                         android:layout_height="wrap_content"
                         android:textSize="11sp"
                         android:textColor="@color/setup_muted" />
+
+                    <!-- V2.18：加片库的入口必须和已有片库放在一起，不能藏在列表下面。 -->
+                    <TextView
+                        android:id="@+id/sourceAdd"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:minWidth="56dp"
+                        android:minHeight="32dp"
+                        android:gravity="center"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:background="@drawable/bg_setup_chip"
+                        android:text="@string/setup_add_source"
+                        android:textSize="11sp"
+                        android:textColor="@color/setup_cyan" />
                 </LinearLayout>
 
                 <LinearLayout

@@ -259,6 +259,24 @@
                     android:layout_height="wrap_content"
                     android:textSize="12sp"
                     android:textColor="@color/setup_muted" />
+
+                <!-- V2.18：用户真机反馈「加第二个文件夹根本不知道怎么操作」。
+                     原来唯一入口是底下的「手动添加」折叠区，位置在列表之后、文案又像设置项。
+                     这里在片库标题行直接给一个「＋ 加片库」，和已有的片库放在一起。 -->
+                <TextView
+                    android:id="@+id/sourceAdd"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:minWidth="56dp"
+                    android:minHeight="32dp"
+                    android:gravity="center"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:background="@drawable/bg_setup_chip"
+                    android:text="@string/setup_add_source"
+                    android:textSize="12sp"
+                    android:textColor="@color/setup_cyan" />
             </LinearLayout>
 
             <LinearLayout

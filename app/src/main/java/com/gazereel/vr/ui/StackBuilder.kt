@@ -22,6 +22,17 @@ data class MediaStack(
     val items: List<MediaItemEntity>
 )
 
+/**
+ * V2.18：一个「柜子」—— 设计 08.2 三层里最外面那一层，一台设备或一个片源。
+ * `sourceId = 0` 是「全部片库」这个虚拟柜子。
+ */
+data class Cabinet(
+    val sourceId: Long,
+    val label: String,
+    val count: Int,
+    val chip: String = ""
+)
+
 object StackBuilder {
 
     /** 少于这么多部就不值得成叠：一屏就装下了。 */
