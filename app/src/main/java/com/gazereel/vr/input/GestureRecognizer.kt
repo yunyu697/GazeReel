@@ -22,8 +22,7 @@ class GestureRecognizer(
     private val headset: VrHeadsetProvider,
     private val dispatcher: ActionDispatcher,
     private val settings: SettingsRepository,
-    private val stateProvider: () -> VrUiState,
-    private val onActivity: () -> Unit
+    private val stateProvider: () -> VrUiState
 ) {
     companion object {
         private const val YAW_THRESHOLD_DEG = 15f
@@ -78,7 +77,6 @@ class GestureRecognizer(
 
         val dyaw = yaw - lastYaw
         val dpitch = pitch - lastPitch
-        if (kotlin.math.abs(dyaw) > 0.4f || kotlin.math.abs(dpitch) > 0.4f) onActivity()
 
         yawMin = min(yawMin, yaw); yawMax = max(yawMax, yaw)
         pitchMin = min(pitchMin, pitch); pitchMax = max(pitchMax, pitch)

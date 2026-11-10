@@ -23,7 +23,8 @@ class SettingsRepository(context: Context) {
         ipdMm = prefs.getInt("ipd_mm", 62),
         consoleTimeoutMs = 8_000L,
         lockView = prefs.getBoolean("lock_view", false),
-        subtitlesEnabled = prefs.getBoolean("subtitles", true)
+        subtitlesEnabled = prefs.getBoolean("subtitles", true),
+        cursorEnabled = prefs.getBoolean("cursor", true)
     )
 
     fun update(transform: (VrSettings) -> VrSettings): VrSettings {
@@ -39,6 +40,7 @@ class SettingsRepository(context: Context) {
             .putInt("ipd_mm", next.ipdMm)
             .putBoolean("lock_view", next.lockView)
             .putBoolean("subtitles", next.subtitlesEnabled)
+            .putBoolean("cursor", next.cursorEnabled)
             .apply()
         return next
     }

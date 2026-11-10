@@ -38,6 +38,7 @@ import com.gazereel.vr.input.SettingsRepository
 import com.gazereel.vr.input.TriggerDispatcher
 import com.gazereel.vr.player.PlaybackService
 import com.gazereel.vr.player.PlayerController
+import com.gazereel.vr.player.SystemVolume
 import com.gazereel.vr.player.SubtitleRepository
 import com.gazereel.vr.render.SensorHeadsetProvider
 import com.gazereel.vr.render.VrRenderer
@@ -192,15 +193,18 @@ class VrActivity : AppCompatActivity() {
             settings = settings,
             headset = headset,
             subtitles = subtitles,
+            systemVolume = SystemVolume(this),
             prober = prober,
             onExit = { finish() },
             onRecenter = { gaze.reset(); gesture.reset() }
         )
 
         stage("inputs")
+        // V2.14：不再把头动当「操作」。准星落点抖 8px 就调 touch()，
+        // 手机塞在纸盒里一直在抖，控制台因此永远等不到 8 秒静默。
         gaze = GazeDetector(
             uiLayer, headset, dispatcher, settings,
-            { coordinator.uiState }, { coordinator.touch() }
+            { coordinator.uiState }
         )
         trigger = TriggerDispatcher(
             uiLayer, headset, dispatcher,
@@ -208,7 +212,7 @@ class VrActivity : AppCompatActivity() {
         )
         gesture = GestureRecognizer(
             headset, dispatcher, settings,
-            { coordinator.uiState }, { coordinator.touch() }
+            { coordinator.uiState }
         )
 
         stage("renderer")

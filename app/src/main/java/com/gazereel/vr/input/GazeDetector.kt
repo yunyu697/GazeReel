@@ -6,11 +6,10 @@ import com.gazereel.vr.core.InputChannel
 import com.gazereel.vr.core.VrHeadsetProvider
 import com.gazereel.vr.render.VrUiLayer
 import com.gazereel.vr.ui.VrUiState
-import kotlin.math.hypot
 
 /**
  * PRD 4.2 / 6.5：准星停留在目标上推进进度环，走完即确认并进入冷却。
- * 头部位移超过阈值才算「有活动」，否则静止注视不会阻止 8 秒自动淡出。
+ * 头动不算「有活动」——只有触发键、实体键与识别到的手势会刷新控制台计时。
  *
  * V2.9：进入 VR 之后凝视默认是关的，必须由一次触发键单击「上膛」
  * （[VrUiState.gazeArmed] 由 false 变 true）。
@@ -31,12 +30,9 @@ class GazeDetector(
     private val headset: VrHeadsetProvider,
     private val dispatcher: ActionDispatcher,
     private val settings: SettingsRepository,
-    private val stateProvider: () -> VrUiState,
-    private val onActivity: () -> Unit
+    private val stateProvider: () -> VrUiState
 ) {
     companion object {
-        private const val MOVE_THRESHOLD_PX = 8f
-
         /**
          * 换屏 / 上膛后的静默期：新界面第一眼不该算「停留」。
          * 只更新落点，不累计停留。
@@ -87,9 +83,9 @@ class GazeDetector(
         val state = stateProvider()
         val rotation = headset.headRotation()
         val point = uiLayer.gazePoint(rotation, state)
-        if (!lastX.isNaN() && hypot((point.x - lastX).toDouble(), (point.y - lastY).toDouble()) > MOVE_THRESHOLD_PX) {
-            onActivity()
-        }
+        // V2.14：这里原来会在落点抖动超过 8px 时调 touch()，把头动当成「操作」。
+        // 手机塞在纸盒里一直在抖，于是控制台的 8 秒静默永远数不完，一直挡在画面上。
+        // 「操作」只算触发键、实体键与识别到的手势，头动不算。
         lastX = point.x
         lastY = point.y
 

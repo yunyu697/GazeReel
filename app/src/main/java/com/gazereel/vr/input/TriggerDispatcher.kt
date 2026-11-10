@@ -30,6 +30,10 @@ class TriggerDispatcher(
     private var lastClickAt = 0L
 
     fun onTrigger(event: TriggerEvent) {
+        // 必须在 onActivity() 之前取：它会把控制台点亮，之后再看就已经是「显示中」了。
+        val before = stateProvider()
+        val consoleWasHidden = before.screen == VrScreen.PLAYER &&
+            before.overlay == VrOverlay.NONE && !before.consoleVisible
         onActivity()
 
         // V2.9：还没上膛时，触发键只有一种含义 ——「我戴稳了，开始」。
@@ -61,6 +65,13 @@ class TriggerDispatcher(
                     return
                 }
                 lastClickAt = event.atMs
+                // V2.14：控制台收起时，单击只负责「把它叫出来」。
+                // 原来这条路径落到 TogglePlay，于是控制台一收起就再也叫不回来——
+                // 之前它永远不隐藏，正好把这个洞盖住了。
+                if (consoleWasHidden) {
+                    dispatcher.dispatch(VrAction.ShowConsole, InputChannel.TRIGGER)
+                    return
+                }
                 val state = stateProvider()
                 val target = uiLayer.targetAt(headset.headRotation(), state)
                 when {

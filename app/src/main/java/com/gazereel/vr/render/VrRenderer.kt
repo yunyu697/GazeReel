@@ -152,7 +152,10 @@ class VrRenderer(
         }
 
         val (gazeId, gazeProgress) = gazeProvider()
-        GlUtils.uploadBitmap(uiTextureId, uiLayer.render(state, gazeId, gazeProgress))
+        // V2.14：光标画在真实视线落点上，由这里算好交给绘制层——
+        // 绘制层拿不到头部姿态，而准星钉在画布正中正是「定位不准」的根源。
+        val cursor = uiLayer.gazePoint(headset.headRotation(), state)
+        GlUtils.uploadBitmap(uiTextureId, uiLayer.render(state, gazeId, gazeProgress, cursor))
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         val panel = uiLayer.panelSpec(state)

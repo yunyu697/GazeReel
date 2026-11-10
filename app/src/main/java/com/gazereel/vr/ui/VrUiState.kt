@@ -21,7 +21,13 @@ data class VrSettings(
     val ipdMm: Int = 62,
     val consoleTimeoutMs: Long = 8_000L,
     val lockView: Boolean = false,
-    val subtitlesEnabled: Boolean = true
+    val subtitlesEnabled: Boolean = true,
+    /**
+     * V2.14：视线光标（准星）开关。
+     * 真机反馈「没有光标很难定位，经常要靠触发临近的按钮去猜」，
+     * 但纯看片时画面正中多一个点也烦，所以做成可关、且控制台收起时自动不画。
+     */
+    val cursorEnabled: Boolean = true
 ) {
     companion object {
         /**

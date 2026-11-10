@@ -17,6 +17,7 @@ import com.gazereel.vr.input.SettingsRepository
 import com.gazereel.vr.player.PlaybackState
 import com.gazereel.vr.player.PlayerController
 import com.gazereel.vr.player.SubtitleRepository
+import com.gazereel.vr.player.SystemVolume
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -35,6 +36,8 @@ class VrCoordinator(
     private val settings: SettingsRepository,
     private val headset: VrHeadsetProvider,
     private val subtitles: SubtitleRepository,
+    /** V2.14：音量只认系统媒体音量，见 SystemVolume 的类注释。 */
+    private val systemVolume: SystemVolume,
     /** V2.7.6：播放前从容器读真实格式；为 null 时退回宽高比 + 文件名。 */
     private val prober: FormatProber? = null,
     private val onExit: () -> Unit,
@@ -46,8 +49,14 @@ class VrCoordinator(
         private set
 
     private companion object {
-        /** 设计第 415 行：档位变化 1.2 秒淡出。 */
-        const val FEEDBACK_MS = 1_200L
+        /**
+         * 档位反馈的存活时间。
+         *
+         * 设计第 415 行写的是 1.2 秒，但真机反馈「还没来得及操作调节条就消失了」——
+         * 1.2 秒够看清一个数，不够「看清 + 再按一下」。档位是连按的，
+         * 每次按键都会把这个时间戳往后推，所以延长不会让它变成常驻浮层。
+         */
+        const val FEEDBACK_MS = 2_600L
     }
 
     var sources: Map<Long, SourceEntity> = emptyMap()
@@ -56,6 +65,19 @@ class VrCoordinator(
     init {
         // 上次退出时若锁定视角，重建后仍保持一致。
         headset.setViewLocked(settings.current.lockView)
+        syncVolumeFromSystem()
+    }
+
+    /**
+     * V2.14：进 VR 时以系统媒体音量为准。
+     * 用户很可能在戴镜前就用侧键把音量调了，app 里存的那份早过期了。
+     */
+    private fun syncVolumeFromSystem(): Int {
+        val actual = systemVolume.percent()
+        if (actual < 0) return settings.current.volume
+        val next = settings.update { it.copy(volume = actual) }
+        uiState = uiState.copy(settings = next)
+        return actual
     }
 
     /**
@@ -123,7 +145,10 @@ class VrCoordinator(
             VrAction.CloseOverlay -> uiState = uiState.copy(overlay = VrOverlay.NONE)
             VrAction.Back -> back()
             VrAction.Exit -> onExit()
-            VrAction.ShowConsole -> uiState = uiState.copy(consoleVisible = true)
+            VrAction.ShowConsole -> uiState = uiState.copy(
+                consoleVisible = true,
+                lastActivityMs = SystemClock.elapsedRealtime()
+            )
             VrAction.ArmGaze -> {
                 // V2.9：戴稳之后的第一次触发键。这里只负责解锁凝视，
                 // 不顺带确认任何目标——准星此刻压着的东西要重新「进入」才算数。
@@ -203,12 +228,10 @@ class VrCoordinator(
         )
         scope.launch {
             val resume = withContext(Dispatchers.IO) { library.resumePosition(item.id) }
-            // V2.11：把保存的音量真正应用到播放器上。
-            // 原来只在按调节键时才调 setVolume，于是「设置里存着 4/5」进播放器后
-            // 用的还是 ExoPlayer 默认的 100%——第一次按音量键音量会突然变小。
-            player.setVolume(
-                VrSettings.VOLUME_STEPS[VrSettings.volumeStep(settings.current.volume)]
-            )
+            // V2.14：播放器自身固定满增益，音量交给系统媒体音量，
+            // 不再出现「app 存 75 / 系统是 0」这种两套数值打架的情况。
+            player.setVolume(100)
+            syncVolumeFromSystem()
             player.open(item, ref, resume)
         }
         // 字幕走独立低优先级任务：同名字幕不存在时的网络超时不能拖慢起播。
@@ -312,13 +335,21 @@ class VrCoordinator(
      * 戴镜后按音量键，用户看不到任何变化，只能怀疑按键坏了。
      */
     private fun adjust(key: String, delta: Int) {
+        // 音量键走的是 InputChannel.SYSTEM，不经过 TriggerDispatcher，
+        // 这里要自己把淡出计时推后，否则连按音量时控制台会中途消失。
+        // 注意用 keepConsoleAlive 而不是 touch：按音量键不该把控制台叫出来，
+        // 设计第 392 行要的是「档位在视野中央浮出来，不用低头进控制台」。
+        keepConsoleAlive()
         when (key) {
             "volume" -> {
                 val steps = VrSettings.VOLUME_STEPS
-                val level = (VrSettings.volumeStep(settings.current.volume) + delta)
+                // 以系统音量当前值为基准，而不是以 app 里存的值为基准——
+                // 用户可能在戴镜前用侧键调过，那份存储早就不是真的了。
+                val live = systemVolume.percent().takeIf { it >= 0 } ?: settings.current.volume
+                val level = (VrSettings.volumeStep(live) + delta)
                     .coerceIn(0, steps.lastIndex)
+                systemVolume.setPercent(steps[level])
                 val next = settings.update { it.copy(volume = steps[level]) }
-                player.setVolume(next.volume)
                 uiState = uiState.copy(
                     settings = next,
                     feedback = AdjustFeedback(
@@ -382,6 +413,7 @@ class VrCoordinator(
                 "autoFade" -> current.copy(autoFade = !current.autoFade)
                 "gestures" -> current.copy(gesturesEnabled = !current.gesturesEnabled)
                 "subtitles" -> current.copy(subtitlesEnabled = !current.subtitlesEnabled)
+                "cursor" -> current.copy(cursorEnabled = !current.cursorEnabled)
                 else -> current
             }
         }
@@ -401,12 +433,28 @@ class VrCoordinator(
         )
     }
 
-    /** 任意输入通道的活动都刷新时间戳并恢复控制台。 */
+    /**
+     * 一次「真操作」刷新时间戳并恢复控制台。
+     *
+     * V2.14 两个修正：
+     * 1. 原来只有「距上次活动超过 1 秒」才更新时间戳。连按时每次间隔都不到 1 秒，
+     *    时间戳一直停在第一次按键上，8 秒一到控制台照样消失——正是用户说的
+     *    「还没来得及操作就没了」。现在无条件刷新。
+     * 2. 头动不再算「操作」。准星落点抖动 8px 就调这里，而手机塞在纸盒里一直在抖，
+     *    结果控制台永远等不到 8 秒静默，永远挡在画面上。
+     */
     fun touch() {
-        val now = SystemClock.elapsedRealtime()
+        uiState = uiState.copy(
+            consoleVisible = true,
+            lastActivityMs = SystemClock.elapsedRealtime()
+        )
+    }
+
+    /** 控制台已经显示时，把淡出计时推后；没显示就不动它。 */
+    private fun keepConsoleAlive() {
         val state = uiState
-        if (!state.consoleVisible || now - state.lastActivityMs > 1_000L) {
-            uiState = state.copy(consoleVisible = true, lastActivityMs = now)
+        if (state.consoleVisible) {
+            uiState = state.copy(lastActivityMs = SystemClock.elapsedRealtime())
         }
     }
 

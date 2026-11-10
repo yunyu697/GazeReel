@@ -141,7 +141,8 @@ class VrUiLayer(
     fun render(
         state: VrUiState,
         gazeTargetId: String?,
-        gazeProgress: Float
+        gazeProgress: Float,
+        cursor: PointF? = null
     ): Bitmap {
         bitmap.eraseColor(Color.TRANSPARENT)
         targets.clear()
@@ -163,13 +164,10 @@ class VrUiLayer(
 
         published = targets.toList()
 
-        // 准星（真机中应作为独立屏幕中心层，此处按面板坐标近似）
-        // V2.9：没上膛就不画准星。凝视此时不生效，画出来只会让人以为「准星坏了」。
-        if (state.gazeArmed) {
-            ring.strokeWidth = 3f
-            ring.color = C_TEXT
-            canvas.drawCircle(W / 2f, H / 2f, 12f, ring)
-        }
+        // V2.14：光标跟着视线走，不再钉在画布正中。
+        // 原来画在 (W/2, H/2)，而控制台的平面在 −13°，准星与真实视线差着十几度，
+        // 用户看到的是一个「不动的小圈」，只能靠触发临近的按钮去猜。
+        cursor?.let { drawCursor(it, state) }
 
         if (gazeTargetId != null && gazeProgress > 0f) {
             val target = targets.firstOrNull { it.id == gazeTargetId }
@@ -186,6 +184,30 @@ class VrUiLayer(
             }
         }
         return bitmap
+    }
+
+    /**
+     * V2.14：视线光标。
+     *
+     * 三条例外，都是为了「不影响看片」：
+     * - 设置里关掉就完全不画；
+     * - 没上膛不画（那时凝视本来就不生效，画出来只会让人以为坏了）；
+     * - 播放中控制台收起时不画——那一刻用户在纯看片，画面正中多一个点就是干扰。
+     */
+    private fun drawCursor(point: PointF, state: VrUiState) {
+        if (!state.settings.cursorEnabled) return
+        if (!state.gazeArmed) return
+        if (state.screen == VrScreen.PLAYER &&
+            state.overlay == VrOverlay.NONE && !state.consoleVisible
+        ) return
+        // 视线落到面板之外时，画面里没有可瞄的东西，画一个贴边的假光标只会误导。
+        if (point.x < 0f || point.y < 0f || point.x > W || point.y > H) return
+
+        ring.strokeWidth = 3f
+        ring.color = 0xCCEAF2FA.toInt()
+        canvas.drawCircle(point.x, point.y, 11f, ring)
+        fill.color = C_ACCENT
+        canvas.drawCircle(point.x, point.y, 3f, fill)
     }
 
     /**
@@ -358,7 +380,9 @@ class VrUiLayer(
             SubtitleParser.cueAt(state.subtitles, state.positionMs)?.let { drawSubtitle(it) }
         }
         if (!state.consoleVisible) {
-            centerText("低头或按触发键唤出控制台", 470f, 20f, C_MUTED)
+            // V2.14：这里原来常驻一行「低头或按触发键唤出控制台」。
+            // 控制台能自动淡出了，这行字就成了新的遮挡物，而且是错的——
+            // 「低头唤出」根本没实现，唤出只有触发键这一条路。整行删掉。
             return
         }
         panel(RectF(40f, 300f, 984f, 500f))
@@ -470,25 +494,26 @@ class VrUiLayer(
             Triple("凝视时长", "${s.gazeDurationMs} ms", "gaze")
         )
         rows.forEachIndexed { i, (label, value, key) ->
-            val y = 88f + i * 54f
-            centerText("$label   $value", y + 30f, 22f, C_TEXT)
+            val y = 84f + i * 48f
+            centerText("$label   $value", y + 28f, 22f, C_TEXT)
             button("dec$i", "−", RectF(160f, y, 240f, y + 44f), VrAction.Adjust(key, -1))
             button("inc$i", "+", RectF(784f, y, 864f, y + 44f), VrAction.Adjust(key, 1))
         }
-        // 两行三列，5 个开关；锁定视角与字幕是阶段二新增。
+        // 三行三列，7 个开关（V2.14 加入「虚拟光标」）。
         val toggles = listOf(
             Triple("自动连播", s.autoNext, "autoNext"),
             Triple("自动淡出", s.autoFade, "autoFade"),
             Triple("头部手势", s.gesturesEnabled, "gestures"),
             Triple("锁定视角", s.lockView, "lockView"),
             Triple("字幕", s.subtitlesEnabled, "subtitles"),
+            Triple("虚拟光标", s.cursorEnabled, "cursor"),
             Triple("重置正前方", false, "recenter")
         )
         toggles.forEachIndexed { i, (label, enabled, key) ->
             val col = i % 3
             val row = i / 3
             val x = 110f + col * 270f
-            val y = 306f + row * 54f
+            val y = 286f + row * 48f
             val action: VrAction = if (key == "recenter") {
                 VrAction.ResetForward
             } else {
@@ -500,8 +525,8 @@ class VrUiLayer(
                 highlighted = enabled && key != "recenter"
             )
         }
-        button("clearMem", "清除格式记忆", RectF(140f, 430f, 430f, 482f), VrAction.ClearFormatMemory)
-        button("setBack", "返回", RectF(594f, 430f, 884f, 482f), VrAction.CloseOverlay)
+        button("clearMem", "清除格式记忆", RectF(140f, 438f, 430f, 490f), VrAction.ClearFormatMemory)
+        button("setBack", "返回", RectF(594f, 438f, 884f, 490f), VrAction.CloseOverlay)
     }
 
     // ── 绘制辅助 ───────────────────────────────────────────────────────
