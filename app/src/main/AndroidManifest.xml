@@ -53,21 +53,6 @@
             android:screenOrientation="portrait"
             android:label="@string/log_title" />
 
-        <!-- V2.20 / A18：入盒引导。横屏、全屏。
-             它是「进入 VR」和双屏画面之间唯一的一步：对中线、摆稳、按键。
-
-             V2.21：这里必须是 landscape，不能用 sensorLandscape。
-             姿态矩阵 = 设备姿态 × 屏幕映射，而映射由屏上方向决定。
-             sensorLandscape 会随传感器在 90° / 270° 之间自己切，VR 页却是固定的
-             90°——两个页面一旦不同，进去之后整幅画面就是相对引导页翻 180°，
-             基准也跟着翻。用户报的「重定向全乱」第一大原因就在这里。 -->
-        <activity
-            android:name=".ui.AlignActivity"
-            android:exported="false"
-            android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
-            android:theme="@style/Theme.GazeReel.Immersive" />
-
         <!-- 戴镜后：全屏横屏、锁定方向，不响应键盘输入 -->
         <activity
             android:name=".ui.VrActivity"

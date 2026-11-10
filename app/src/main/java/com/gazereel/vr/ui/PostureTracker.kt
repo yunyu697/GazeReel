@@ -47,42 +47,9 @@ class PostureTracker {
          * 首次建立基准要求的稳定时长。
          *
          * 比 [STABLE_MS] 短：用户戴好之后不该干等 1.5 秒才看到正确的画面。
-         * 700ms ≈ 一次平稳呼吸，手抖与呼吸的抖动都在这之内，真正的调整动作都在这之上。
+         * 也不能太短——塞手机、拉头带的过程本身就慢，太短会把「正在动」当成「已经躺好」。
          */
-        const val BASELINE_MS = 700L
-
-        /**
-         * 进 VR 后允许「自动摆正」的窗口。
-         *
-         * 画面一出现就有基准（Provider 的第一帧），但用户从「按按键」到「真躺好」
-         * 之间还会挪姿势。这 6 秒就是用来让他挪完、并让基准跟上实际姿势的。
-         * 过了窗口不再自动动：那时候他已经在看内容了，再无声地转画面
-         * 就是「抢走他正在看的东西」。
-         */
-        const val ENTRY_MS = 6_000L
-
-        /**
-         * 自动摆正的缓转时长。
-         *
-         * 比手动的 [ANIM_MS] 短：这是「画面自己落到正前方」，越快越不像出故障。
-         * 也不能瞬跳——瞬跳在头显里是典型的晕动源。
-         */
-        const val ENTRY_ANIM_MS = 420L
-
-        /**
-         * 窗口内最多自动纠正几次。
-         *
-         * 两次：一次纠正「按完按键又挪了姿势」，一次兜住他接着再挪一次。
-         * 再多就变成「画面老在动」，那比歪着还难受。
-         */
-        const val MAX_ENTRY_CORRECTIONS = 2
-
-        /** 姿态矩阵的三列在参考系里就是单位阵。用来量「到底转了多少度」。 */
-        private val IDENTITY9 = floatArrayOf(
-            1f, 0f, 0f,
-            0f, 1f, 0f,
-            0f, 0f, 1f
-        )
+        const val BASELINE_MS = 900L
 
         /**
          * 首次基准的容差。
@@ -137,18 +104,12 @@ class PostureTracker {
         private set
 
     private var candidateShownAt = 0L
-    private var anchor = FloatArray(9)
+    private var anchor = FloatArray(3)
     private var anchorValid = false
     private var stableSince = 0L
 
     /** 缓转期间 + 落定静默期：只跟姿态，不产生候选。 */
     private var settleUntilMs = 0L
-
-    /** 「自动摆正」窗口的结束时刻。0 表示不在窗口内。 */
-    private var entryUntilMs = 0L
-
-    /** 窗口内已经自动纠正过几次。 */
-    private var entryCorrections = 0
 
     /** 用户放弃过（过期 / 点「不用了」）的那个方向。它附近不再追问。 */
     private var declined: FloatArray? = null
@@ -180,50 +141,20 @@ class PostureTracker {
         acos((a[0] * b[0] + a[1] * b[1] + a[2] * b[2]).coerceIn(-1f, 1f))
 
     /**
-     * 相对正前方一共转了多少度——**包含横滚**。
-     *
-     * [offsetOf] 只看视线方向，而「绕视轴歪 45°」这种姿势视线一动不动，
-     * offsetOf 读数是 0。用它当基准判据，画面歪着也永远判不出来要纠正；
-     * 重定又只按「把视线挪到这里」算，横滚原样带过去——于是怎么弄都回不来。
-     * 真机反馈「歪 45°、重定向之后更不知道定到哪」就是这一条。
-     *
-     * 所以基准判断必须用整姿态的夹角（Rodrigues：`acos((trace−1)/2)`）。
-     */
-    fun totalOf(rotation: FloatArray): Float = angleBetweenPose(poseOf(rotation), IDENTITY9)
-
-    /** 取姿态矩阵三列（屏幕右/上/后）在参考系里的方向，9 元。 */
-    private fun poseOf(rotation: FloatArray): FloatArray = floatArrayOf(
-        rotation[0], rotation[1], rotation[2],
-        rotation[4], rotation[5], rotation[6],
-        rotation[8], rotation[9], rotation[10]
-    )
-
-    private fun angleBetweenPose(a: FloatArray, b: FloatArray): Float {
-        var trace = 0f
-        for (c in 0..2) {
-            for (r in 0..2) trace += a[c * 3 + r] * b[c * 3 + r]
-        }
-        return acos(((trace - 1f) / 2f).coerceIn(-1f, 1f))
-    }
-
-    /**
      * 姿态是否已经稳定了 [needMs]。
      *
      * 锚点会跟着漂移走：抖超过 [JITTER_RAD] 就把锚点推到现在、重新计时。
      * 这样「慢慢转头」也不会被当成稳定——它每隔几帧就会把锚点推走。
-     *
-     * 比较的是**整姿态**而不是视线方向：歪着头不动时视线是稳定的，
-     * 但那是「正在摆姿势」，不该被当成「摆好了」。
      */
-    private fun stable(pose: FloatArray, nowMs: Long, needMs: Long): Boolean {
+    private fun stable(forward: FloatArray, nowMs: Long, needMs: Long): Boolean {
         if (!anchorValid) {
-            System.arraycopy(pose, 0, anchor, 0, 9)
+            anchor = forward.copyOf()
             anchorValid = true
             stableSince = nowMs
             return false
         }
-        if (angleBetweenPose(anchor, pose) > JITTER_RAD) {
-            System.arraycopy(pose, 0, anchor, 0, 9)
+        if (angleBetween(anchor, forward) > JITTER_RAD) {
+            anchor = forward.copyOf()
             stableSince = nowMs
             return false
         }
@@ -244,38 +175,32 @@ class PostureTracker {
     fun onPose(rotation: FloatArray, nowMs: Long, allowBaseline: Boolean = true): Boolean {
         if (rotation.size < 11) return false
         val forward = forwardOf(rotation)
-        val poseNow = poseOf(rotation)
 
-        // ① 缓转中 / 刚落定：只清状态，不产生新候选、也不动基准。
-        //
-        // 这一步必须排在基准之前：缓转刚结束时残差最大，那时候再判一次基准，
-        // 就会立刻再来一次「自动摆正」，画面连着抽两下。
+        // ① 建立基准：进 VR 后的第一个稳定姿态。
+        if (!baselineReady) {
+            if (!allowBaseline) {
+                baselineReady = true
+                anchorValid = false
+                return false
+            }
+            if (!stable(forward, nowMs, BASELINE_MS)) return false
+            if (offsetOf(rotation) > BASELINE_DEADBAND_RAD) {
+                pendingBaseline = rotation.copyOf()
+            } else {
+                // 已经正对着了，不必动画面。
+                baselineReady = true
+            }
+            anchorValid = false
+            return false
+        }
+
+        // ② 缓转中 / 刚落定：只清状态，不产生新候选。
         if (nowMs < settleUntilMs) {
             anchorValid = false
             if (candidate != null) {
                 clearCandidate()
                 return true
             }
-            return false
-        }
-
-        // ② 基准：Provider 的第一帧已经给了一个「进去就正对」的起点，这里只负责
-        //    纠正「按完按键又挪了姿势」的那几十度。窗口期过后不再自动动。
-        if (!baselineReady || inEntryWindow(nowMs)) {
-            if (!allowBaseline) {
-                baselineReady = true
-                anchorValid = false
-                return false
-            }
-            if (!stable(poseNow, nowMs, BASELINE_MS)) return false
-            if (totalOf(rotation) > BASELINE_DEADBAND_RAD) {
-                pendingBaseline = rotation.copyOf()
-                entryCorrections++
-            } else {
-                // 已经正对着了，不必动画面。
-                baselineReady = true
-            }
-            anchorValid = false
             return false
         }
 
@@ -309,7 +234,7 @@ class PostureTracker {
             anchorValid = false
             return false
         }
-        if (!stable(poseNow, nowMs, STABLE_MS)) return false
+        if (!stable(forward, nowMs, STABLE_MS)) return false
 
         candidate = pitchOf(rotation)
         candidateYaw = yawOf(rotation)
@@ -318,20 +243,6 @@ class PostureTracker {
         anchorValid = false
         return true
     }
-
-    /** 进 VR 时调用：打开「自动摆正」窗口。 */
-    fun beginEntry(nowMs: Long) {
-        entryUntilMs = nowMs + ENTRY_MS
-        entryCorrections = 0
-        baselineReady = false
-        pendingBaseline = null
-        anchorValid = false
-        settleUntilMs = 0L
-    }
-
-    /** 窗口内且还没用完纠正次数。**只在这时**才允许自动动画面。 */
-    fun inEntryWindow(nowMs: Long): Boolean =
-        nowMs < entryUntilMs && entryCorrections < MAX_ENTRY_CORRECTIONS
 
     private fun clearCandidate() {
         candidate = null
@@ -347,7 +258,7 @@ class PostureTracker {
         pendingBaseline = null
         anchorValid = false
         declined = null
-        settleUntilMs = nowMs + ENTRY_ANIM_MS + SETTLE_MS
+        settleUntilMs = nowMs + ANIM_MS + SETTLE_MS
     }
 
     /**
@@ -361,8 +272,6 @@ class PostureTracker {
         anchorValid = false
         declined = null
         settleUntilMs = nowMs + ANIM_MS + SETTLE_MS
-        // 用户自己动过手，就别再让「自动摆正」事后插一脚。
-        entryUntilMs = 0L
         return pose
     }
 
@@ -383,10 +292,9 @@ class PostureTracker {
         anchorValid = false
         declined = null
         settleUntilMs = nowMs + ANIM_MS + SETTLE_MS
-        // 手动挪过一次，就等于「基准已经认过了」，别再让自动摆正把它覆盖掉。
+        // 手动挪过一次，就等于「基准已经认过了」，别再让首次基准把它覆盖掉。
         baselineReady = true
         pendingBaseline = null
-        entryUntilMs = 0L
     }
 
     /** 「重置正前方」：基准归零，候选与静默期一起清掉。基准仍然算已建立。 */
@@ -396,7 +304,6 @@ class PostureTracker {
         declined = null
         settleUntilMs = 0L
         baselineReady = true
-        entryUntilMs = 0L
     }
 
     /** 候选还有多久消失，用来画一条细进度条。 */

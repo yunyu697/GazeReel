@@ -184,7 +184,8 @@ class VrActivity : AppCompatActivity() {
         //
         // Cardboard 的 HeadTracker 走 native，姿态在世界坐标系里的约定（up 轴、
         // 手性）我没法在没有真机日志的情况下验证；而「头一动画面就转」这件事
-        // 必须一次修到位，不能再猜。传感器路径的姿态数学现在完全在工程里。
+        // 必须一次修到位，不能再猜。传感器路径的姿态数学现在完全在工程里：
+        // 视线取 -设备z，up 用重力钉在世界竖直上，横放竖放都能推出来。
         //
         // CardboardHeadsetProvider 保留在 src/cardboard/java，等做桶形畸变专项
         // （需要 LensDistortion 的畸变网格）时再切回来并真机校准。
@@ -210,15 +211,6 @@ class VrActivity : AppCompatActivity() {
             onExit = { finish() },
             onRecenter = { gaze.reset(); gesture.reset() }
         )
-
-        // V2.23：方向交给 Provider 的「第一帧」+ 姿态闭环的「自动摆正」两条路，
-        // **不再从引导页把按键那一刻的姿势带进来**。
-        //
-        // 带进来的那一刻，用户通常还没躺好：按完按键要往沙发里靠、把手机往枕头上放，
-        // 几秒内姿势差 40°–50° 是常态。那个差异被写成基准后，画面就永久歪着，
-        // 而自动摆正当时被我一并关掉了——没有任何东西能把它纠回来。
-        // 真机现象就是「一进去歪 45°、怎么重定都回不来」。
-        coordinator.beginEntry()
 
         stage("inputs")
         // V2.14：不再把头动当「操作」。准星落点抖 8px 就调 touch()，
@@ -249,10 +241,6 @@ class VrActivity : AppCompatActivity() {
         renderer.onGlError = { t ->
             RunLog.append(this, "gl", "失败 ${t.javaClass.simpleName}: ${t.message?.take(200)}")
             runOnUiThread { showFailure(t) }
-        }
-        // V2.20 / C1：抽帧判立体布局。GL 线程回调，结论要回主线程落地。
-        renderer.onFrameSample = { verdict ->
-            handler.post { coordinator.onFrameVerdict(verdict) }
         }
 
         stage("surface")
@@ -424,21 +412,5 @@ class VrActivity : AppCompatActivity() {
         runCatching { pool?.close() }
         pool = null
         super.onDestroy()
-    }
-
-    companion object {
-        /**
-         * V2.21：入盒引导页带来的「确认姿势」。
-         *
-         * V2.23 起不再使用：把按键那一刻的姿势当成基准，等于假设用户按完就不再动，
-         * 而他通常还要往沙发里靠、把手机放到枕头上。姿势差多少，画面就永久歪多少。
-         * 常量留着是为了读得懂旧日志，不会再有人写它。
-         */
-        @Deprecated("V2.23 起方向由本页第一帧 + 姿态闭环自动摆正决定")
-        const val EXTRA_ORIENTATION = "com.gazereel.vr.extra.ORIENTATION"
-
-        /** 同上，V2.23 起屏上方向只由 [com.gazereel.vr.core.ScreenFrame] 统一给。 */
-        @Deprecated("V2.23 起屏上方向由 ScreenFrame 统一提供")
-        const val EXTRA_SCREEN_FRAME = "com.gazereel.vr.extra.SCREEN_FRAME"
     }
 }

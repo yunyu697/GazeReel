@@ -5,47 +5,19 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.hardware.display.DisplayManager
 import android.opengl.Matrix
 import android.os.SystemClock
-import android.view.Display
-import android.view.Surface
 import com.gazereel.vr.core.Eye
 import com.gazereel.vr.core.EyeParams
 import com.gazereel.vr.core.RotationBlend
-import com.gazereel.vr.core.ScreenFrame
 import com.gazereel.vr.core.TriggerEvent
 import com.gazereel.vr.core.TriggerKind
 import com.gazereel.vr.core.VrHeadsetProvider
 import com.gazereel.vr.core.viewRotationOf
-import com.gazereel.vr.data.RunLog
 
 /**
  * 无 Cardboard AAR 时的可运行实现：Android 旋转矢量传感器 + 自绘左右眼视口。
  * 通过 VrHeadsetProvider 与 SDK 实现完全隔离，替换时 UI / 播放 / 输入层零改动。
- *
- * ## 姿态：全姿态，不做任何重力投影
- *
- * `R = 设备姿态 × 屏幕映射`。设备姿态直接用旋转矢量的完整旋转，横滚是真横滚。
- *
- * 曾经用「重力定 up」把画面掰水平，那条路是错的：`forward × 天顶` 在视线平行天顶时
- * 退化为零向量，而「躺床上、手机扣在脸上看天花板」正是这个 App 的主用法——
- * 等于最常用的时候必坏（画面在该点附近打转、翻转）。
- *
- * 屏幕映射（屏幕轴 ↔ 设备轴）不在这里判断，统一由 [ScreenFrame] 给：
- * 那个值只能观测、不能推算，且**全线必须共用同一个**，否则整幅画面绕视轴歪 90°，
- * 而自动摆正看的是视线方向、修不了横滚，用户就只能一直歪着看。
- *
- * ## 基准：第一帧 + 之后自动摆正
- *
- * 「正前方」= 参考系偏移 `inverseOffset`，`O·R = I` 即正对。它取进入本页后
- * 第一帧数据的姿态：那时用户已经戴好（入盒引导页要求连续 900ms 不动才放行），
- * 画面一出现就是正对的，不需要等。
- *
- * 但如果他从「按按键」到「真看进去」之间又挪了姿势（很常见：按完往沙发里靠），
- * 那个基准就偏了——而**偏多少就永久歪多少**，重定也只会带着这个偏差一起转。
- * 所以 [com.gazereel.vr.ui.PostureTracker] 会在他稳定下来之后把基准再挪一次，
- * 那条路是唯一的自愈机制，不能关。
  *
  * 注意：这里的畸变参数为占位（不做预畸变），真机需由 Cardboard SDK 的
  * LensDistortion / DistortionRenderer 提供每镜片参数；见 src/cardboard/java。
@@ -55,11 +27,6 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     private val sensorManager =
         context.applicationContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-
-    private val display: Display? = runCatching {
-        (context.applicationContext.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
-            .getDisplay(Display.DEFAULT_DISPLAY)
-    }.getOrNull()
 
     private val rotation = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
     private val inverseOffset = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
@@ -79,23 +46,18 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     private val easeScratch = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
 
     /**
-     * V2.7.3：进 VR 后要「第一眼正对」，但 start() 时传感器还没出过数据，
+     * V2.7.3：进 VR 后要「第一眼正对片库」，但 start() 时传感器还没出过数据，
      * 此刻的 rotation 还是单位矩阵——立刻 recenter 等于把基准设成「零姿态」，
      * 等第一帧真数据到来，画面就跳到手机的绝对朝向去了。
      * 所以基准必须等第一帧数据到达时再定。
      */
     @Volatile
-    private var pendingInitialRecenter = true
+    private var pendingInitialRecenter = false
 
     override val supportsHardwareTrigger: Boolean = false
 
     override fun start() {
         pendingInitialRecenter = true
-        RunLog.append(
-            "posture",
-            "全姿态 · 屏上方向=${ScreenFrame.name(currentFrame())}" +
-                if (ScreenFrame.isKnown()) "" else "（未定，暂用系统读数）"
-        )
         rotationSensor?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
@@ -110,30 +72,6 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     /** 无硬件触发键时，由 VrActivity 把屏幕触摸/音量键事件归一化后注入。 */
     fun injectTrigger(kind: TriggerKind) {
         triggerListener?.invoke(TriggerEvent(kind, SystemClock.elapsedRealtime()))
-    }
-
-    /**
-     * 屏上方向。**只从 [ScreenFrame] 取**，不在这里另算一遍。
-     *
-     * 两个地方各算一遍是上一版最大的坑：算法相同、时机不同，结果就会差 90°，
-     * 而且没人知道该信谁。[ScreenFrame] 在入盒引导页（手机握在手里、窗口已横屏）
-     * 就把它定下来了，本页只是取用。
-     *
-     * 极端情况下（没走引导页直接进 VR）可能还没有值，那时才退回系统读数并记日志——
-     * 这是全流程唯一允许的兜底，而且要能在日志里一眼看到「我兜底了」。
-     */
-    private var loggedFallback = false
-
-    private fun currentFrame(): Int {
-        val known = ScreenFrame.cached()
-        if (known != ScreenFrame.UNKNOWN) return known
-        val read = runCatching { display?.rotation ?: Surface.ROTATION_0 }
-            .getOrDefault(Surface.ROTATION_0)
-        if (!loggedFallback) {
-            loggedFallback = true
-            RunLog.append("frame", "屏上方向未定 · 暂用系统读数 ${ScreenFrame.name(read)}")
-        }
-        return read
     }
 
     override fun headRotation(): FloatArray {
@@ -258,10 +196,7 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
         val deviceToWorld = FloatArray(9)
         SensorManager.getRotationMatrixFromVector(deviceToWorld, event.values)
-        // 屏上方向只在这里「补定」一次（正常路径早已由入盒引导页定好），
-        // 定下来之后 ScreenFrame 自己就不会再改。
-        ScreenFrame.offer(deviceToWorld, "VR 页")
-        val matrix = ScreenFrame.poseOf(deviceToWorld, currentFrame())
+        val matrix = screenPoseOf(deviceToWorld)
         synchronized(lock) {
             System.arraycopy(matrix, 0, rotation, 0, 16)
             if (pendingInitialRecenter) {
@@ -271,5 +206,65 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         }
     }
 
+    /**
+     * 设备姿态 → 屏幕姿态（4x4 列主序）。
+     *
+     * 真机 V2.7.3：头左右一转画面就绕视轴旋转。原因是 VrActivity 锁了横屏，
+     * 屏幕的「上」与手机的 y 轴差 90°，而旋转矢量给的是**设备物理轴**姿态，
+     * 直接当屏幕坐标用，相机的 up 轴就落在水平面上——头一转，up 跟着在水平面
+     * 里转，画面看起来就在自转。
+     *
+     * 这里不去猜屏幕方向（锁横屏时 display rotation 的取值各厂商还不一致），
+     * 直接用重力定 up：视线 = -设备 z，up = 世界竖直投影到垂直于视线的平面。
+     * 手机横放竖放都一样，画面上方永远是「天」。
+     *
+     * 输出的列依次是 (right, up, back)，第三列取负即视线方向——与
+     * VrUiLayer.gazePoint / GestureRecognizer 使用的 -rotation[8..10] 一致。
+     */
+    private fun screenPoseOf(m: FloatArray): FloatArray {
+        // 行主序 3x3：第三列 = 设备 z 轴在世界中的方向，屏幕朝外，故视线取其负。
+        val forward = floatArrayOf(-m[2], -m[5], -m[8])
+        var right = cross(forward, WORLD_UP)
+        if (length(right) < 0.2f) {
+            // 视线接近竖直（抬头看顶 / 躺下），与世界上方向叉乘退化。
+            // 换设备的 y 轴做参考，它此刻一定不与视线平行。
+            right = cross(forward, floatArrayOf(m[1], m[4], m[7]))
+            if (length(right) < 0.2f) {
+                right = cross(forward, floatArrayOf(m[0], m[3], m[6]))
+            }
+        }
+        normalize(right)
+        val back = floatArrayOf(-forward[0], -forward[1], -forward[2])
+        val up = cross(back, right)
+        normalize(up)
+
+        val out = FloatArray(16)
+        out[0] = right[0]; out[1] = right[1]; out[2] = right[2]; out[3] = 0f
+        out[4] = up[0]; out[5] = up[1]; out[6] = up[2]; out[7] = 0f
+        out[8] = back[0]; out[9] = back[1]; out[10] = back[2]; out[11] = 0f
+        out[12] = 0f; out[13] = 0f; out[14] = 0f; out[15] = 1f
+        return out
+    }
+
+    private fun cross(a: FloatArray, b: FloatArray): FloatArray = floatArrayOf(
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0]
+    )
+
+    private fun length(v: FloatArray): Float =
+        kotlin.math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+
+    private fun normalize(v: FloatArray) {
+        val len = length(v)
+        if (len <= 1e-6f) return
+        v[0] /= len; v[1] /= len; v[2] /= len
+    }
+
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+
+    private companion object {
+        /** 旋转矢量的世界坐标系是东-北-天，天顶即 (0,0,1)。 */
+        val WORLD_UP = floatArrayOf(0f, 0f, 1f)
+    }
 }

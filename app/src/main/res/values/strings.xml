@@ -78,13 +78,4 @@
     <string name="log_back">返回</string>
     <string name="log_copied">已复制</string>
     <string name="log_hint">进 VR 出的问题都记在这里：崩在哪一步、打开的是哪个文件、播放器报了什么。截图即可。</string>
-
-    <!-- V2.20 / A18：入盒引导页。文案只回答三件事：怎么对正、要不要动、什么时候按键。 -->
-    <string name="align_kicker">最后一步</string>
-    <string name="align_title">把手机横放进盒子</string>
-    <string name="align_body">让中间这条细线对准盒子里的隔板\n然后先别动</string>
-    <string name="align_hint_wait">还在动… 放稳半秒就好</string>
-    <string name="align_hint_ready">按一下盒子上的按钮开始</string>
-    <string name="align_hint_alt">没有按钮就按音量键</string>
-    <string name="align_foot">屏幕朝内 · 手指离开屏幕</string>
 </resources>

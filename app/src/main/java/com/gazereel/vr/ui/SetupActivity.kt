@@ -210,11 +210,8 @@ class SetupActivity : AppCompatActivity() {
             showManual(true)
             binding.shareAddress.requestFocus()
         }
-        // V2.20 / A18：中间加一屏入盒引导（横屏、对中线、稳了才放行）。
-        // 以前直接跳 VrActivity，等于是让用户在「画面已经在转」的时候去塞手机，
-        // 那个瞬间的姿态还被当成了正前方。
         binding.enterVrButton.setOnClickListener {
-            startActivity(Intent(this, AlignActivity::class.java))
+            startActivity(Intent(this, VrActivity::class.java))
         }
         // V2.7.4 测试版：一页能截图的运行日志，不用连电脑也能反馈问题。
         binding.logEntry.setOnClickListener {
