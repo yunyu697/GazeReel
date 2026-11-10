@@ -7,6 +7,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.opengl.Matrix
 import android.os.SystemClock
+import android.view.Surface
 import android.view.WindowManager
 import com.gazereel.vr.core.Eye
 import com.gazereel.vr.core.EyeParams
@@ -40,6 +41,10 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     private var lastBranch = 0
     private val diagRotation = FloatArray(16)
 
+    /** V2.25：面板朝向。锁 landscape 后恒为 90 或 270，启动时先读一次。 */
+    @Volatile
+    private var lastPanelRotation = Surface.ROTATION_0
+
     private val rotation = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
     private val inverseOffset = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
     private val lock = Any()
@@ -70,6 +75,8 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
 
     override fun start() {
         pendingInitialRecenter = true
+        // V2.25：面板朝向在进入时就确定，之后每帧只做比对，避免窗口刚建好时读错。
+        lastPanelRotation = panelRotation().takeIf { it in 0..3 } ?: Surface.ROTATION_0
         // V2.24 诊断：每次进 VR 重新开始记录，只读。
         PoseTrace.begin(
             nowMs = SystemClock.elapsedRealtime(),
@@ -254,73 +261,88 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     }
 
     /**
-     * 设备姿态 → 屏幕姿态（4x4 列主序）。
+     * V2.25 第 2 步：屏幕姿态 = 设备姿态 × 屏幕映射。全程矩阵，不分解、不重建。
      *
-     * 真机 V2.7.3：头左右一转画面就绕视轴旋转。原因是 VrActivity 锁了横屏，
-     * 屏幕的「上」与手机的 y 轴差 90°，而旋转矢量给的是**设备物理轴**姿态，
-     * 直接当屏幕坐标用，相机的 up 轴就落在水平面上——头一转，up 跟着在水平面
-     * 里转，画面看起来就在自转。
+     * ## 上一版为什么抖、为什么翻转（真机 1.1.0-alpha11 实测数据）
      *
-     * 这里不去猜屏幕方向（锁横屏时 display rotation 的取值各厂商还不一致），
-     * 直接用重力定 up：视线 = -设备 z，up = 世界竖直投影到垂直于视线的平面。
-     * 手机横放竖放都一样，画面上方永远是「天」。
+     * 旧实现把设备姿态拆成 forward，再用 `cross(forward, 天顶)` 叉出 right、
+     * `cross(back, right)` 叉出 up。叉积模长 = sin θ（θ 为视线与重力轴夹角），
+     * θ→0 时它趋零，归一化把噪声放大；更糟的是模长掉到 0.2 以下就换设备 y 轴做参考，
+     * 而换轴那一刻 right 与天顶分支差约 90°，画面直接翻过去。
+     *
+     * 实测：108 秒里分支切换 10 次、单次最大跳 97.9°，横滚跨度 341.7°，
+     * 平放稳定段横滚恒在 −94°（不是抖，是稳稳歪了 90°）。
+     *
+     * ## 现在为什么没有奇点
+     *
+     * 设备姿态本身就是正交矩阵，横滚一直完整地存在它的列里。只要不拆开再拼回去，
+     * 就没有自由度会丢失，θ→0 时矩阵依然正交、依然连续。换轴分支也随之消失。
+     * 「记住原来的方向」的数学形式，就是**别把方向拆出去**。
+     *
+     * ## 屏幕映射是常量，不是猜出来的
+     *
+     * Activity 锁定 landscape，实测 `Display.getRotation()` = 1（ROTATION_90）。
+     * 它只决定屏幕两根轴对应设备的哪两根轴，是固定的轴重排，不需要重力判断。
+     * 映射写错的表现是「整体歪 90°」，而不是抖——可验证、可回退。
      *
      * 输出的列依次是 (right, up, back)，第三列取负即视线方向——与
      * VrUiLayer.gazePoint / GestureRecognizer 使用的 -rotation[8..10] 一致。
      */
     private fun screenPoseOf(m: FloatArray): FloatArray {
-        // 行主序 3x3：第三列 = 设备 z 轴在世界中的方向，屏幕朝外，故视线取其负。
-        val forward = floatArrayOf(-m[2], -m[5], -m[8])
-        var right = cross(forward, WORLD_UP)
-        // V2.24 诊断：这三个量只被记录，不参与下面的任何分支判断。
-        var crossLen = length(right)
-        var branch = 1
-        if (crossLen < 0.2f) {
-            // 视线接近竖直（抬头看顶 / 躺下），与世界上方向叉乘退化。
-            // 换设备的 y 轴做参考，它此刻一定不与视线平行。
-            right = cross(forward, floatArrayOf(m[1], m[4], m[7]))
-            crossLen = length(right)
-            branch = 2
-            if (crossLen < 0.2f) {
-                right = cross(forward, floatArrayOf(m[0], m[3], m[6]))
-                crossLen = length(right)
-                branch = 3
-            }
-        }
-        lastCrossLen = crossLen
-        lastBranch = branch
-        normalize(right)
-        val back = floatArrayOf(-forward[0], -forward[1], -forward[2])
-        val up = cross(back, right)
-        normalize(up)
+        val s = screenToDevice(currentPanelRotation())
+
+        // 行主序 3×3 → 列主序 4×4（列 = 设备 x / y / z 在世界中的方向）
+        val r = FloatArray(16)
+        r[0] = m[0]; r[1] = m[3]; r[2] = m[6]; r[3] = 0f
+        r[4] = m[1]; r[5] = m[4]; r[6] = m[7]; r[7] = 0f
+        r[8] = m[2]; r[9] = m[5]; r[10] = m[8]; r[11] = 0f
+        r[12] = 0f; r[13] = 0f; r[14] = 0f; r[15] = 1f
 
         val out = FloatArray(16)
-        out[0] = right[0]; out[1] = right[1]; out[2] = right[2]; out[3] = 0f
-        out[4] = up[0]; out[5] = up[1]; out[6] = up[2]; out[7] = 0f
-        out[8] = back[0]; out[9] = back[1]; out[10] = back[2]; out[11] = 0f
-        out[12] = 0f; out[13] = 0f; out[14] = 0f; out[15] = 1f
+        Matrix.multiplyMM(out, 0, r, 0, s, 0)
+
+        // 诊断：不再有分支。退化程度直接由 sinθ 表示，θ→0 时它→0 但不再引发任何切换。
+        val fz = -m[8]
+        lastCrossLen = kotlin.math.sqrt((1f - fz * fz).coerceAtLeast(0f))
+        lastBranch = 1
         return out
     }
 
-    private fun cross(a: FloatArray, b: FloatArray): FloatArray = floatArrayOf(
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0]
-    )
+    /**
+     * 屏幕坐标 → 设备坐标，按 `Display.getRotation()`。
+     *
+     * 三列的物理含义：屏幕的右、上、外分别对应设备的哪根轴。
+     * ROTATION_90：屏幕右 = 设备 +y，屏幕上 = 设备 −x
+     * （与官方 `remapCoordinateSystem(R, AXIS_Y, AXIS_MINUS_X)` 同一含义）。
+     */
+    private fun screenToDevice(rotation: Int): FloatArray {
+        val s = FloatArray(16)
+        Matrix.setIdentityM(s, 0)
+        when (rotation) {
+            Surface.ROTATION_90 -> {
+                s[0] = 0f; s[1] = 1f; s[2] = 0f
+                s[4] = -1f; s[5] = 0f; s[6] = 0f
+            }
+            Surface.ROTATION_180 -> {
+                s[0] = -1f; s[1] = 0f; s[2] = 0f
+                s[4] = 0f; s[5] = -1f; s[6] = 0f
+            }
+            Surface.ROTATION_270 -> {
+                s[0] = 0f; s[1] = -1f; s[2] = 0f
+                s[4] = 1f; s[5] = 0f; s[6] = 0f
+            }
+            else -> Unit   // ROTATION_0：屏幕轴即设备轴
+        }
+        return s
+    }
 
-    private fun length(v: FloatArray): Float =
-        kotlin.math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
-
-    private fun normalize(v: FloatArray) {
-        val len = length(v)
-        if (len <= 1e-6f) return
-        v[0] /= len; v[1] /= len; v[2] /= len
+    /** 每帧读一次面板朝向。拿不到就沿用上一次的值，不因为一次异常把画面翻过去。 */
+    @Suppress("DEPRECATION")
+    private fun currentPanelRotation(): Int {
+        val r = runCatching { windowManager.defaultDisplay.rotation }.getOrDefault(-1)
+        if (r in 0..3) lastPanelRotation = r
+        return lastPanelRotation
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
-
-    private companion object {
-        /** 旋转矢量的世界坐标系是东-北-天，天顶即 (0,0,1)。 */
-        val WORLD_UP = floatArrayOf(0f, 0f, 1f)
-    }
 }
