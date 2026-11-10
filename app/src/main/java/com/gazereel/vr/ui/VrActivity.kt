@@ -413,7 +413,10 @@ class VrActivity : AppCompatActivity() {
         if (::headset.isInitialized) runCatching { headset.stop() }
         runCatching { stopService(Intent(this, PlaybackService::class.java)) }
         // V2.18：把 SMB 会话还给 NAS。不关就是每次进出 VR 泄漏一条连接。
-        runCatching { pool?.close() }
+        // V2.28：close() 现在与 SMB 调用共用一把锁；放到后台执行，别让一次
+        // 慢网络 IO 把 onDestroy 卡在主线程上（关闭的是本页自己的池子，
+        // 与配置页那条互不干扰）。
+        pool?.let { closing -> Thread { runCatching { closing.close() } }.start() }
         pool = null
         super.onDestroy()
     }

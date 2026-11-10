@@ -144,6 +144,46 @@ class SmbSessionPool {
     }
 
     /**
+     * V2.28：所有 SMB 操作都从这里过一道。
+     *
+     * `shares` 里可能躺着一个「已经关掉」的 DiskShare：服务端单方面断开、
+     * 别的路径 evict 过、或者退出界面时 close() 与 diskShare() 撞在一起。
+     * smbj 0.13 没有公开的 isClosed()，与其猜，不如让第一次失败自己说话：
+     * 丢掉这一条、重建一次，再把同一个操作重做一遍。
+     *
+     * 只重试一次，且只针对「连接已死」这一类异常。权限不足、路径不存在等
+     * 真实错误原样抛出，不会被吞掉，也不会反复重连。
+     * 这样列文件夹、补封面、打开片源和扫描四条路径都有同样的自愈能力，
+     * 不再只有 MediaIndexer.scan 的外层重试能救。
+     */
+    private inline fun <T> withShare(
+        ref: MediaRef,
+        credentials: SmbCredentials,
+        operation: (DiskShare) -> T
+    ): T = try {
+        operation(diskShare(ref, credentials))
+    } catch (t: RuntimeException) {
+        if (!isDeadShare(t)) throw t
+        RunLog.append("smb", "共享连接已失效，剔除后重建 · ${ref.share}")
+        evictShare(ref, credentials)
+        operation(diskShare(ref, credentials))
+    }
+
+    /** 只看「连接死了」这一类，找不到就当普通错误交给上层。 */
+    private fun isDeadShare(t: Throwable): Boolean {
+        var cur: Throwable? = t
+        for (depth in 0 until 4) {
+            if (cur == null) break
+            val message = cur.message.orEmpty().lowercase()
+            if (message.contains("closed") || message.contains("disconnect") ||
+                message.contains("transport") || message.contains("not connected")
+            ) return true
+            cur = cur.cause
+        }
+        return false
+    }
+
+    /**
      * 只填 IP 后的第一层「共享」。
      *
      * 先让设备自己报（IPC$ + srvsvc），这一步给出的是完整列表；
@@ -204,29 +244,32 @@ class SmbSessionPool {
     fun openFile(ref: MediaRef, credentials: SmbCredentials): File {
         val relativePath = ref.path.trim().replace('/', '\\').trimStart('\\')
             .removePrefix("${ref.share}\\")
-        return diskShare(ref, credentials).openFile(
-            relativePath,
-            EnumSet.of(AccessMask.FILE_READ_DATA),
-            null,
-            EnumSet.of(SMB2ShareAccess.FILE_SHARE_READ),
-            SMB2CreateDisposition.FILE_OPEN,
-            null
-        )
-    }
-
-    @Synchronized
-    fun list(ref: MediaRef, credentials: SmbCredentials, folder: String): List<SmbEntry> {
-        return diskShare(ref, credentials).list(folder).mapNotNull { info ->
-            val name = info.fileName
-            if (name == "." || name == "..") return@mapNotNull null
-            // FILE_ATTRIBUTE_DIRECTORY = 0x10（MS-FSCC）
-            SmbEntry(
-                name = name,
-                sizeBytes = info.endOfFile,
-                isDirectory = (info.fileAttributes and 0x10L) != 0L
+        return withShare(ref, credentials) {
+            it.openFile(
+                relativePath,
+                EnumSet.of(AccessMask.FILE_READ_DATA),
+                null,
+                EnumSet.of(SMB2ShareAccess.FILE_SHARE_READ),
+                SMB2CreateDisposition.FILE_OPEN,
+                null
             )
         }
     }
+
+    @Synchronized
+    fun list(ref: MediaRef, credentials: SmbCredentials, folder: String): List<SmbEntry> =
+        withShare(ref, credentials) { share ->
+            share.list(folder).mapNotNull { info ->
+                val name = info.fileName
+                if (name == "." || name == "..") return@mapNotNull null
+                // FILE_ATTRIBUTE_DIRECTORY = 0x10（MS-FSCC）
+                SmbEntry(
+                    name = name,
+                    sizeBytes = info.endOfFile,
+                    isDirectory = (info.fileAttributes and 0x10L) != 0L
+                )
+            }
+        }
 
     @Synchronized
     fun invalidate() {
@@ -234,13 +277,19 @@ class SmbSessionPool {
     }
 
     /**
-     * V2.18：把会话还给设备。
+     * V2.18：把会话还给设备；V2.28：补上同步。
      *
      * 以前只有 [invalidate] 能走到这里，而它只在「连接看起来坏了」的时候被调用。
      * 于是退出界面时连接根本没关——每进一次 VR 就在 NAS 上留一条。
      * 进出几次之后设备那边的并发连接被占满，下一次扫描就连不上，
      * 用户看到的是「必须完全退出 App 重开才能扫描」。
+     *
+     * 必须和 [diskShare] / [list] / [openFile] 用同一把锁：否则退出时的
+     * `closeQuietly()` 可能正好夹在别人「新建 share 放进 map」与「关连接」
+     * 之间，留下一个挂在已关闭连接上、却仍被缓存复用的僵尸 DiskShare ——
+     * 之后每一次 SMB 操作都会报 "DiskShare has already been closed"。
      */
+    @Synchronized
     fun close() {
         closeQuietly()
     }

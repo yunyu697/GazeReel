@@ -151,7 +151,10 @@ class SetupActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         // V2.18：退出配置页也把会话还回去，不然它和 VR 各留一条。
-        runCatching { pool.close() }
+        // V2.28：改到后台，close() 现在与 SMB 调用共用一把锁。
+        // 先取局部引用，别让这个短线程一直抓着 Activity。
+        val closing = pool
+        Thread { runCatching { closing.close() } }.start()
         super.onDestroy()
     }
 
