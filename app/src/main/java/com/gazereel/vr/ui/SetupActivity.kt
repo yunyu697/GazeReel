@@ -22,6 +22,8 @@ import com.gazereel.vr.data.CrashLog
 import com.gazereel.vr.data.CredentialStore
 import com.gazereel.vr.data.DlnaScanner
 import com.gazereel.vr.data.FolderBrowser
+import com.gazereel.vr.data.LanScan
+import com.gazereel.vr.data.LanSmbScanner
 import com.gazereel.vr.data.MediaIndexer
 import com.gazereel.vr.data.SmbCredentials
 import com.gazereel.vr.data.SmbSessionPool
@@ -269,22 +271,22 @@ class SetupActivity : AppCompatActivity() {
         setBusy(true, "正在找同一 Wi-Fi 下的设备…（约 4 秒）")
         binding.lanChip.text = "找…"
         lifecycleScope.launch {
-            val discovery = withContext(Dispatchers.IO) {
-                runCatching { indexer.dlnaDiscovery() }
-                    .getOrElse { DlnaScanner.Discovery(emptyList(), 0, 0) }
+            val scan = withContext(Dispatchers.IO) {
+                runCatching { indexer.lanScan() }.getOrElse { LanScan() }
             }
             setBusy(false)
-            val servers = discovery.servers
-            if (servers.isEmpty()) {
-                binding.lanChip.text = getString(R.string.setup_lan_chip)
-                // V2.12：「找不到设备」和「设备没开媒体共享」是两件事，
-                // 混成一句话会让用户以为网络坏了，其实 NAS 只开了 SMB。
+            binding.lanChip.text = if (scan.total == 0) {
+                getString(R.string.setup_lan_chip)
+            } else "${scan.total} 台"
+            // V2.15：以前这里只有 DLNA 一条路，只开 SMB 的 NAS 永远发现不了，
+            // 于是「局域网里有两台 NAS」和「这个 Wi-Fi 下没找到设备」同时成立。
+            if (scan.total == 0) {
                 when {
-                    discovery.responders > 0 -> renderStatus(
+                    scan.responders > 0 -> renderStatus(
                         Status.ERR,
-                        "这个 Wi-Fi 下有 ${discovery.responders} 台设备，但都没开媒体共享",
-                        "它们可能只开了 SMB。在下面的手动添加里选 SMB，地址只填 IP 就行，" +
-                            "连上之后会列出共享让你点选。",
+                        "这个 Wi-Fi 下有 ${scan.responders} 台设备，但都没开共享",
+                        "它们回了广播却没开媒体服务器，445 端口也没开。在下面的手动添加里选 SMB，" +
+                            "地址只填 IP 就行，连上之后会列出共享让你点选。",
                         "0 台可用"
                     )
                     else -> renderStatus(
@@ -297,25 +299,40 @@ class SetupActivity : AppCompatActivity() {
                 expandManual()
                 return@launch
             }
-            binding.lanChip.text = "${servers.size} 台"
-            val extra = if (discovery.withoutService > 0) {
-                "，另有 ${discovery.withoutService} 台设备没开媒体共享"
-            } else ""
             renderStatus(
                 Status.OK,
-                "找到 ${servers.size} 台设备$extra",
-                "点一台就能加入，不用填 IP。",
-                "${servers.size} 台"
+                "找到 ${scan.total} 台设备",
+                detailFor(scan),
+                "${scan.total} 台"
             )
-            showServerPicker(servers)
+            showDevicePicker(scan)
         }
     }
 
-    private fun showServerPicker(servers: List<DlnaScanner.Server>) {
-        val labels = servers.map { it.label }.toTypedArray()
+    /** 找到的组合不同，下一步也不同，别用一句话糊过去。 */
+    private fun detailFor(scan: LanScan): String = when {
+        scan.servers.isNotEmpty() && scan.smbHosts.isNotEmpty() ->
+            "媒体服务器点一下直接进；共享设备会问你要账号，选好文件夹就存下了。"
+        scan.smbHosts.isNotEmpty() ->
+            "它们只开了共享文件夹，没有开媒体服务器。点一台，选好文件夹就加上了。"
+        else -> "点一台就能加入，不用填 IP。"
+    }
+
+    private fun showDevicePicker(scan: LanScan) {
+        val labels = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+        scan.servers.forEach { server ->
+            labels += "${server.label} · 媒体服务器"
+            actions += { addDlnaServer(server) }
+        }
+        scan.smbLabels().forEachIndexed { index, label ->
+            val host = scan.smbHosts[index]
+            labels += label
+            actions += { openSmbHost(host) }
+        }
         AlertDialog.Builder(this, R.style.SetupDialog)
             .setTitle(R.string.setup_lan_pick)
-            .setItems(labels) { _, which -> addDlnaServer(servers[which]) }
+            .setItems(labels.toTypedArray()) { _, which -> actions[which]() }
             .setNegativeButton(R.string.folder_cancel, null)
             .show()
     }
@@ -335,6 +352,51 @@ class SetupActivity : AppCompatActivity() {
             setBusy(false)
             renderScanResult(count, "已加入「${server.label}」")
         }
+    }
+
+    /**
+     * 点一台只开了共享的设备。地址已经探到了，账号还是用户自己的东西：
+     * 先用空账号试一次（不少 NAS 开着访客访问），进得去就直接选文件夹；
+     * 进不去就把 IP 和类型替用户填好，只让他补账号密码。
+     */
+    private fun openSmbHost(host: LanSmbScanner.Host) {
+        setBusy(true, "正在连「${host.label}」…")
+        lifecycleScope.launch {
+            val guest = SmbCredentials("", "")
+            val opened = withContext(Dispatchers.IO) {
+                runCatching { browser.root(SourceType.SMB, host.address, guest) }
+            }
+            setBusy(false)
+            opened.getOrNull()?.let { state ->
+                showFolderDialog(state, guest) { chosen ->
+                    saveNew(SourceType.SMB, chosen, "", "")
+                }
+                return@launch
+            }
+            prefillManual(SourceType.SMB, host.address)
+            renderStatus(
+                Status.ERR,
+                "「${host.label}」要账号才能进",
+                "IP 已经替你填好了，补上这台设备的账号密码，点「连接并选文件夹」就行。",
+                "待填账号"
+            )
+        }
+    }
+
+    /** 把类型和地址替用户填好并展开表单——他只需要补自己知道的那部分。 */
+    private fun prefillManual(type: SourceType, address: String) {
+        val position = when (type) {
+            SourceType.SMB -> 0
+            SourceType.WEBDAV -> 1
+            SourceType.HTTP -> 2
+            SourceType.DLNA -> 3
+            else -> 0
+        }
+        binding.shareType.setSelection(position)
+        binding.shareAddress.setText(address)
+        binding.shareUser.requestFocus()
+        expandManual()
+        syncFormForType()
     }
 
     // ------------------------------------------------------------ 手动兜底

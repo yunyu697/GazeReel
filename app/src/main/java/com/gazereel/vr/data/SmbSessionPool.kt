@@ -107,7 +107,13 @@ class SmbSessionPool {
             .build()
         val newClient = SMBClient(config)
         val newConnection = newClient.connect(host)
-        val newSession = newConnection.authenticate(authentication(credentials))
+        // V2.15：登录失败时这条连接还没挂到字段上，不主动关就是每次失败漏一个 socket。
+        // 「点一台共享设备先用空账号试一次」会让登录失败变成常态，必须收拾干净。
+        val newSession = runCatching { newConnection.authenticate(authentication(credentials)) }
+            .getOrElse { error ->
+                runCatching { newConnection.close() }
+                throw error
+            }
         client = newClient
         connection = newConnection
         session = newSession

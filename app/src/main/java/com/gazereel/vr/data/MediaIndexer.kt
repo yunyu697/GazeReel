@@ -8,6 +8,8 @@ import com.gazereel.vr.data.db.AppDatabase
 import com.gazereel.vr.data.db.MediaItemEntity
 import com.gazereel.vr.data.db.SourceEntity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
 /**
@@ -29,6 +31,7 @@ class MediaIndexer(
 
     private val posters = PosterRepository(context.applicationContext)
     private val dlna = DlnaScanner(context.applicationContext)
+    private val smbHosts = LanSmbScanner()
     // V2.7：手机视频走 MediaStore，不再用 File 单层遍历。
     private val local = LocalVideoScanner(context.applicationContext)
 
@@ -37,8 +40,27 @@ class MediaIndexer(
     /** V2.6：DLNA 的第一层浏览对象是「设备」，不是路径。 */
     fun dlnaServers(): List<DlnaScanner.Server> = dlna.discover()
 
-    /** V2.12：带应答统计的发现，界面要能分清「没设备」和「设备没开媒体共享」。 */
-    fun dlnaDiscovery(): DlnaScanner.Discovery = dlna.discoverDetailed()
+    /**
+     * V2.15：找设备要同时找两种设备。
+     *
+     * SSDP 只认 DLNA，只开 SMB 的 NAS 一辈子不会应答 —— 用户「局域网里有两台 NAS，
+     * 却提示没找到设备」就是这么来的。两条探测并行跑，总时长还是 SSDP 那 4 秒，
+     * 不会因为多扫一遍端口让用户多等。
+     */
+    suspend fun lanScan(): LanScan = coroutineScope {
+        val dlna = async(Dispatchers.IO) {
+            runCatching { this@MediaIndexer.dlna.discoverDetailed() }.getOrNull()
+        }
+        val smb = async(Dispatchers.IO) {
+            runCatching { smbHosts.scan() }.getOrDefault(emptyList())
+        }
+        val found = dlna.await()
+        LanScan(
+            servers = found?.servers.orEmpty(),
+            smbHosts = smb.await(),
+            responders = found?.responders ?: 0
+        )
+    }
 
     /** V2.6：删除片库时连同生成的文字封面一起清掉。 */
     fun deletePosters(sourceId: Long) = posters.deleteBySource(sourceId)
