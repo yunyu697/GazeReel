@@ -12,6 +12,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.gazereel.vr.R
+import com.gazereel.vr.core.PoseTrace
 import com.gazereel.vr.data.CrashLog
 import com.gazereel.vr.data.RunLog
 
@@ -91,6 +92,9 @@ class LogActivity : AppCompatActivity() {
         val crash = CrashLog.read(this)
         body.text = buildString {
             appendLine(RunLog.deviceHeader())
+            appendLine("— 姿态诊断（V2.24 第 0 步 · 只读）—")
+            append(PoseTrace.summary())
+            appendLine()
             appendLine("— 上次崩溃 —")
             appendLine(crash?.takeIf { it.isNotBlank() } ?: "（没有记录）")
             appendLine()

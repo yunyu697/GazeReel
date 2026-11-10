@@ -7,8 +7,10 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.opengl.Matrix
 import android.os.SystemClock
+import android.view.WindowManager
 import com.gazereel.vr.core.Eye
 import com.gazereel.vr.core.EyeParams
+import com.gazereel.vr.core.PoseTrace
 import com.gazereel.vr.core.RotationBlend
 import com.gazereel.vr.core.TriggerEvent
 import com.gazereel.vr.core.TriggerKind
@@ -24,9 +26,19 @@ import com.gazereel.vr.core.viewRotationOf
  */
 class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventListener {
 
+    private val appContext = context.applicationContext
     private val sensorManager =
-        context.applicationContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        appContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    private val windowManager =
+        appContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+
+    /** V2.24 诊断：`screenPoseOf` 最后一次用的叉积模长与分支，只读记录。 */
+    @Volatile
+    private var lastCrossLen = 0f
+    @Volatile
+    private var lastBranch = 0
+    private val diagRotation = FloatArray(16)
 
     private val rotation = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
     private val inverseOffset = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
@@ -58,12 +70,27 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
 
     override fun start() {
         pendingInitialRecenter = true
+        // V2.24 诊断：每次进 VR 重新开始记录，只读。
+        PoseTrace.begin(
+            nowMs = SystemClock.elapsedRealtime(),
+            panelRotation = panelRotation(),
+            screenOrientation = appContext.resources.configuration.orientation
+        )
         rotationSensor?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
     }
 
-    override fun stop() = sensorManager.unregisterListener(this)
+    override fun stop() {
+        PoseTrace.finish()
+        sensorManager.unregisterListener(this)
+    }
+
+    /** 面板朝向。诊断用：验证「锁定横屏后它到底返回什么」这个一直靠猜的量。 */
+    @Suppress("DEPRECATION")
+    private fun panelRotation(): Int = runCatching {
+        windowManager.defaultDisplay.rotation
+    }.getOrDefault(-1)
 
     override fun attachTriggerListener(listener: (TriggerEvent) -> Unit) {
         triggerListener = listener
@@ -197,13 +224,33 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         val deviceToWorld = FloatArray(9)
         SensorManager.getRotationMatrixFromVector(deviceToWorld, event.values)
         val matrix = screenPoseOf(deviceToWorld)
+        val crossLen = lastCrossLen
+        val branch = lastBranch
+        // 参考系的「上」= 偏移矩阵作用在世界天顶上，即它的第三列。
+        val refUp = FloatArray(3)
         synchronized(lock) {
             System.arraycopy(matrix, 0, rotation, 0, 16)
             if (pendingInitialRecenter) {
                 pendingInitialRecenter = false
                 recenterLocked()
             }
+            // 诊断用：当前参考系里的姿态，供记录「用户实际看到的横滚与偏离」。
+            Matrix.multiplyMM(diagRotation, 0, inverseOffset, 0, rotation, 0)
+            refUp[0] = inverseOffset[8]
+            refUp[1] = inverseOffset[9]
+            refUp[2] = inverseOffset[10]
         }
+        // V2.24 诊断：只读记录。上面写 rotation 的那条路径一行没动。
+        // 传 diagRotation（偏移 × 姿态），不是 screenPoseOf 的中间结果——
+        // 那个中间矩阵的横滚被强制归零，拿它量横滚永远是 0。
+        PoseTrace.onFrame(
+            nowMs = SystemClock.elapsedRealtime(),
+            c = matrix,
+            h = diagRotation,
+            refUp = refUp,
+            crossLen = crossLen,
+            branch = branch
+        )
     }
 
     /**
@@ -225,14 +272,23 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         // 行主序 3x3：第三列 = 设备 z 轴在世界中的方向，屏幕朝外，故视线取其负。
         val forward = floatArrayOf(-m[2], -m[5], -m[8])
         var right = cross(forward, WORLD_UP)
-        if (length(right) < 0.2f) {
+        // V2.24 诊断：这三个量只被记录，不参与下面的任何分支判断。
+        var crossLen = length(right)
+        var branch = 1
+        if (crossLen < 0.2f) {
             // 视线接近竖直（抬头看顶 / 躺下），与世界上方向叉乘退化。
             // 换设备的 y 轴做参考，它此刻一定不与视线平行。
             right = cross(forward, floatArrayOf(m[1], m[4], m[7]))
-            if (length(right) < 0.2f) {
+            crossLen = length(right)
+            branch = 2
+            if (crossLen < 0.2f) {
                 right = cross(forward, floatArrayOf(m[0], m[3], m[6]))
+                crossLen = length(right)
+                branch = 3
             }
         }
+        lastCrossLen = crossLen
+        lastBranch = branch
         normalize(right)
         val back = floatArrayOf(-forward[0], -forward[1], -forward[2])
         val up = cross(back, right)
