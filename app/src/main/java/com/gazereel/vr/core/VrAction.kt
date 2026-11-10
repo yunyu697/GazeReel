@@ -40,6 +40,27 @@ sealed class VrAction {
      */
     data class PageFlip(val delta: Int) : VrAction()
 
+    /**
+     * V2.16：片库成叠视图（B1 的第一层：柜子 → **叠** → 片）。
+     *
+     * 832 部平铺是 104 页，翻页翻到手酸。按「一次拍摄 / 一个文件夹」先聚成叠，
+     * 一屏就能看到全部拍摄批次；点进某一叠才看那一批的片子。
+     */
+    data class OpenStack(val key: String) : VrAction()
+
+    object CloseStack : VrAction()
+
+    /**
+     * V2.16：播放中调出片库之后，一个动作回到正在看的那一部。
+     *
+     * 原来从播放页按「片库」只有长按触发键或重新凝视那一格才能回去，
+     * 而「我就想看一眼片库、然后接着看」是高频动作，必须有个明摆着的出口。
+     */
+    object ResumePlayback : VrAction() {
+        override val priority = 3
+        override val isPlaybackRelated = true
+    }
+
     object TogglePlay : VrAction() {
         override val priority = 3
         override val isPlaybackRelated = true

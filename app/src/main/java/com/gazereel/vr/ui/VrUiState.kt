@@ -94,6 +94,14 @@ data class VrUiState(
      * 这里一页放 [PAGE_SIZE] 格，摇头 / 上一页 / 下一页都整页翻。
      */
     val page: Int = 0,
+    /**
+     * V2.16：成叠视图。
+     * - [stacks] 为空表示这个片源不值得成叠（部数少或看不出规律），片库直接平铺；
+     * - [activeStack] 为空且在成叠模式时，片库显示的是「一叠一叠」；
+     * - 进了某一叠，片库显示的就是那一叠里的片子。
+     */
+    val stacks: List<MediaStack> = emptyList(),
+    val activeStack: String? = null,
     val currentMediaId: Long = 0L,
     val currentTitle: String = "",
     val format: VrFormat = VrFormat.DEFAULT,
@@ -124,8 +132,21 @@ data class VrUiState(
 ) {
     val selectedItem: MediaItemEntity? get() = items.getOrNull(selectedIndex)
 
+    /** 当前在看的这一叠；没进叠时为 null。 */
+    val currentStack: MediaStack? get() = stacks.firstOrNull { it.key == activeStack }
+
+    /** 片库这一屏真正要显示的片子：进了叠就是那一叠，否则是全部。 */
+    val visibleItems: List<MediaItemEntity> get() = currentStack?.items ?: items
+
+    /** 片库这一屏显示的是「一叠一叠」而不是片子。 */
+    val showingStacks: Boolean get() = stacks.isNotEmpty() && activeStack == null
+
+    /** 这一屏要画多少个格子：成叠时是一叠一个。 */
+    val cellCount: Int
+        get() = if (showingStacks) stacks.size else visibleItems.size
+
     /** 总页数；没有片源时也算 1 页，避免页码出现「第 1 / 0 页」。 */
-    val pageCount: Int get() = ((items.size + PAGE_SIZE - 1) / PAGE_SIZE).coerceAtLeast(1)
+    val pageCount: Int get() = ((cellCount + PAGE_SIZE - 1) / PAGE_SIZE).coerceAtLeast(1)
 
     companion object {
         /**

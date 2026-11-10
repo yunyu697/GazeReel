@@ -8,8 +8,10 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.Socket
+import java.nio.charset.Charset
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * V2.15（C8b）：只开了共享、没开媒体服务器的设备，SSDP 一辈子发现不了。
@@ -39,6 +41,11 @@ class LanSmbScanner {
         private const val NBNS_TIMEOUT_MS = 350
     }
 
+    /** 反向 DNS 专用：缓存池，被卡住的线程不会拖住后面的查询。 */
+    private val dnsPool = Executors.newCachedThreadPool { runnable ->
+        Thread(runnable, "lan-reverse-dns").apply { isDaemon = true }
+    }
+
     /**
      * 扫本机所在网段，返回在 445 端口上应答的地址。
      * 只扫自己所在的那一段（最多 254 个），不会为了找两台 NAS 把整栋楼的地址都连一遍。
@@ -51,7 +58,12 @@ class LanSmbScanner {
         }
         val alive = try {
             val tasks = targets.map { ip ->
-                Callable { if (reachable(ip)) Host(ip, netbiosName(ip).orEmpty()) else null }
+                Callable {
+                    if (!reachable(ip)) return@Callable null
+                    // 先问 NetBIOS（最快、最像用户在电脑上看到的那个名字），
+                    // 问不到再试反向 DNS；都没有就显示 IP，不编名字。
+                    Host(ip, netbiosName(ip) ?: reverseName(ip).orEmpty())
+                }
             }
             pool.invokeAll(tasks).mapNotNull { future ->
                 runCatching { future.get() }.getOrNull()
@@ -178,16 +190,31 @@ class LanSmbScanner {
         var fileServer: String? = null
         for (index in 0 until count) {
             if (offset + 18 > length) break
-            val raw = String(data, offset, 15, Charsets.US_ASCII)
             val suffix = data[offset + 15].toInt() and 0xFF
             val group = (readShort(data, offset + 16) and 0x8000) != 0
+            val clean = decodeName(data, offset, 15)
             offset += 18
-            val clean = sanitize(raw) ?: continue
+            if (clean == null) continue
             // 0x00 = 工作站名，0x20 = 文件服务器名；组名（workgroup）不要。
             if (!group && suffix == 0x00 && workstation == null) workstation = clean
             if (!group && suffix == 0x20 && fileServer == null) fileServer = clean
         }
         return workstation ?: fileServer
+    }
+
+    /**
+     * V2.16：NetBIOS 名字是 **OEM 编码**，中文名在中文 NAS / Windows 上是 GBK。
+     * 原来按 US-ASCII 解，一个中文名变成一串问号，被 [sanitize] 一拒就只剩 IP——
+     * 真机反馈「2 台 NAS 已经能发现，但没有显示名称」就是这么来的。
+     * GBK 能正确解出纯 ASCII 名，所以先试它；解出乱码就换下一个。
+     */
+    private fun decodeName(data: ByteArray, offset: Int, length: Int): String? {
+        val raw = data.copyOfRange(offset, offset + length)
+        for (charset in listOf("GBK", "UTF-8")) {
+            val text = runCatching { String(raw, Charset.forName(charset)) }.getOrNull() ?: continue
+            sanitize(text)?.let { return it }
+        }
+        return null
     }
 
     private fun readShort(data: ByteArray, offset: Int): Int =
@@ -197,9 +224,22 @@ class LanSmbScanner {
     private fun sanitize(raw: String): String? {
         val clean = raw.trim()
         if (clean.length < 2) return null
+        // '\uFFFD' 表示解码失败；'?' 是 ASCII 硬解中文名的产物，两种都不要。
+        if (clean.any { it == '\uFFFD' || it == '?' }) return null
         if (!clean.all { it.isLetterOrDigit() || it in " -_." }) return null
         return clean.take(32)
     }
+
+    /**
+     * 反向 DNS 兜底。`canonicalHostName` 没有超时参数，在没配 DNS 的网络上会挂很久，
+     * 所以丢进独立线程并只等 400ms——拿不到就当没有，绝不让「找设备」卡住。
+     */
+    private fun reverseName(ip: String): String? = runCatching {
+        val task = dnsPool.submit(Callable { InetAddress.getByName(ip).canonicalHostName })
+        val name = task.get(400, TimeUnit.MILLISECONDS)
+        if (name.isNullOrBlank() || name == ip) return@runCatching null
+        sanitize(name.substringBefore('.'))
+    }.getOrNull()
 
     private fun numeric(ip: String): Long = ip.split('.')
         .fold(0L) { acc, part -> (acc shl 8) or (part.toLongOrNull() ?: 0L) }

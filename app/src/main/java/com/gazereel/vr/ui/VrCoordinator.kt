@@ -93,13 +93,18 @@ class VrCoordinator(
         val index = items.indexOfFirst { it.id == keepId }
             .takeIf { it >= 0 }
             ?: 0
-        val pageCount = ((items.size + VrUiState.PAGE_SIZE - 1) / VrUiState.PAGE_SIZE)
-            .coerceAtLeast(1)
-        uiState = uiState.copy(
+        // V2.16：叠跟着片子一起重算；原来待着的那一叠如果没了（换了片源、重扫后文件夹改名），
+        // 就退回「全部叠」，不要留一个指向空列表的 activeStack。
+        val stacks = StackBuilder.build(items)
+        val activeStack = uiState.activeStack?.takeIf { key -> stacks.any { it.key == key } }
+        val next = uiState.copy(
             items = items,
-            selectedIndex = index.coerceIn(0, maxOf(0, items.size - 1)),
-            page = uiState.page.coerceIn(0, pageCount - 1)
+            stacks = stacks,
+            activeStack = activeStack,
+            selectedIndex = index.coerceIn(0, maxOf(0, items.size - 1))
         )
+        // 页码要按「这一屏现在有几个格子」收敛：成叠之后页数会少一大截。
+        uiState = next.copy(page = uiState.page.coerceIn(0, next.pageCount - 1))
     }
 
     /** 阶段二 FR-10：片库卡片据此显示「上次看到 mm:ss」。 */
@@ -129,6 +134,9 @@ class VrCoordinator(
                 openSelected()
             }
             is VrAction.PageFlip -> flipPage(action.delta)
+            is VrAction.OpenStack -> openStack(action.key)
+            VrAction.CloseStack -> closeStack()
+            VrAction.ResumePlayback -> resumePlayback()
             VrAction.TogglePlay -> player.togglePlay()
             // V2.8：片库里 Next / Previous 只能是翻页。
             // 原来它直接 playRelative(±1)，任何在片库里发出的「下一部」都会当场开始播放，
@@ -303,6 +311,46 @@ class VrCoordinator(
         }
     }
 
+    // ── V2.16 成叠（B1 的第一层）与「回到播放」 ─────────────────────────
+
+    private fun openStack(key: String) {
+        val stack = uiState.stacks.firstOrNull { it.key == key } ?: return
+        uiState = uiState.copy(activeStack = key, page = 0, consoleVisible = true)
+        RunLog.append("ui", "进入叠 ${stack.label}（${stack.items.size} 部）")
+    }
+
+    private fun closeStack() {
+        val state = uiState
+        if (state.activeStack == null) return
+        // 回到这一叠所在的页，而不是第 1 页——叠多的时候弹回第一页等于让人重新找。
+        val index = state.stacks.indexOfFirst { it.key == state.activeStack }
+        uiState = state.copy(
+            activeStack = null,
+            page = if (index >= 0) index / VrUiState.PAGE_SIZE else 0,
+            consoleVisible = true
+        )
+    }
+
+    /**
+     * 播放中调出片库之后回到正在看的那一部。
+     * 播放器一直把这一部开着（只是暂停），所以这里只切屏 + 继续播，不重新打开文件。
+     */
+    private fun resumePlayback() {
+        val state = uiState
+        if (state.currentMediaId == 0L) {
+            showMessage("还没有在放的片子")
+            return
+        }
+        uiState = state.copy(
+            screen = VrScreen.PLAYER,
+            playing = true,
+            consoleVisible = true,
+            lastActivityMs = SystemClock.elapsedRealtime()
+        )
+        player.resume()
+        RunLog.append("ui", "回到播放：${state.currentTitle}")
+    }
+
     private fun back() {
         val state = uiState
         when {
@@ -312,15 +360,20 @@ class VrCoordinator(
                 player.pause()
                 // V2.8：回到正在看的这一部所在的页，而不是第 1 页。
                 // 「播放中按片库」十有八九是接着翻同一批，弹回第一页等于让人重新翻一遍。
-                val index = state.items.indexOfFirst { it.id == state.currentMediaId }
+                // V2.16：页码要按「当前这一屏」算——进了某叠，那一部在叠里的位置才是对的。
+                val visible = state.visibleItems
+                val index = visible.indexOfFirst { it.id == state.currentMediaId }
+                val global = state.items.indexOfFirst { it.id == state.currentMediaId }
                 uiState = state.copy(
                     screen = VrScreen.LIBRARY,
                     playing = false,
                     consoleVisible = true,
-                    selectedIndex = if (index >= 0) index else state.selectedIndex,
+                    selectedIndex = if (global >= 0) global else state.selectedIndex,
                     page = if (index >= 0) index / VrUiState.PAGE_SIZE else state.page
                 )
             }
+            // V2.16：在某一叠里按返回，先退回「全部叠」，而不是直接说「已在首页」。
+            state.activeStack != null -> closeStack()
             else -> showMessage("已在片库首页 · 凝视「退出」可返回配置")
         }
     }

@@ -113,18 +113,27 @@ internal object SrvsvcShareEnum {
         }.toByteArray()
 
     /**
-     * NetrShareEnum 的入参：服务器名、`SHARE_ENUM_STRUCT{Level=1, EntriesRead=0, Buffer=NULL}`、
-     * 最大长度、TotalEntries（出参占位）、ResumeHandle（入出参，指向 0）。
+     * NetrShareEnum 的入参。
+     *
+     * V2.16 修正：**NDR 把所有定长字段排在前面，变长内容（deferred）统一排在后面。**
+     * 上一版把 ServerName 的字符串紧跟在它的引用号之后、再写 Level / EntriesRead，
+     * 服务器读到的 Level 其实是字符串的第一个 DWORD，整条报文被判为畸形请求——
+     * 真机上表现成「设备没有返回共享列表」。这是编码顺序错误，不是设备不支持。
+     *
+     * 定长部分（28 字节）：ServerName 引用 / Level / EntriesRead / Buffer / 最大长度 /
+     * TotalEntries 引用 / ResumeHandle 引用；变长部分：ServerName 字符串、两个引用指向的值。
      */
     internal fun enumStub(host: String): ByteArray = ByteArrayOutputStream().apply {
         writeLe32(0x0002_0000L)                 // ServerName 引用
-        writeWString("\\\\$host")
         writeLe32(1)                            // Level = 1
         writeLe32(0)                            // EntriesRead = 0
         writeLe32(0)                            // Buffer = NULL
         writeLe32(0xFFFF_FFFFL)                 // PreferedMaximumLength
-        writeLe32(0)                            // TotalEntries
-        writeLe32(0x0002_0004L)                 // ResumeHandle 引用
+        writeLe32(0x0002_0004L)                 // TotalEntries 引用
+        writeLe32(0x0002_0008L)                 // ResumeHandle 引用
+        // ↓ 以下才是延迟数据，必须排在全部定长字段之后。
+        writeWString("\\\\$host")
+        writeLe32(0)                            // *TotalEntries = 0
         writeLe32(0)                            // *ResumeHandle = 0
     }.toByteArray()
 
@@ -155,13 +164,17 @@ internal object SrvsvcShareEnum {
         if (entriesRead <= 0) return emptyList()
         if (u32(stub, 8) == 0L) return emptyList()          // Buffer 为空
 
-        // 数组既可能紧跟在 Buffer 指针之后（内联），也可能被 NDR 延后到
-        // TotalEntries / ResumeHandle 之后。两种排布都试，取能读出合理名字的那个。
-        for (offset in intArrayOf(24, 20, 12)) {
+        // 应答的定长部分：Level / EntriesRead / Buffer 引用 / TotalEntries / ResumeHandle，
+        // 共 20 字节，数组紧随其后。但不同实现可能把 TotalEntries 内联或延后，
+        // 所以几个偏移都试一遍，取能读出合理名字的那个。
+        for (offset in intArrayOf(20, 24, 12, 16)) {
             val names = runCatching { readEntries(stub, offset, entriesRead) }.getOrNull()
             if (!names.isNullOrEmpty() && names.all(::plausible)) return names
         }
-        throw IOException("srvsvc 应答无法解析")
+        throw IOException(
+            "srvsvc 应答无法解析（${pdu.size} 字节，前 8 字节 " +
+                pdu.take(8).joinToString(" ") { "%02x".format(it) } + "）"
+        )
     }
 
     private fun readEntries(stub: ByteArray, start: Int, count: Int): List<String> {

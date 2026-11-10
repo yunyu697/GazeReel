@@ -15,11 +15,12 @@ import com.gazereel.vr.core.VrAction
 import com.gazereel.vr.core.VrFormat
 import com.gazereel.vr.data.db.MediaItemEntity
 import com.gazereel.vr.player.SubtitleParser
+import com.gazereel.vr.ui.AdjustFeedback
+import com.gazereel.vr.ui.MediaStack
 import com.gazereel.vr.ui.VrOverlay
 import com.gazereel.vr.ui.VrScreen
 import com.gazereel.vr.ui.VrSettings
 import com.gazereel.vr.ui.VrUiState
-import com.gazereel.vr.ui.AdjustFeedback
 import kotlin.math.PI
 import kotlin.math.asin
 import kotlin.math.atan2
@@ -55,9 +56,15 @@ class VrUiLayer(
         // V2.13：格子在画布里变高（原来 106px），配合片库专用的大平面，
         // 每格从约 10.0°×5.3° 变成约 14.0°×10.8°，标题从 17px 提到 26px。
         private const val CELL_W = 232f
-        private const val CELL_H = 165f
+        /**
+         * V2.16：格子从 165px 收到 145px，把底栏（424–490）腾出来放
+         * 「返回播放 / 返回全部叠」。145px 在 2.4×1.2 米的平面上约 9.4°，
+         * 仍然远高于「单目标 ≥6°×4°」。两行顶部 114 / 266，正中 256 仍落在行间缝里，
+         * 准星静止时压不到任何一格——这条性质不能因为改尺寸丢掉。
+         */
+        private const val CELL_H = 145f
         private val CELL_LEFT = floatArrayOf(24f, 272f, 520f, 768f)
-        private val CELL_TOP = floatArrayOf(116f, 297f)
+        private val CELL_TOP = floatArrayOf(114f, 266f)
 
         /** 20260712_143022 这类相机 / 手机命名。 */
         private val STAMP_COMPACT =
@@ -308,11 +315,20 @@ class VrUiLayer(
     private fun drawLibrary(state: VrUiState) {
         panel(RectF(20f, 14f, 1004f, 498f))
 
-        val items = state.items
         val pageCount = state.pageCount
         val page = state.page.coerceIn(0, pageCount - 1)
+        val stack = state.currentStack
 
-        label("片库 · ${items.size} 部", 44f, 76f, 30f, C_TEXT)
+        // V2.16：进了某一叠就写这一叠的名字，否则写「片库 · 共 N 部」。
+        // 成叠时括号里补一句「共 M 叠」，用户才知道自己现在在哪一层。
+        val title = when {
+            stack != null -> "叠 · ${stack.label} · ${stack.items.size} 部"
+            state.showingStacks -> "片库 · ${state.items.size} 部 · ${state.stacks.size} 叠"
+            else -> "片库 · ${state.items.size} 部"
+        }
+        small.textSize = 30f
+        label(ellipsize(title, 420f, small), 44f, 76f, 30f, C_TEXT)
+        small.textSize = 18f
         if (pageCount > 1) {
             // 两侧箭头之间只有 116px，「第 x / y 页」会压到箭头框上，只留数字。
             label("${page + 1} / $pageCount", 636f, 74f, 22f, C_MUTED, Paint.Align.CENTER)
@@ -340,37 +356,114 @@ class VrUiLayer(
             VrAction.Exit, Glyph.POWER
         )
 
-        if (items.isEmpty()) {
+        if (state.items.isEmpty()) {
             centerText("还没有片源 · 请回到戴镜前配置添加共享", 250f, 22f, C_MUTED)
         } else {
             val start = page * VrUiState.PAGE_SIZE
-            for (slot in 0 until VrUiState.PAGE_SIZE) {
-                val index = start + slot
-                val item = items.getOrNull(index) ?: break
-                // 2 行 × 4 列，正中那道十字缝留得比别处宽（横向 16px、纵向 16px）。
-                // 这只是在「已经上膛」之后多一道保险，不是防误开的主力——
-                // 配戴过程中手机一直在动，准星照样会扫到卡片上，主力是 V2.9 的触发键上膛。
-                val left = CELL_LEFT[slot % 4]
-                val top = CELL_TOP[slot / 4]
-                val resume = state.progress[item.id]
-                    ?.takeIf { !it.finished && it.positionMs > 0L }
-                cell(
-                    id = "cell$index",
-                    item = item,
-                    rect = RectF(left, top, left + CELL_W, top + CELL_H),
-                    action = VrAction.OpenMedia(item.id),
-                    badge = resume?.let { "续 ${formatTime(it.positionMs)}" },
-                    current = item.id == state.currentMediaId
-                )
+            if (state.showingStacks) {
+                // V2.16：第一层是「一叠一叠」，不是 104 页片子。
+                for (slot in 0 until VrUiState.PAGE_SIZE) {
+                    val stack = state.stacks.getOrNull(start + slot) ?: break
+                    val left = CELL_LEFT[slot % 4]
+                    val top = CELL_TOP[slot / 4]
+                    stackCard(stack, RectF(left, top, left + CELL_W, top + CELL_H))
+                }
+            } else {
+                val items = state.visibleItems
+                for (slot in 0 until VrUiState.PAGE_SIZE) {
+                    val index = start + slot
+                    val item = items.getOrNull(index) ?: break
+                    // 2 行 × 4 列，正中那道十字缝留得比别处宽（横向 16px、纵向 16px）。
+                    // 这只是在「已经上膛」之后多一道保险，不是防误开的主力——
+                    // 配戴过程中手机一直在动，准星照样会扫到卡片上，主力是 V2.9 的触发键上膛。
+                    val left = CELL_LEFT[slot % 4]
+                    val top = CELL_TOP[slot / 4]
+                    val resume = state.progress[item.id]
+                        ?.takeIf { !it.finished && it.positionMs > 0L }
+                    cell(
+                        id = "cell$index",
+                        item = item,
+                        rect = RectF(left, top, left + CELL_W, top + CELL_H),
+                        action = VrAction.OpenMedia(item.id),
+                        badge = resume?.let { "续 ${formatTime(it.positionMs)}" },
+                        current = item.id == state.currentMediaId
+                    )
+                }
             }
         }
 
-        val message = state.message
-        if (message != null) {
-            centerText(message, 490f, 20f, C_ACCENT)
-        } else {
-            centerText("凝视一格即播放 · 摇头或左右箭头翻页", 490f, 20f, C_MUTED)
+        // ── 底栏（V2.16）────────────────────────────────────────────────
+        // 播放中调出片库之后，必须有明摆着的路回到正在看的那一部；
+        // 进了某一叠，也要有明摆着的路退回全部叠。两个都放在底栏，靠左排。
+        var barRight = 24f
+        if (state.currentMediaId != 0L) {
+            button(
+                "resumePlay", "返回播放",
+                RectF(24f, 424f, 224f, 490f), VrAction.ResumePlayback,
+                highlighted = true
+            )
+            barRight = 236f
         }
+        if (state.activeStack != null) {
+            button(
+                "closeStack", "← 全部叠",
+                RectF(barRight, 424f, barRight + 184f, 490f), VrAction.CloseStack
+            )
+            barRight += 196f
+        }
+
+        val hint = state.message ?: if (state.showingStacks) {
+            "凝视一叠即进入 · 摇头或左右箭头翻页"
+        } else {
+            "凝视一格即播放 · 摇头或左右箭头翻页"
+        }
+        val hintColor = if (state.message != null) C_ACCENT else C_MUTED
+        if (barRight > 24f) {
+            // 有按钮时提示靠右让位，避免压住按钮上的字。
+            small.textSize = 18f
+            label(
+                ellipsize(hint, 1000f - barRight - 16f, small), 1000f, 464f, 18f,
+                hintColor, Paint.Align.RIGHT
+            )
+            small.textSize = 18f
+        } else {
+            centerText(hint, 470f, 20f, hintColor)
+        }
+    }
+
+    /**
+     * 一叠：一次拍摄或一个文件夹。
+     *
+     * 不画海报——叠的价值是「这一批是什么」，不是「其中某一帧长什么样」。
+     * 左边一道亮边 + 名字 + 部数，一眼能看出它和单个片子的区别。
+     */
+    private fun stackCard(stack: MediaStack, rect: RectF) {
+        targets += GazeTarget(
+            "stack:${stack.key}", stack.label, RectF(rect), VrAction.OpenStack(stack.key)
+        )
+        fill.color = C_POSTER
+        canvas.drawRoundRect(rect, 14f, 14f, fill)
+        fill.color = C_ACCENT
+        canvas.drawRoundRect(
+            RectF(rect.left + 8f, rect.top + 12f, rect.left + 14f, rect.bottom - 12f),
+            3f, 3f, fill
+        )
+        stroke.color = C_BORDER
+        stroke.strokeWidth = 1.5f
+        canvas.drawRoundRect(rect, 14f, 14f, stroke)
+
+        strong.textSize = 28f
+        val lines = wrapTwoLines(stack.label, rect.width() - 44f)
+        val baseY = rect.centerY() - 4f - (lines.size - 1) * 16f
+        lines.forEachIndexed { index, line ->
+            strongLabel(
+                line, rect.centerX() + 4f, baseY + index * 32f, 28f, C_TEXT, Paint.Align.CENTER
+            )
+        }
+        label(
+            stack.detail, rect.centerX() + 4f, baseY + lines.size * 32f + 6f, 20f,
+            C_ACCENT, Paint.Align.CENTER
+        )
     }
 
     // ── 播放控制台（PRD 4.4：8 秒无操作淡出，控件位于视野下方） ────────
@@ -622,17 +715,19 @@ class VrUiLayer(
 
         if (badge != null) {
             // 角标放右上角：日期在格子中央，左上角会和它挤在一起。
+            // V2.16：格子收到 145 之后角标压到了日期行（离屏预览里一眼就看出来了），
+            // 所以角标整体上移、日期行随之下移，两者纵向彻底分开。
             small.textSize = 17f
             val width = small.measureText(badge) + 18f
             fill.color = 0xE612283F.toInt()
             canvas.drawRoundRect(
                 RectF(
-                    rect.right - 10f - width, rect.top + 10f,
-                    rect.right - 10f, rect.top + 36f
+                    rect.right - 10f - width, rect.top + 4f,
+                    rect.right - 10f, rect.top + 28f
                 ),
-                13f, 13f, fill
+                12f, 12f, fill
             )
-            label(badge, rect.right - 19f, rect.top + 29f, 17f, C_ACCENT, Paint.Align.RIGHT)
+            label(badge, rect.right - 19f, rect.top + 23f, 17f, C_ACCENT, Paint.Align.RIGHT)
         }
 
         stroke.color = if (current) C_ACCENT else C_BORDER
@@ -649,11 +744,11 @@ class VrUiLayer(
                 stamp.date, rect.centerX(), rect.top + 54f, 22f, C_MUTED, Paint.Align.CENTER
             )
             strongLabel(
-                stamp.time, rect.centerX(), rect.top + 112f, 44f, C_TEXT, Paint.Align.CENTER
+                stamp.time, rect.centerX(), rect.top + 106f, 44f, C_TEXT, Paint.Align.CENTER
             )
             if (meta != null) {
                 label(
-                    meta, rect.centerX(), rect.top + 148f, 19f, C_MUTED, Paint.Align.CENTER
+                    meta, rect.centerX(), rect.top + 136f, 19f, C_MUTED, Paint.Align.CENTER
                 )
             }
         } else {
@@ -661,7 +756,8 @@ class VrUiLayer(
             val name = prettyName(item.title)
             strong.textSize = 30f
             val lines = wrapTwoLines(name, rect.width() - 36f)
-            val baseY = if (meta == null) rect.centerY() + 10f else rect.centerY() - 6f
+            // V2.16：格子从 165 收到 145，原来两行名字 + 一行元信息会顶出下边界。
+            val baseY = if (meta == null) rect.centerY() + 10f else rect.centerY() - 14f
             lines.forEachIndexed { index, line ->
                 strongLabel(
                     line, rect.centerX(), baseY + index * 36f, 30f, C_TEXT, Paint.Align.CENTER
@@ -669,7 +765,7 @@ class VrUiLayer(
             }
             if (meta != null) {
                 label(
-                    meta, rect.centerX(), baseY + lines.size * 36f + 6f, 19f,
+                    meta, rect.centerX(), baseY + lines.size * 36f + 2f, 19f,
                     C_MUTED, Paint.Align.CENTER
                 )
             }
