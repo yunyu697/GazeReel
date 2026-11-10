@@ -118,6 +118,14 @@ data class VrUiState(
      * （`VrHeadsetProvider.recenterSmooth`），视频 / UI / 字幕 / 准星一起转。
      */
     val postureCandidate: Float? = null,
+    /**
+     * V2.19c：候选方向的**偏航**分量（左右）。
+     *
+     * 只有俯仰不够。用户躺下时最常偏的是「仰头」，但侧躺着看、或者沙发上半靠着，
+     * 偏的可能是左右——只说「抬头 32°」会把「偏左 40°」说成「你现在不是正对画面」，
+     * 那就等于没告诉他任何事。
+     */
+    val postureYaw: Float = 0f,
     /** 候选还剩多久消失（毫秒），用来画那条细进度条。 */
     val postureRemainingMs: Long = 0L,
     val currentMediaId: Long = 0L,

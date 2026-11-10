@@ -156,11 +156,16 @@ class VrRenderer(
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         val panel = uiLayer.panelSpec(state)
-        // 缓动期间 centerY 每帧都在变；量化到 1mm，避免 24 帧各建一次 FloatBuffer。
-        val specKey = VrUiLayer.PanelSpec(panel.width, panel.height, Math.round(panel.centerY * 1000f) / 1000f)
+        // 缓动期间朝向每帧都在变；量化到 1 毫弧度（约 0.06°），避免 24 帧各建一次 FloatBuffer。
+        // V2.19c：姿态确认卡会把整块平面转到候选方向，所以 yaw 也要参与比较。
+        val specKey = VrUiLayer.PanelSpec(
+            panel.width, panel.height,
+            Math.round(panel.yaw * 1000f) / 1000f,
+            Math.round(panel.pitch * 1000f) / 1000f
+        )
         if (uiSpec != specKey) {
             uiSpec = specKey
-            uiGeometry = mesh.uiQuad(specKey.centerY, specKey.width, specKey.height)
+            uiGeometry = mesh.uiQuad(specKey.yaw, specKey.pitch, specKey.width, specKey.height)
         }
 
         for (eye in listOf(Eye.LEFT, Eye.RIGHT)) {

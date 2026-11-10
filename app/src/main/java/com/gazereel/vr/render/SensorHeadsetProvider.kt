@@ -131,10 +131,34 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
      * 直接拿 `inverseOffset` 当起点会在连续确认时跳一下。
      */
     override fun recenterSmooth(durationMs: Long) {
+        recenterTo(null, durationMs)
+    }
+
+    /**
+     * V2.19c：缓转到指定姿态。
+     *
+     * `pose == null` 表示「就用此刻的朝向」，等价于旧的 [recenterSmooth]。
+     * 姿态确认卡用得到非 null 的那种：用户为点到卡片上的按钮会把视线移开几度，
+     * 那几度不该被写进新的正前方。
+     *
+     * `pose` 的语义是 **[headRotation] 那种「参考系里的姿态」**，不是设备原始姿态。
+     * 要让 H 变成新的正前方，需要 `O'·R = I` 且 `O·R = H`，解得 `O' = H⁻¹·O`。
+     * 直接写 `O' = pose⁻¹` 会多乘一次 O，落点偏出去几十度——这正是这个接口容易写错的地方。
+     */
+    override fun recenterTo(pose: FloatArray?, durationMs: Long) {
         synchronized(lock) {
+            val offset = offsetNow()
+            val h = FloatArray(16)
+            if (pose != null) {
+                System.arraycopy(pose, 0, h, 0, 16)
+            } else {
+                Matrix.multiplyMM(h, 0, offset, 0, rotation, 0)
+            }
+            val inv = FloatArray(16)
+            if (!Matrix.invertM(inv, 0, h, 0)) return
             val target = FloatArray(16)
-            if (!Matrix.invertM(target, 0, rotation, 0)) return
-            System.arraycopy(offsetNow(), 0, easeFrom, 0, 16)
+            Matrix.multiplyMM(target, 0, inv, 0, offset, 0)
+            System.arraycopy(offset, 0, easeFrom, 0, 16)
             System.arraycopy(target, 0, easeTo, 0, 16)
             easeStartMs = SystemClock.elapsedRealtime()
             easeDurationMs = durationMs.coerceAtLeast(1L)

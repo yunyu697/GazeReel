@@ -49,6 +49,18 @@ interface VrHeadsetProvider {
     fun recenterSmooth(durationMs: Long) = recenter()
 
     /**
+     * V2.19c：把「正前方」缓转到**指定姿态**，而不是「此刻的姿态」。
+     *
+     * 差别只在几度，但恰好是舒适中心最要紧的那几度：姿态确认卡是给凝视点的，
+     * 用户为了点到「挪到这里」必须把视线从候选方向移开几度，
+     * 若按「按下那一刻的朝向」重定，正前方就永久偏了那几度。
+     * 候选姿态是检测到的那一个，用它才是用户确认的那个方向。
+     *
+     * @param pose 设备 → 世界 的姿态矩阵；null 表示「就用此刻的姿态」。
+     */
+    fun recenterTo(pose: FloatArray?, durationMs: Long) = recenterSmooth(durationMs)
+
+    /**
      * PRD FR-12「锁定视角」：冻结头追输出，画面与 UI 都停在锁定瞬间的朝向。
      * 默认空实现保证新增 Provider 时不需要立刻实现该能力。
      */

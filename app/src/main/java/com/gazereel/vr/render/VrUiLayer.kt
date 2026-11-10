@@ -32,7 +32,6 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
-import kotlin.math.tan
 import com.gazereel.vr.data.db.mediaKeyOf
 
 /**
@@ -92,7 +91,15 @@ class VrUiLayer(
      * 1.8×0.9 米在 2 米外只占约 48.5°×25.4°，1024×512 的画布摊到这个角度上，
      * 17px 的标题落到屏幕里只剩不到 9 个像素——真机上就是「看不清、认不出是哪一部」。
      */
-    data class PanelSpec(val width: Float, val height: Float, val centerY: Float)
+    /**
+     * UI 平面的物理尺寸与朝向。
+     *
+     * V2.19c：朝向存的是**角度**（yaw / pitch），不是「米」。平面要整块转向候选方向，
+     * 而转向必须发生在几何里（`ProjectionMesh.uiQuad`）——平移会让大角度下的卡片
+     * 被压扁到 `cos θ`，抬头 60° 就只剩一半高。存角度还有一个好处：
+     * `gazePoint` 直接用这两个角度，不需要 atan2 反解。
+     */
+    data class PanelSpec(val width: Float, val height: Float, val yaw: Float, val pitch: Float)
 
     /**
      * V2.19 / B5：俯角只有「控制台比正前方低 13°」这一条相对规则，**没有绝对俯角**。
@@ -105,20 +112,25 @@ class VrUiLayer(
      * 而是缓转整个参考系：确认「把正前方挪到这里」后，Provider 用 0.8 秒
      * 把世界转到用户此刻的视线方向，视频 / UI / 字幕 / 准星作为一个整体一起转。
      * 参考系换了之后，这里的相对规则自动成立，不需要任何额外补偿。
+     *
+     * V2.19c：姿态确认卡是唯一的例外——它的平面**转到候选姿态的视线正前方**。
+     * 原来它跟控制台一样在世界锁定的中心，于是卡片永远出现在「正前方附近」，
+     * 用户为了确认还得转头去找它，而「转头」本身就在改变他要确认的那个姿势。
      */
-    fun panelSpec(state: VrUiState): PanelSpec = when {
-        state.screen == VrScreen.PLAYER && state.overlay == VrOverlay.NONE ->
-            PanelSpec(1.8f, 0.9f, centerYOf(-CONSOLE_DROP_RAD))
-        state.screen == VrScreen.LIBRARY && state.overlay == VrOverlay.NONE ->
-            PanelSpec(2.4f, 1.2f, 0f)
-        else -> PanelSpec(1.8f, 0.9f, 0f)
+    fun panelSpec(state: VrUiState): PanelSpec {
+        val candidate = state.postureCandidate
+        if (candidate != null) {
+            // 候选方向 = 用户此刻正在看的方向。卡片就摆在那儿，居中。
+            return PanelSpec(1.8f, 0.9f, state.postureYaw, candidate)
+        }
+        return when {
+            state.screen == VrScreen.PLAYER && state.overlay == VrOverlay.NONE ->
+                PanelSpec(1.8f, 0.9f, 0f, -CONSOLE_DROP_RAD)
+            state.screen == VrScreen.LIBRARY && state.overlay == VrOverlay.NONE ->
+                PanelSpec(2.4f, 1.2f, 0f, 0f)
+            else -> PanelSpec(1.8f, 0.9f, 0f, 0f)
+        }
     }
-
-    /**
-     * 俯仰角 → 2 米处的高度偏移（米）。UI 平面固定在 z = −2，所以
-     * `y = 2 · tan(θ)`。向上为正。
-     */
-    private fun centerYOf(pitchRad: Float): Float = 2f * tan(pitchRad)
 
     private val bitmap = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
     private val canvas = Canvas(bitmap)
@@ -157,9 +169,14 @@ class VrUiLayer(
     }
 
     /** 播放控制台置于视野下方约 13°，其余界面居中（PRD 3.5）。 */
-    fun panelCenterY(state: VrUiState): Float = panelSpec(state).centerY
+    fun panelPitch(state: VrUiState): Float = panelSpec(state).pitch
 
-    /** 头部姿态 → 准星在 UI 画布上的落点。面板尺寸与俯角都会影响映射。 */
+    /**
+     * 头部姿态 → 准星在 UI 画布上的落点。面板尺寸与朝向都会影响映射。
+     *
+     * V2.19c：面板不再恒在正前方（姿态确认卡会整块转到候选方向），
+     * 所以落点必须减掉面板自己的朝向，否则卡片上的按钮永远点不中。
+     */
     fun gazePoint(rotation: FloatArray, state: VrUiState): PointF {
         val spec = panelSpec(state)
         val fx = -rotation[8]
@@ -167,11 +184,10 @@ class VrUiLayer(
         val fz = -rotation[10]
         val yaw = atan2(fx.toDouble(), -fz.toDouble())
         val pitch = asin(fy.coerceIn(-1f, 1f).toDouble())
-        val panelPitch = atan2(spec.centerY.toDouble(), 2.0)
         val halfWidth = atan2((spec.width / 2f).toDouble(), 2.0)
         val halfHeight = atan2((spec.height / 2f).toDouble(), 2.0)
-        val x = W / 2.0 + yaw / halfWidth * (W / 2.0)
-        val y = H / 2.0 - (pitch - panelPitch) / halfHeight * (H / 2.0)
+        val x = W / 2.0 + (yaw - spec.yaw) / halfWidth * (W / 2.0)
+        val y = H / 2.0 - (pitch - spec.pitch) / halfHeight * (H / 2.0)
         return PointF(x.toFloat(), y.toFloat())
     }
 
@@ -184,23 +200,30 @@ class VrUiLayer(
         bitmap.eraseColor(Color.TRANSPARENT)
         targets.clear()
 
-        when (state.overlay) {
-            VrOverlay.FORMAT -> drawFormat(state)
-            VrOverlay.SETTINGS -> drawSettings(state)
-            VrOverlay.NONE -> when (state.screen) {
-                // V2.18：柜子层盖在片库上，不另开一个 screen——它只换「看哪个片源」，
-                // 其余状态（翻页、断点、播放器）都不用重建。
-                VrScreen.LIBRARY -> if (state.cabinetsOpen) drawCabinets(state) else drawLibrary(state)
-                VrScreen.PLAYER -> drawPlayer(state)
+        // V2.19c：姿态确认卡出现时，**只画这一张卡**。
+        //
+        // 它要摆在候选方向的视线正前方，而整个面板只有一个（`panelSpec` 会把平面
+        // 整块挪过去）。如果这时还画下层界面，控制台和片库会跟着一起平移几十度——
+        // 那正是「检测到就动画面」这个禁忌本身。下层不画，就没有东西会跳。
+        // 视频是另一层，完全不受影响，所以「画面一帧不动」仍然成立。
+        val postureUp = state.gazeArmed && state.postureCandidate != null
+        if (postureUp) {
+            drawPosturePrompt(state)
+        } else {
+            when (state.overlay) {
+                VrOverlay.FORMAT -> drawFormat(state)
+                VrOverlay.SETTINGS -> drawSettings(state)
+                VrOverlay.NONE -> when (state.screen) {
+                    // V2.18：柜子层盖在片库上，不另开一个 screen——它只换「看哪个片源」，
+                    // 其余状态（翻页、断点、播放器）都不用重建。
+                    VrScreen.LIBRARY -> if (state.cabinetsOpen) drawCabinets(state) else drawLibrary(state)
+                    VrScreen.PLAYER -> drawPlayer(state)
+                }
             }
+
+            // V2.9：还没上膛就盖一层提示。这里不注册任何目标，凝视此时也不生效。
+            if (!state.gazeArmed) drawArmPrompt()
         }
-
-        // V2.9：还没上膛就盖一层提示。这里不注册任何目标，凝视此时也不生效。
-        if (!state.gazeArmed) drawArmPrompt()
-
-        // V2.19 / B4：姿态确认浮层。只在已上膛时出现——没上膛凝视本来就不生效，
-        // 画一个点不了的确认框只会让人以为坏了。
-        if (state.gazeArmed && state.postureCandidate != null) drawPosturePrompt(state)
 
         // V2.11：档位变化浮层，压在提示之上——用户按了键就得立刻看见结果。
         state.feedback?.let { drawAdjustFeedback(it) }
@@ -515,22 +538,21 @@ class VrUiLayer(
         )
     }
 
-    // ── 姿态确认（V2.19 / B4）─────────────────────────────────────────
     /**
      * 「你换姿势了，要不要把正前方挪过来？」
      *
-     * 三条硬约束：
+     * 四条硬约束：
      * 1. **画面一帧不动**。检测到就动画面，等于把用户正在看的内容抢走；
-     *    看 360 时抬头是常态，自动重定在这里是灾难。
-     * 2. **只有两个目标**。这一层是打断，打断上不该再摆一排按钮。
-     * 3. 出来时把下层目标全部清掉，否则凝视会穿过浮层打到片库卡片上。
+     *    看 360 时抬头是常态，自动重定在这里是灾难。所以卡片挂着时下层整块不画
+     *    （见 `render()`），只有这张卡出现在新方向。
+     * 2. **卡片在候选方向的视线正前方**。`panelSpec` 把整块平面挪过去，
+     *    用户不用转头去找它——要确认的是「我刚才那个姿势」，
+     *    而任何「转头去找卡片」的动作都会把那个姿势改掉。
+     * 3. **只有两个目标**。这一层是打断，打断上不该再摆一排按钮。
+     * 4. 不铺压暗层。面板只有 48.5°×25.4°，压暗只能盖住中间一块，
+     *    边缘露出一圈直角比不压更难看；卡片自己有不透明底，足够立得住。
      */
     private fun drawPosturePrompt(state: VrUiState) {
-        targets.clear()
-
-        fill.color = 0xA6060E18.toInt()
-        canvas.drawRect(RectF(0f, 0f, W.toFloat(), H.toFloat()), fill)
-
         val card = RectF(140f, 92f, 884f, 420f)
         fill.color = 0xF00B1626.toInt()
         canvas.drawRoundRect(card, 26f, 26f, fill)
@@ -538,26 +560,32 @@ class VrUiLayer(
         stroke.strokeWidth = 2.5f
         canvas.drawRoundRect(card, 26f, 26f, stroke)
 
-        heading("把正前方挪到这里？", 158f)
+        heading("正前方挪到这里？", 158f)
 
         // 说出「我看到了什么」，用户才知道这次打断不是误判。
         // 这句话对「自动检测」和「自己点正前方」都成立，所以不带「检测到」。
-        val degrees = Math.toDegrees((state.postureCandidate ?: 0f).toDouble()).toInt()
-        val where = when {
-            degrees > 12 -> "你现在抬头约 $degrees°"
-            degrees < -12 -> "你现在低头约 ${-degrees}°"
-            else -> "你现在不是正对画面"
+        val pitch = Math.toDegrees((state.postureCandidate ?: 0f).toDouble()).toInt()
+        val yaw = Math.toDegrees(state.postureYaw.toDouble()).toInt()
+        val parts = buildList {
+            if (pitch > 8) add("抬头 $pitch°") else if (pitch < -8) add("低头 ${-pitch}°")
+            if (yaw > 8) add("偏右 $yaw°") else if (yaw < -8) add("偏左 ${-yaw}°")
         }
-        centerText("$where · 画面会转到你看的方向，视频和界面一起转", 200f, 21f, C_MUTED)
+        val where = if (parts.isEmpty()) "你现在不是正对画面" else "你现在" + parts.joinToString(" · ")
+        centerText("$where · 转过来之后，视频和界面一起跟着你", 200f, 21f, C_MUTED)
 
+        // 两个按钮对称摆在画布正中两侧，中间留 32px 缝（496–528），
+        // 与片库 2×4 格子同一条结构规则：**准星静止时压不到任何按钮**。
+        // 缝要比片库的 16px 更宽一点——准星圆环半径 11px，16px 的缝会让环压到按钮边框上。
+        // 否则卡片一出来，准星正好停在「挪到这里」上，1.2 秒后自己就确认了——
+        // 那正是「没问就自己转了」。
         button(
             "postureOk", "挪到这里",
-            RectF(168f, 236f, 528f, 350f), VrAction.ConfirmPosture,
+            RectF(168f, 236f, 496f, 350f), VrAction.ConfirmPosture,
             highlighted = true, sub = "0.8 秒转过去，只动这一次"
         )
         button(
             "postureNo", "不用了",
-            RectF(552f, 236f, 856f, 350f), VrAction.DismissPosture,
+            RectF(528f, 236f, 856f, 350f), VrAction.DismissPosture,
             sub = "保持现在的画面"
         )
 
@@ -569,7 +597,7 @@ class VrUiLayer(
         fill.color = C_ACCENT
         canvas.drawRoundRect(RectF(168f, 376f, 168f + 688f * ratio, 384f), 4f, 4f, fill)
         small.textSize = 17f
-        label("不选就保持原样 · 这条走完就收起", 856f, 408f, 17f, C_MUTED, Paint.Align.RIGHT)
+        label("按一下触发键也行 · 不按就走完收起", 856f, 408f, 17f, C_MUTED, Paint.Align.RIGHT)
     }
 
     // ── 柜子层（V2.18 / B2）────────────────────────────────────────────

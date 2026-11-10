@@ -190,15 +190,29 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
 
     /** V2.19 / B5：0.8 秒缓转，语义见 [VrHeadsetProvider.recenterSmooth]。 */
     override fun recenterSmooth(durationMs: Long) {
+        recenterTo(null, durationMs)
+    }
+
+    /** V2.19c：缓转到指定姿态，语义见 [VrHeadsetProvider.recenterTo]。 */
+    override fun recenterTo(pose: FloatArray?, durationMs: Long) {
         if (!ready) {
-            fallback.recenterSmooth(durationMs)
+            fallback.recenterTo(pose, durationMs)
             return
         }
         refreshRotation()
         synchronized(lock) {
+            val offset = offsetNow()
+            val h = FloatArray(16)
+            if (pose != null) {
+                System.arraycopy(pose, 0, h, 0, 16)
+            } else {
+                Matrix.multiplyMM(h, 0, offset, 0, rotation, 0)
+            }
+            val inv = FloatArray(16)
+            if (!Matrix.invertM(inv, 0, h, 0)) return
             val target = FloatArray(16)
-            if (!Matrix.invertM(target, 0, rotation, 0)) return
-            System.arraycopy(offsetNow(), 0, easeFrom, 0, 16)
+            Matrix.multiplyMM(target, 0, inv, 0, offset, 0)
+            System.arraycopy(offset, 0, easeFrom, 0, 16)
             System.arraycopy(target, 0, easeTo, 0, 16)
             easeStartMs = SystemClock.elapsedRealtime()
             easeDurationMs = durationMs.coerceAtLeast(1L)

@@ -23,7 +23,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.math.abs
 import com.gazereel.vr.data.db.mediaKeyOf
 
 /**
@@ -59,6 +58,13 @@ class VrCoordinator(
          * 每次按键都会把这个时间戳往后推，所以延长不会让它变成常驻浮层。
          */
         const val FEEDBACK_MS = 2_600L
+
+        /**
+         * 手动「正前方」低于这个偏移就直说「不用挪」。
+         *
+         * 2° 左右：再小的话挪过去也看不出来，弹一张卡反而像出故障了。
+         */
+        const val ALIGN_MIN_RAD = 0.035f
     }
 
     var sources: Map<Long, SourceEntity> = emptyMap()
@@ -67,20 +73,23 @@ class VrCoordinator(
     private val posture = PostureTracker()
 
     /**
-     * V2.19 修订：主动「挪正前方」时记下的目标角度。
+     * V2.19c：主动「挪正前方」时记下的方向（俯仰 + 偏航）。
      *
      * 非 null 表示这张确认卡是用户自己点出来的，不是检测到的——
-     * 确认时不需要走 [PostureTracker.confirm]（没有候选），只需要静默期。
+     * 确认时不需要走 [PostureTracker.confirm]（没有候选姿态），只需要静默期。
      */
-    private var manualPosturePitch: Float? = null
+    private var manualPitch: Float? = null
+    private var manualYaw = 0f
     private var manualUntilMs = 0L
+
+    private fun degrees(rad: Float): Int = Math.toDegrees(rad.toDouble()).toInt()
 
     /** 每帧（约 60Hz）由 VrActivity 的 tick 推一次，跑在主线程，不碰 GL 线程。 */
     fun updatePosture(rotation: FloatArray, nowMs: Long) {
         // 手动卡片挂着的时候，**绝不能让自动检测覆盖它**：
         // 此刻 tracker 没有候选，下面的 copy 会把 postureCandidate 写回 null，
         // 卡片就只闪一帧。所以这里单独走一条分支，只负责倒计时。
-        if (manualPosturePitch != null) {
+        if (manualPitch != null) {
             val left = (manualUntilMs - nowMs).coerceAtLeast(0L)
             if (left == 0L) {
                 dismissPosture()
@@ -90,12 +99,28 @@ class VrCoordinator(
             return
         }
 
-        val pitch = posture.pitchOf(rotation)
-        val changed = posture.onPose(pitch, nowMs)
+        val changed = posture.onPose(rotation, nowMs, allowBaseline = !uiState.gazeArmed)
+
+        // ① 首次基准：进 VR 后**第一个稳定姿态就是正前方**，静默转过去，不问他。
+        //
+        // 这一条是 V2.19c 的核心。真实顺序是「先躺好、再塞手机」，而 Provider 的首次
+        // 重定发生在第一帧传感器数据到达时——那一刻用户还在往盒子里塞手机，
+        // 正前方被定成了一个随便的方向。等他躺好，画面就挂在天花板前面。
+        // 与其事后问他「要不要挪」，不如把「躺好、不动」这个瞬间本身当作答案：
+        // 那正是他舒服的姿势。
+        posture.pendingBaseline?.let { pose ->
+            headset.recenterTo(pose, PostureTracker.ANIM_MS)
+            posture.baselineEstablished(nowMs)
+            onRecenter()
+            RunLog.append("posture", "首次基准 · 偏移 ${degrees(posture.offsetOf(pose))}° → 已定为你现在的姿势")
+            return
+        }
+
         val candidate = posture.candidate
+        val yaw = posture.candidateYaw
         val remaining = if (candidate == null) 0L else posture.candidateRemainingMs(nowMs)
         if (changed || candidate != uiState.postureCandidate ||
-            remaining != uiState.postureRemainingMs
+            yaw != uiState.postureYaw || remaining != uiState.postureRemainingMs
         ) {
             // 只在候选出现 / 消失时记一行。真机若仍觉得「没反应」，
             // 日志里有没有这行就是「检测没跑」和「检测跑了但没到阈值」的分界。
@@ -103,34 +128,45 @@ class VrCoordinator(
                 RunLog.append(
                     "posture",
                     if (candidate == null) "候选撤销" else
-                        "候选出现 · 俯仰 ${Math.toDegrees(candidate.toDouble()).toInt()}°"
+                        "候选出现 · 俯仰 ${degrees(candidate)}° 偏航 ${degrees(yaw)}°"
                 )
             }
             uiState = uiState.copy(
                 postureCandidate = candidate,
+                postureYaw = yaw,
                 postureRemainingMs = remaining
             )
         }
     }
 
     /**
-     * V2.19 修订：用户主动点「正前方」。
+     * V2.19b：用户主动点「正前方」。
      *
-     * 真机反馈「B4 完全没功能」，根因是设计假设：检测「换了姿势」要求先戴着看一会儿、
-     * 再改变姿势；而真实场景是**先躺好、再把手机塞进纸盒**——那一刻初始重定已经把
-     * 正前方定成躺姿，之后永远不会有 40° 偏差。所以这条路必须存在，且必须明摆着。
+     * 自动检测覆盖不到「先躺好、再塞手机」——那一刻初始重定已经把正前方定成躺姿，
+     * 之后永远不会有 40° 偏差。V2.19c 用「首次稳定姿态即基准」把这条补上了，
+     * 但手动这条路仍然要留着：坐着看片时想微调、或者 40° 死区之内的偏移，
+     * 只能靠用户自己说一句。
      */
     private fun askAlignForward() {
-        val pitch = posture.pitchOf(headset.headRotation())
-        RunLog.append("posture", "手动挪正前方 · 当前俯仰 ${Math.toDegrees(pitch.toDouble()).toInt()}°")
-        if (abs(pitch) < 0.05f) {
-            showMessage("你现在正对着画面正中 · 不用挪")
+        val rotation = headset.headRotation()
+        val offset = posture.offsetOf(rotation)
+        val pitch = posture.pitchOf(rotation)
+        val yaw = posture.yawOf(rotation)
+        RunLog.append(
+            "posture",
+            "手动挪正前方 · 偏移 ${degrees(offset)}°" +
+                "（俯仰 ${degrees(pitch)}° 偏航 ${degrees(yaw)}°）"
+        )
+        if (offset < ALIGN_MIN_RAD) {
+            showMessage("已经正对着了 · 不用挪")
             return
         }
-        manualPosturePitch = pitch
+        manualPitch = pitch
+        manualYaw = yaw
         manualUntilMs = SystemClock.elapsedRealtime() + PostureTracker.CANDIDATE_TTL_MS
         uiState = uiState.copy(
             postureCandidate = pitch,
+            postureYaw = yaw,
             postureRemainingMs = PostureTracker.CANDIDATE_TTL_MS
         )
     }
@@ -140,31 +176,37 @@ class VrCoordinator(
      *
      * 为什么不是瞬跳：整个视界在一帧里平移几十度，是最典型的晕动触发源。
      * 为什么不是只挪 UI：那样视频留在原地，用户反而要仰头找画面。
+     *
+     * V2.19c：自动路径交给 [PostureTracker.confirm] 的**候选姿态**，不是「按下那一刻的
+     * 朝向」——要按到卡片上的按钮，视线必然要移开几度，那几度不该写进新的正前方。
      */
     private fun confirmPosture() {
         val now = SystemClock.elapsedRealtime()
-        val manual = manualPosturePitch
-        if (manual == null) {
-            if (!posture.confirm(now)) {
+        val pose = if (manualPitch == null) {
+            val confirmed = posture.confirm(now)
+            if (confirmed == null) {
                 showMessage("没有需要调整的姿势")
                 return
             }
+            confirmed
         } else {
-            manualPosturePitch = null
+            manualPitch = null
             posture.suppress(now)
+            // null = 就用此刻的朝向（手动路径没有候选姿态可依）。
+            null
         }
-        headset.recenterSmooth(PostureTracker.ANIM_MS)
+        headset.recenterTo(pose, PostureTracker.ANIM_MS)
         // 缓转期间必须把凝视停留与手势窗口清零——只暂停命中不清零，
         // 缓动结束首帧就会拿着缓动前的位置当场再触发一次。
         onRecenter()
-        uiState = uiState.copy(postureCandidate = null, postureRemainingMs = 0L)
-        showMessage("正在把画面挪到你现在的姿势")
+        uiState = uiState.copy(postureCandidate = null, postureYaw = 0f, postureRemainingMs = 0L)
+        showMessage("正前方已挪到你现在的姿势")
     }
 
     private fun dismissPosture() {
-        manualPosturePitch = null
-        posture.dismiss()
-        uiState = uiState.copy(postureCandidate = null, postureRemainingMs = 0L)
+        manualPitch = null
+        posture.dismiss(headset.headRotation())
+        uiState = uiState.copy(postureCandidate = null, postureYaw = 0f, postureRemainingMs = 0L)
     }
     private var pendingOpen: Triple<MediaItemEntity, MediaRef, com.gazereel.vr.core.VrFormat>? = null
 
@@ -366,7 +408,7 @@ class VrCoordinator(
                 headset.recenter()
                 // V2.19：基准归零了，候选与静默期也要一起清掉。
                 posture.reset()
-                uiState = uiState.copy(postureCandidate = null, postureRemainingMs = 0L)
+                uiState = uiState.copy(postureCandidate = null, postureYaw = 0f, postureRemainingMs = 0L)
                 onRecenter()
                 showMessage("正前方已重置")
             }

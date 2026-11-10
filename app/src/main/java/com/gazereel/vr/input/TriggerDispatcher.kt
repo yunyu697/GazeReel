@@ -65,6 +65,16 @@ class TriggerDispatcher(
                     return
                 }
                 lastClickAt = event.atMs
+                // V2.19c：姿态确认卡挂着时，单击 = 确认。
+                //
+                // 卡片摆在视线正前方，准星静止时落在两个按钮**中间那道缝**里，
+                // 所以单击多半点不到任何目标。若继续往下走，就会落到
+                // 「播放页单击 = 暂停」——用户按一下只想确认，结果把片子停了。
+                if (stateProvider().postureCandidate != null) {
+                    lastClickAt = 0L
+                    dispatcher.dispatch(VrAction.ConfirmPosture, InputChannel.TRIGGER)
+                    return
+                }
                 // V2.14：控制台收起时，单击只负责「把它叫出来」。
                 // 原来这条路径落到 TogglePlay，于是控制台一收起就再也叫不回来——
                 // 之前它永远不隐藏，正好把这个洞盖住了。

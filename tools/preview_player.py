@@ -70,26 +70,39 @@ def draw_console(img):
 
 
 def draw_posture(img):
-    d = ImageDraw.Draw(img)
-    overlay = Image.new("RGBA", (W, H), (6, 14, 24, 166))
-    img.paste(Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB"), (0, 0))
+    """姿态确认卡。
+
+    V2.19c 起它整块摆在候选方向的**视线正前方**（`panelSpec` 把平面挪过去），
+    所以这张图的画布正中就是准星所在。版式因此只有一条硬要求：
+    **准星静止时不能压在任何一个按钮上**——和片库 2×4 格子同一条结构规则。
+    图里把准星画出来，就是为了用眼睛确认它落在 496–528 那道缝里。
+
+    不铺压暗层：面板只有 48.5°×25.4°，压暗盖不住整个视野，
+    会在中间留一块带直角的暗色矩形，比不压更难看。
+    """
     d = ImageDraw.Draw(img)
 
     card = (140, 92, 884, 420)
     d.rounded_rectangle(card, 26, fill=(11, 22, 38), outline=C_ACCENT, width=3)
-    d.text((W / 2, 158), "把正前方挪到这里？", font=font(30, True), fill=C_TEXT, anchor="mm")
-    d.text((W / 2, 200), "你现在抬头约 58° · 画面会转到你看的方向，视频和界面一起转",
+    d.text((W / 2, 158), "正前方挪到这里？", font=font(30, True), fill=C_TEXT, anchor="mm")
+    d.text((W / 2, 200), "你现在抬头 58° · 偏左 12° · 转过来之后，视频和界面一起跟着你",
            font=font(21), fill=C_MUTED, anchor="mm")
 
-    button(d, "挪到这里", (168, 236, 528, 350), highlighted=True)
-    button(d, "不用了", (552, 236, 856, 350))
-    d.text((348, 332), "0.8 秒转过去，只动这一次", font=font(18), fill=C_ACCENT, anchor="mm")
-    d.text((704, 332), "保持现在的画面", font=font(18), fill=C_MUTED, anchor="mm")
+    button(d, "挪到这里", (168, 236, 496, 350), highlighted=True)
+    button(d, "不用了", (528, 236, 856, 350))
+    d.text((332, 332), "0.8 秒转过去，只动这一次", font=font(18), fill=C_ACCENT, anchor="mm")
+    d.text((692, 332), "保持现在的画面", font=font(18), fill=C_MUTED, anchor="mm")
 
     d.rounded_rectangle((168, 376, 856, 384), 4, fill=C_BORDER)
     d.rounded_rectangle((168, 376, 168 + 688 * 0.62, 384), 4, fill=C_ACCENT)
-    d.text((856, 408), "不选就保持原样 · 这条走完就收起", font=font(17),
+    d.text((856, 408), "按一下触发键也行 · 不按就走完收起", font=font(17),
            fill=C_MUTED, anchor="rs")
+
+    # 准星（drawCursor）：静止在画布正中，必须落在 496–528 那道缝里
+    d.ellipse((512 - 11, 256 - 11, 512 + 11, 256 + 11), outline=(234, 242, 250), width=3)
+    d.ellipse((512 - 3, 256 - 3, 512 + 3, 256 + 3), fill=C_ACCENT)
+    d.text((24, 60), "红圈 = 准星，静止在画布正中；必须落在两键之间的缝里",
+           font=font(15), fill=(255, 120, 120), anchor="ls")
 
 
 def main():
