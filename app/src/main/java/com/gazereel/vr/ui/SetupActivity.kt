@@ -72,6 +72,9 @@ class SetupActivity : AppCompatActivity() {
     /** 用户拒绝过一次之后，再点就直接把他送到系统设置，而不是反复弹同一个框。 */
     private var permissionDenied = false
 
+    /** V2.18：横竖屏切换会换掉整套 view，状态条的内容要能重画回去。 */
+    private var lastStatus: StatusLine? = null
+
     private val mediaPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -150,6 +153,8 @@ class SetupActivity : AppCompatActivity() {
         binding.scanNoSubfolders.isChecked = keptNoSub
         if (manualOpen) showManual(true)
 
+        // 状态条也要重画：它不在 renderSources 里，漏了就是一片空白。
+        lastStatus?.let { applyStatus(it) }
         renderSources(currentSources)
     }
 
@@ -556,16 +561,34 @@ class SetupActivity : AppCompatActivity() {
         }
     )
 
-    /** 四态共用同一块区域：颜色、圆点、chip 一起变，位置永远不动。 */
+    /**
+     * 四态共用同一块区域：颜色、圆点、chip 一起变，位置永远不动。
+     *
+     * V2.18：最后画的那一条要记下来。横竖屏切换会换掉整套 view，
+     * 不记的话旋转之后状态条就是一片空白——真机反馈「转横屏之后内容会消失，
+     * 切回竖屏也不正常」就是这么来的。
+     */
     private fun renderStatus(status: Status, title: String, detail: String, chip: String) {
-        val color = statusColor(status)
+        lastStatus = StatusLine(status, title, detail, chip)
+        applyStatus(lastStatus!!)
+    }
+
+    private fun applyStatus(line: StatusLine) {
+        val color = statusColor(line.status)
         binding.statusDot.background?.mutate()?.setTint(color)
         binding.statusChip.background?.mutate()?.setTint(color)
         binding.statusChip.setTextColor(color)
-        binding.statusTitle.text = title
-        binding.statusDetail.text = detail
-        binding.statusChip.text = chip
+        binding.statusTitle.text = line.title
+        binding.statusDetail.text = line.detail
+        binding.statusChip.text = line.chip
     }
+
+    private data class StatusLine(
+        val status: Status,
+        val title: String,
+        val detail: String,
+        val chip: String
+    )
 
     private fun setBusy(busy: Boolean, detail: String = "") {
         binding.scanButton.isEnabled = !busy
@@ -878,6 +901,48 @@ class SetupActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * V2.18：在同一台设备上再选一个文件夹 —— 不填 IP、不填账号。
+     *
+     * 上一版我理解错了：加了个「＋ 加片库」，点开还是要用户自己填地址。
+     * 用户原话是「我说的是不用重新填 IP 和凭据，不是不知道怎么手动添加」。
+     * 所以这个入口必须**从已有片库出发**：拿它的主机和它已经记住的凭证直接连回去，
+     * 用户只做一件事——在看得见的目录里点一个文件夹。
+     */
+    private fun addFolderTo(source: SourceEntity) {
+        val type = runCatching { SourceType.valueOf(source.type) }
+            .getOrDefault(SourceType.SMB)
+        val creds = decodeCredentials(credentials.get(source.credentialRef))
+        // SMB 要从主机开始（root 会自己列出共享）；网盘 / 网页目录从当前地址往上都一样。
+        val start = if (type == SourceType.SMB) {
+            parseUncFull(source.address).first
+        } else {
+            source.address
+        }
+        setBusy(true, "正在连回「${source.displayName}」…")
+        lifecycleScope.launch {
+            // 注意：runCatching 放在 withContext 外面再 getOrNull()。
+            // 写在里面会让整个 lambda 的类型推导绕一圈，编译期容易把返回值认成别的类型。
+            val opened = withContext(Dispatchers.IO) {
+                runCatching { browser.root(type, start, creds) }
+            }.getOrNull()
+            setBusy(false)
+            if (opened == null) {
+                renderStatus(
+                    Status.ERR,
+                    "「${source.displayName}」这次没连上",
+                    "用的是它已经记住的账号。检查设备是否在线，或者点这一行的「编辑」看看。",
+                    "需检查"
+                )
+                return@launch
+            }
+            showFolderDialog(initial = opened, creds = creds) { chosen ->
+                // 复用同一套凭证：saveNew 会比对同主机同账号，直接接住 credentialRef。
+                saveNew(type, chosen, creds.user, creds.password)
+            }
+        }
+    }
+
     private fun rescan(source: SourceEntity) {
         setBusy(true, "正在重新扫描「${source.displayName}」…")
         lifecycleScope.launch {
@@ -990,6 +1055,12 @@ class SetupActivity : AppCompatActivity() {
             // 用户想「在同一台设备上再选一个文件夹」，第一反应就是点那张卡片。
             row.root.setOnClickListener { showEditDialog(source) }
             row.sourceHide.setOnClickListener { toggleVisible(source) }
+            // V2.18：只有网络片源才有「再加一个文件夹」这回事；本机与媒体服务器没有目录概念。
+            val folderable = source.type == SourceType.SMB.name ||
+                source.type == SourceType.WEBDAV.name ||
+                source.type == SourceType.HTTP.name
+            row.sourceAddFolder.visibility = if (folderable) View.VISIBLE else View.GONE
+            row.sourceAddFolder.setOnClickListener { addFolderTo(source) }
             row.sourceEdit.setOnClickListener { showEditDialog(source) }
             row.sourceRescan.setOnClickListener { rescan(source) }
             row.sourceDelete.setOnClickListener { confirmDelete(source) }

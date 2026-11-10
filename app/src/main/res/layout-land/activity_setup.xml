@@ -1,15 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  V2.17 横屏布局。
+  V2.19 横屏布局。
 
-  用户原话：「APP 界面同时也适配横屏，因为 VR 使用的场景都是横屏，每次退出必须返回竖屏，
-  体验很割裂，注意布局也要按横屏重排，不要简单拉伸一下敷衍了事」。
+  用户第一次真机反馈（alpha8）：
+  「横过来已经是两栏了，但老实说，横屏界面很粗糙，给人一种很乱的感觉，
+   和竖屏的设计语言也不一样，人竖屏转到横屏时体验有点割裂」。
 
-  所以这里不是把竖屏那一列拉宽，而是重排成左右两栏：
-  - 左栏「先做什么」：两个大入口 + 状态条。手机横着拿时它们在手边，一屏可见；
-  - 右栏「已经有什么」：片库列表 + 手动添加。列表独立滚动，不会把左栏顶走。
+  上一版虽然重排成两栏，但只做了「摆位置」，没做「统一语言」：
+  · 品牌在竖屏是「青色竖条 + 白字 + 凝影」，横屏却变成了一行青色大字；
+  · 竖屏那张 29sp 的主张句在横屏被整个删掉，横屏看起来像另一个 App 的列表页；
+  · 卡片里又写了一遍 14dp padding，而 bg_setup_box 自己带 16dp，
+    于是横屏卡片内边距 30dp、竖屏 16dp，同一个卡片两种胖瘦；
+  · 卡片没有 foreground，按下没有水波纹；状态条 padding 也是另一套数。
 
-  顶栏把品牌、进入 VR、日志收进一条窄带——横屏最缺的就是高度，不能拿它放标题。
+  这一版把横屏当成竖屏的「另一种排法」，而不是另一个界面：
+  · 顶栏用与竖屏完全相同的品牌组（竖条 + GazeReel + 凝影）；
+  · 左栏顶部保留主张句与 kicker，只是从 29sp 收到 22sp；
+  · 卡片一律不写 padding，交给 bg_setup_box；一律带 clickable + foreground；
+  · 状态条不再塞在左栏里滚动，改成贴底的通栏——它是全局状态，
+    横屏最缺的是高度，贴在底部就永远看得见，也不用滚。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -18,41 +27,45 @@
     android:orientation="vertical"
     android:fitsSystemWindows="true"
     android:background="@color/setup_bg"
-    android:paddingStart="16dp"
-    android:paddingEnd="16dp"
-    android:paddingTop="10dp"
-    android:paddingBottom="10dp">
+    android:paddingStart="20dp"
+    android:paddingEnd="20dp"
+    android:paddingTop="12dp"
+    android:paddingBottom="12dp">
 
-    <!-- 顶栏：品牌 + 进入 VR + 日志 -->
+    <!-- 顶栏：品牌（与竖屏同一套画法） + 日志 + 进入 VR -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical">
 
-        <LinearLayout
-            android:layout_width="0dp"
+        <View
+            android:layout_width="3dp"
+            android:layout_height="22dp"
+            android:background="@color/brand_cyan" />
+
+        <TextView
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:layout_marginStart="10dp"
+            android:text="@string/setup_brand"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.04"
+            android:textColor="@color/setup_text" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/setup_brand"
-                android:textSize="20sp"
-                android:textStyle="bold"
-                android:textColor="@color/brand_cyan"
-                android:letterSpacing="0.08" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="@string/setup_brand_cn"
+            android:textSize="12sp"
+            android:textColor="@color/setup_muted" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/setup_big"
-                android:textSize="13sp"
-                android:layout_marginTop="2dp"
-                android:textColor="@color/setup_text" />
-        </LinearLayout>
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
 
         <TextView
             android:id="@+id/logEntry"
@@ -85,7 +98,7 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="12dp"
         android:orientation="horizontal"
         android:baselineAligned="false">
 
@@ -94,7 +107,6 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:paddingEnd="8dp"
             android:scrollbars="none">
 
             <LinearLayout
@@ -102,13 +114,35 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/setup_big"
+                    android:textSize="22sp"
+                    android:textStyle="bold"
+                    android:lineSpacingExtra="3dp"
+                    android:textColor="@color/setup_text" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="@string/setup_kicker"
+                    android:textSize="11sp"
+                    android:letterSpacing="0.14"
+                    android:textColor="@color/setup_muted" />
+
+                <!-- 入口 1：手机里的视频 -->
                 <LinearLayout
                     android:id="@+id/localCard"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
                     android:orientation="vertical"
-                    android:padding="14dp"
-                    android:background="@drawable/bg_setup_box">
+                    android:background="@drawable/bg_setup_box"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground">
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -129,11 +163,11 @@
                             android:id="@+id/localChip"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
+                            android:background="@drawable/bg_setup_chip"
                             android:paddingStart="10dp"
                             android:paddingEnd="10dp"
                             android:paddingTop="3dp"
                             android:paddingBottom="3dp"
-                            android:background="@drawable/bg_setup_chip"
                             android:text="@string/setup_local_chip"
                             android:textSize="11sp"
                             android:textColor="@color/setup_cyan" />
@@ -150,14 +184,17 @@
                         android:textColor="@color/setup_muted" />
                 </LinearLayout>
 
+                <!-- 入口 2：同一 Wi-Fi 下的设备 -->
                 <LinearLayout
                     android:id="@+id/lanCard"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
                     android:orientation="vertical"
-                    android:padding="14dp"
-                    android:background="@drawable/bg_setup_box">
+                    android:background="@drawable/bg_setup_box"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground">
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -178,11 +215,11 @@
                             android:id="@+id/lanChip"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
+                            android:background="@drawable/bg_setup_chip"
                             android:paddingStart="10dp"
                             android:paddingEnd="10dp"
                             android:paddingTop="3dp"
                             android:paddingBottom="3dp"
-                            android:background="@drawable/bg_setup_chip"
                             android:text="@string/setup_lan_chip"
                             android:textSize="11sp"
                             android:textColor="@color/setup_cyan" />
@@ -198,70 +235,22 @@
                         android:lineSpacingExtra="2dp"
                         android:textColor="@color/setup_muted" />
                 </LinearLayout>
-
-                <!-- 四态状态条：位置永远不动 -->
-                <LinearLayout
-                    android:id="@+id/statusBar"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="12dp"
-                    android:background="@drawable/bg_setup_box">
-
-                    <View
-                        android:id="@+id/statusDot"
-                        android:layout_width="10dp"
-                        android:layout_height="10dp"
-                        android:background="@drawable/bg_setup_dot" />
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="10dp"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:id="@+id/statusTitle"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:textSize="14sp"
-                            android:textStyle="bold"
-                            android:textColor="@color/setup_text" />
-
-                        <TextView
-                            android:id="@+id/statusDetail"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:textSize="11sp"
-                            android:lineSpacingExtra="2dp"
-                            android:textColor="@color/setup_muted" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:id="@+id/statusChip"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:paddingTop="3dp"
-                        android:paddingBottom="3dp"
-                        android:background="@drawable/bg_setup_chip"
-                        android:textSize="11sp"
-                        android:textColor="@color/setup_muted" />
-                </LinearLayout>
             </LinearLayout>
         </ScrollView>
+
+        <!-- 两栏之间一道细线：让「左右两栏」看起来是分栏，不是两个并排的列表 -->
+        <View
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="18dp"
+            android:layout_marginEnd="18dp"
+            android:background="@color/setup_border" />
 
         <!-- 右栏：已经有什么 -->
         <ScrollView
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:paddingStart="8dp"
             android:scrollbars="none">
 
             <LinearLayout
@@ -280,7 +269,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="@string/setup_sources_ready"
-                        android:textSize="14sp"
+                        android:textSize="15sp"
                         android:textStyle="bold"
                         android:textColor="@color/setup_text" />
 
@@ -288,10 +277,10 @@
                         android:id="@+id/sourceCount"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textSize="11sp"
+                        android:textSize="12sp"
                         android:textColor="@color/setup_muted" />
 
-                    <!-- V2.18：加片库的入口必须和已有片库放在一起，不能藏在列表下面。 -->
+                    <!-- 加片库的入口必须和已有片库放在一起，不能藏在列表下面 -->
                     <TextView
                         android:id="@+id/sourceAdd"
                         android:layout_width="wrap_content"
@@ -304,7 +293,7 @@
                         android:paddingEnd="10dp"
                         android:background="@drawable/bg_setup_chip"
                         android:text="@string/setup_add_source"
-                        android:textSize="11sp"
+                        android:textSize="12sp"
                         android:textColor="@color/setup_cyan" />
                 </LinearLayout>
 
@@ -312,28 +301,29 @@
                     android:id="@+id/sourceList"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginTop="10dp"
                     android:orientation="vertical" />
 
+                <!-- 兜底：手动添加，默认折叠 -->
                 <TextView
                     android:id="@+id/manualToggle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:minHeight="40dp"
-                    android:gravity="center"
-                    android:background="@drawable/bg_setup_chip"
+                    android:layout_marginTop="18dp"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp"
                     android:text="@string/setup_manual_toggle"
                     android:textSize="12sp"
-                    android:textColor="@color/setup_muted" />
+                    android:textColor="@color/setup_muted"
+                    android:clickable="true"
+                    android:focusable="true" />
 
                 <LinearLayout
                     android:id="@+id/manualBlock"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
+                    android:layout_marginTop="8dp"
                     android:orientation="vertical"
-                    android:padding="14dp"
                     android:visibility="gone"
                     android:background="@drawable/bg_setup_box">
 
@@ -342,6 +332,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/setup_share_type"
                         android:textSize="11sp"
+                        android:letterSpacing="0.08"
                         android:textColor="@color/setup_muted" />
 
                     <Spinner
@@ -364,6 +355,7 @@
                             android:layout_marginTop="14dp"
                             android:text="@string/setup_address"
                             android:textSize="11sp"
+                            android:letterSpacing="0.08"
                             android:textColor="@color/setup_muted" />
 
                         <EditText
@@ -422,6 +414,7 @@
                                 android:layout_height="wrap_content"
                                 android:text="@string/setup_username"
                                 android:textSize="11sp"
+                                android:letterSpacing="0.08"
                                 android:textColor="@color/setup_muted" />
 
                             <EditText
@@ -453,6 +446,7 @@
                                 android:layout_height="wrap_content"
                                 android:text="@string/setup_password"
                                 android:textSize="11sp"
+                                android:letterSpacing="0.08"
                                 android:textColor="@color/setup_muted" />
 
                             <EditText
@@ -489,5 +483,65 @@
                 </LinearLayout>
             </LinearLayout>
         </ScrollView>
+    </LinearLayout>
+
+    <!--
+      状态条贴底通栏。
+      它是全局状态（空闲 / 扫描中 / 就绪 / 需要检查），不该挤在某一栏里跟着滚。
+      横屏最缺的是高度，贴在底部既不占内容区，也永远看得见——
+      这正是「转横屏之后状态条内容会消失」那个问题的根治办法。
+    -->
+    <LinearLayout
+        android:id="@+id/statusBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/bg_setup_box">
+
+        <View
+            android:id="@+id/statusDot"
+            android:layout_width="9dp"
+            android:layout_height="9dp"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/bg_setup_dot" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/statusTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="@color/setup_text" />
+
+            <TextView
+                android:id="@+id/statusDetail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textSize="11sp"
+                android:lineSpacingExtra="2dp"
+                android:textColor="@color/setup_muted" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/statusChip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/bg_setup_chip"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:textSize="11sp"
+            android:textColor="@color/setup_muted" />
     </LinearLayout>
 </LinearLayout>

@@ -10,6 +10,7 @@ import com.gazereel.vr.data.db.SourceEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
@@ -68,7 +69,25 @@ class MediaIndexer(
     /** V2.6：删除片库时连同生成的文字封面一起清掉。 */
     fun deletePosters(sourceId: Long) = posters.deleteBySource(sourceId)
 
+    /**
+     * V2.18：扫描失败自动重建连接再试一次。
+     *
+     * 真机反馈「反复进出 VR 之后再回配置页扫描，扫描不成功」，而重启 App 就好了 ——
+     * 这是连接半死的典型症状（服务端限流、树连接已断、会话被回收）。
+     * 与其让用户去重启，不如自己把整条连接丢掉重来一次。
+     */
     suspend fun scan(source: SourceEntity): Int = withContext(Dispatchers.IO) {
+        try {
+            scanOnce(source)
+        } catch (first: Exception) {
+            RunLog.append("scan", "扫描失败，重建连接后重试：${first.message}")
+            runCatching { pool.invalidate() }
+            delay(500)
+            scanOnce(source)
+        }
+    }
+
+    private suspend fun scanOnce(source: SourceEntity): Int {
         val credentials = decodeCredentials(credentialStore.get(source.credentialRef))
         val entries = list(source, credentials, source.recursive)
         val existing = db.mediaDao().all()
@@ -105,7 +124,7 @@ class MediaIndexer(
         db.sourceDao().touchScan(source.id, System.currentTimeMillis())
         // 海报是低优先级增强：失败只记录在日志，绝不让扫描整体失败。
         updatePosters(source, credentials)
-        changed.size
+        return changed.size
     }
 
     /** 阶段二 FR-10：可由配置页或后台任务单独触发的海报刷新入口。 */

@@ -3,21 +3,25 @@ package com.gazereel.vr.render
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.SystemClock
 import com.gazereel.vr.core.GazeTarget
 import com.gazereel.vr.core.VrAction
 import com.gazereel.vr.core.VrFormat
 import com.gazereel.vr.data.db.MediaItemEntity
+import com.gazereel.vr.data.PosterRepository
 import com.gazereel.vr.player.SubtitleParser
 import com.gazereel.vr.ui.AdjustFeedback
 import com.gazereel.vr.ui.Cabinet
 import com.gazereel.vr.ui.MediaStack
+import com.gazereel.vr.ui.PostureTracker
 import com.gazereel.vr.ui.VrOverlay
 import com.gazereel.vr.ui.VrScreen
 import com.gazereel.vr.ui.VrSettings
@@ -28,6 +32,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
+import kotlin.math.tan
 import com.gazereel.vr.data.db.mediaKeyOf
 
 /**
@@ -75,6 +80,9 @@ class VrUiLayer(
         /** 2026-07-12 14.30.22 / 2026-07-12 14:30 这类导出后改名。 */
         private val STAMP_LOOSE =
             Regex("(\\d{4})-(\\d{2})-(\\d{2})[ _T](\\d{2})[:.](\\d{2})(?:[:.](\\d{2}))?")
+
+        /** 控制台相对舒适中心再低多少（约 13°，与旧版的 −0.46 米等值）。 */
+        private const val CONSOLE_DROP_RAD = 0.2269f
     }
 
     /**
@@ -86,13 +94,31 @@ class VrUiLayer(
      */
     data class PanelSpec(val width: Float, val height: Float, val centerY: Float)
 
+    /**
+     * V2.19 / B5：俯角只有「控制台比正前方低 13°」这一条相对规则，**没有绝对俯角**。
+     *
+     * 上一版把 −0.46 米写死在控制台上、片库与浮层一律 0，看起来是对的，
+     * 因为「正前方」被默认成了水平前方。躺下之后脸朝上，画面还挂在天花板前面，
+     * 用户只能仰头——这就是「脖子累」最直接的来源。
+     *
+     * 修法**不是**把 UI 平面往上挪（那样 UI 单独飞走、视频留在原地，更怪），
+     * 而是缓转整个参考系：确认「把正前方挪到这里」后，Provider 用 0.8 秒
+     * 把世界转到用户此刻的视线方向，视频 / UI / 字幕 / 准星作为一个整体一起转。
+     * 参考系换了之后，这里的相对规则自动成立，不需要任何额外补偿。
+     */
     fun panelSpec(state: VrUiState): PanelSpec = when {
         state.screen == VrScreen.PLAYER && state.overlay == VrOverlay.NONE ->
-            PanelSpec(1.8f, 0.9f, -0.46f)
+            PanelSpec(1.8f, 0.9f, centerYOf(-CONSOLE_DROP_RAD))
         state.screen == VrScreen.LIBRARY && state.overlay == VrOverlay.NONE ->
             PanelSpec(2.4f, 1.2f, 0f)
         else -> PanelSpec(1.8f, 0.9f, 0f)
     }
+
+    /**
+     * 俯仰角 → 2 米处的高度偏移（米）。UI 平面固定在 z = −2，所以
+     * `y = 2 · tan(θ)`。向上为正。
+     */
+    private fun centerYOf(pitchRad: Float): Float = 2f * tan(pitchRad)
 
     private val bitmap = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
     private val canvas = Canvas(bitmap)
@@ -119,6 +145,8 @@ class VrUiLayer(
         color = C_ACCENT; style = Paint.Style.STROKE; strokeWidth = 8f
     }
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    /** V2.19：真画面底部的身份条渐变，每次用时重设 shader。 */
+    private val scrimPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     fun currentTargets(): List<GazeTarget> = published
 
@@ -169,6 +197,10 @@ class VrUiLayer(
 
         // V2.9：还没上膛就盖一层提示。这里不注册任何目标，凝视此时也不生效。
         if (!state.gazeArmed) drawArmPrompt()
+
+        // V2.19 / B4：姿态确认浮层。只在已上膛时出现——没上膛凝视本来就不生效，
+        // 画一个点不了的确认框只会让人以为坏了。
+        if (state.gazeArmed && state.postureCandidate != null) drawPosturePrompt(state)
 
         // V2.11：档位变化浮层，压在提示之上——用户按了键就得立刻看见结果。
         state.feedback?.let { drawAdjustFeedback(it) }
@@ -481,6 +513,62 @@ class VrUiLayer(
             stack.detail, rect.centerX() + 4f, baseY + lines.size * 32f + 6f, 20f,
             C_ACCENT, Paint.Align.CENTER
         )
+    }
+
+    // ── 姿态确认（V2.19 / B4）─────────────────────────────────────────
+    /**
+     * 「你换姿势了，要不要把正前方挪过来？」
+     *
+     * 三条硬约束：
+     * 1. **画面一帧不动**。检测到就动画面，等于把用户正在看的内容抢走；
+     *    看 360 时抬头是常态，自动重定在这里是灾难。
+     * 2. **只有两个目标**。这一层是打断，打断上不该再摆一排按钮。
+     * 3. 出来时把下层目标全部清掉，否则凝视会穿过浮层打到片库卡片上。
+     */
+    private fun drawPosturePrompt(state: VrUiState) {
+        targets.clear()
+
+        fill.color = 0xA6060E18.toInt()
+        canvas.drawRect(RectF(0f, 0f, W.toFloat(), H.toFloat()), fill)
+
+        val card = RectF(140f, 92f, 884f, 420f)
+        fill.color = 0xF00B1626.toInt()
+        canvas.drawRoundRect(card, 26f, 26f, fill)
+        stroke.color = C_ACCENT
+        stroke.strokeWidth = 2.5f
+        canvas.drawRoundRect(card, 26f, 26f, stroke)
+
+        heading("现在这个姿势更舒服吗？", 158f)
+
+        // 说出「我看到了什么」，用户才知道这次打断不是误判。
+        val degrees = Math.toDegrees((state.postureCandidate ?: 0f).toDouble()).toInt()
+        val where = when {
+            degrees > 12 -> "检测到你抬头约 $degrees°"
+            degrees < -12 -> "检测到你低头约 ${-degrees}°"
+            else -> "检测到你换了姿势"
+        }
+        centerText("$where · 画面会转到你现在看的方向", 200f, 21f, C_MUTED)
+
+        button(
+            "postureOk", "挪到这里",
+            RectF(168f, 236f, 528f, 350f), VrAction.ConfirmPosture,
+            highlighted = true, sub = "0.8 秒转过去，只动这一次"
+        )
+        button(
+            "postureNo", "不用了",
+            RectF(552f, 236f, 856f, 350f), VrAction.DismissPosture,
+            sub = "保持现在的画面"
+        )
+
+        // 候选自己会过期。给一条细条，让「它不会一直挡着」这件事看得见。
+        val ttl = PostureTracker.CANDIDATE_TTL_MS.toFloat().coerceAtLeast(1f)
+        val ratio = (state.postureRemainingMs / ttl).coerceIn(0f, 1f)
+        fill.color = C_BORDER
+        canvas.drawRoundRect(RectF(168f, 376f, 856f, 384f), 4f, 4f, fill)
+        fill.color = C_ACCENT
+        canvas.drawRoundRect(RectF(168f, 376f, 168f + 688f * ratio, 384f), 4f, 4f, fill)
+        small.textSize = 17f
+        label("不选就保持原样 · 这条走完就收起", 856f, 408f, 17f, C_MUTED, Paint.Align.RIGHT)
     }
 
     // ── 柜子层（V2.18 / B2）────────────────────────────────────────────
@@ -810,6 +898,12 @@ class VrUiLayer(
             )
             canvas.drawBitmap(poster, Rect(0, 0, poster.width, poster.height), dst, bitmapPaint)
             canvas.restore()
+            // V2.19：有真画面之后别把「什么时候拍的」丢掉。
+            // 用户自己的片子认的是时刻，不是画面里的第 3 秒长什么样。
+            // 兜底封面例外——它自己身上就写着日期和时刻，再压一条就是同一句话写两遍。
+            if (!PosterRepository.isGeneratedCover(item.posterPath)) {
+                drawPosterCaption(item, rect)
+            }
         } else {
             drawIdentity(item, rect)
         }
@@ -834,6 +928,45 @@ class VrUiLayer(
         stroke.color = if (current) C_ACCENT else C_BORDER
         stroke.strokeWidth = if (current) 3f else 1.5f
         canvas.drawRoundRect(rect, 14f, 14f, stroke)
+    }
+
+    /**
+     * V2.19：真画面上的身份条。
+     *
+     * 一条从透明到黑的渐变压在底部，左边是时刻，右边是时长。
+     * 不加这条的话，「有画面」反而比「没有画面」信息更少——用户在一堆
+     * 都拍同一个房间的片段里，靠的正是时刻。
+     */
+    private fun drawPosterCaption(item: MediaItemEntity, rect: RectF) {
+        val stamp = timestampOf(item.title)
+        val when_ = stamp?.let { "${it.date} ${it.time}" } ?: prettyName(item.title)
+        val length = item.durationMs.takeIf { it > 0L }?.let { formatTime(it) }
+
+        val bandTop = rect.bottom - 42f
+        scrimPaint.shader = LinearGradient(
+            0f, bandTop, 0f, rect.bottom,
+            0x00000000, 0xC4000000.toInt(), Shader.TileMode.CLAMP
+        )
+        canvas.save()
+        val clip = Path()
+        clip.addRoundRect(rect, 14f, 14f, Path.Direction.CW)
+        canvas.clipPath(clip)
+        canvas.drawRect(RectF(rect.left, bandTop, rect.right, rect.bottom), scrimPaint)
+        canvas.restore()
+        scrimPaint.shader = null
+
+        small.textSize = 17f
+        small.color = C_TEXT
+        canvas.drawText(
+            ellipsize(when_, rect.width() - 100f, small),
+            rect.left + 12f, rect.bottom - 12f, small
+        )
+        if (length != null) {
+            small.textSize = 16f
+            small.color = C_ACCENT
+            canvas.drawText(length, rect.right - 12f, rect.bottom - 12f, small)
+        }
+        small.color = C_MUTED
     }
 
     /** 没有海报时，格子里放「什么时候拍的」——这才是用户认得出这一部的东西。 */

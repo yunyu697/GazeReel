@@ -9,6 +9,7 @@ import android.opengl.Matrix
 import android.os.SystemClock
 import com.gazereel.vr.core.Eye
 import com.gazereel.vr.core.EyeParams
+import com.gazereel.vr.core.RotationBlend
 import com.gazereel.vr.core.TriggerEvent
 import com.gazereel.vr.core.TriggerKind
 import com.gazereel.vr.core.VrHeadsetProvider
@@ -35,6 +36,14 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     @Volatile
     private var viewLocked = false
     private val frozen = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
+
+    // V2.19 / B5：缓转重定基准。起点/终点都是「参考系偏移」，中间走球面插值。
+    private var easing = false
+    private var easeStartMs = 0L
+    private var easeDurationMs = 800L
+    private val easeFrom = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
+    private val easeTo = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
+    private val easeScratch = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
 
     /**
      * V2.7.3：进 VR 后要「第一眼正对片库」，但 start() 时传感器还没出过数据，
@@ -69,9 +78,29 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         if (viewLocked) return synchronized(lock) { frozen.copyOf() }
         val result = FloatArray(16)
         synchronized(lock) {
-            Matrix.multiplyMM(result, 0, inverseOffset, 0, rotation, 0)
+            Matrix.multiplyMM(result, 0, offsetNow(), 0, rotation, 0)
         }
         return result
+    }
+
+    /**
+     * V2.19 / B5：当前生效的参考系偏移。
+     *
+     * 缓转期间它是 `easeFrom → easeTo` 的球面插值，其余时候就是 `inverseOffset`。
+     * 所有读姿态的路径（视图矩阵、凝视落点、手势）都必须经过这里，
+     * 否则缓转的 0.8 秒里画面在动、准星却已经跳到终点。
+     */
+    private fun offsetNow(): FloatArray {
+        if (!easing) return inverseOffset
+        val now = SystemClock.elapsedRealtime()
+        val t = ((now - easeStartMs).toFloat() / easeDurationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
+        if (t >= 1f) {
+            easing = false
+            System.arraycopy(easeTo, 0, inverseOffset, 0, 16)
+            return inverseOffset
+        }
+        RotationBlend.slerp(easeFrom, easeTo, t, easeScratch)
+        return easeScratch
     }
 
     override fun setViewLocked(locked: Boolean) {
@@ -89,11 +118,34 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
      * 当前姿态就是正前方，所以 frozen 设为单位矩阵，锁定状态保持不变。
      */
     override fun recenter() {
-        synchronized(lock) { recenterLocked() }
+        synchronized(lock) {
+            easing = false
+            recenterLocked()
+        }
+    }
+
+    /**
+     * V2.19 / B5：0.8 秒缓转。
+     *
+     * 起点是**当前生效**的偏移（可能正处在上一段缓转中间），终点是新参考系。
+     * 直接拿 `inverseOffset` 当起点会在连续确认时跳一下。
+     */
+    override fun recenterSmooth(durationMs: Long) {
+        synchronized(lock) {
+            val target = FloatArray(16)
+            if (!Matrix.invertM(target, 0, rotation, 0)) return
+            System.arraycopy(offsetNow(), 0, easeFrom, 0, 16)
+            System.arraycopy(target, 0, easeTo, 0, 16)
+            easeStartMs = SystemClock.elapsedRealtime()
+            easeDurationMs = durationMs.coerceAtLeast(1L)
+            easing = true
+            if (viewLocked) Matrix.setIdentityM(frozen, 0)
+        }
     }
 
     /** 把当前姿态设为「正前方」。调用方需持有 lock。 */
     private fun recenterLocked() {
+        easing = false
         val inverse = FloatArray(16)
         if (Matrix.invertM(inverse, 0, rotation, 0)) {
             System.arraycopy(inverse, 0, inverseOffset, 0, 16)

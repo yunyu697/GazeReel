@@ -110,6 +110,16 @@ data class VrUiState(
     val cabinetsOpen: Boolean = false,
     val cabinet: Long = 0L,
     val cabinets: List<Cabinet> = emptyList(),
+    /**
+     * V2.19 / B4：非 null 表示「检测到新姿势，等一次凝视确认」。值是候选俯仰角。
+     *
+     * 注意这里**没有** comfortPitch。舒适中心不是靠「把 UI 平面往上挪」实现的，
+     * 那样只会让 UI 单独飞走、视频留在原地。真正的做法是缓转整个参考系
+     * （`VrHeadsetProvider.recenterSmooth`），视频 / UI / 字幕 / 准星一起转。
+     */
+    val postureCandidate: Float? = null,
+    /** 候选还剩多久消失（毫秒），用来画那条细进度条。 */
+    val postureRemainingMs: Long = 0L,
     val currentMediaId: Long = 0L,
     val currentTitle: String = "",
     val format: VrFormat = VrFormat.DEFAULT,

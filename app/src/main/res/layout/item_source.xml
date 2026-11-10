@@ -65,6 +65,23 @@
             android:background="@drawable/bg_setup_chip"
             android:textSize="11sp"
             android:textColor="@color/setup_muted" />
+
+        <!-- V2.18：隐藏/显示挪到标题行。它是「这个片库现在显不显示」的状态开关，
+             不是和编辑/删除同级的动作；放在按钮行里既挤又容易看错。 -->
+        <TextView
+            android:id="@+id/sourceHide"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:minWidth="44dp"
+            android:minHeight="28dp"
+            android:gravity="center"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:background="@drawable/bg_setup_chip"
+            android:text="@string/setup_hide"
+            android:textSize="11sp"
+            android:textColor="@color/setup_muted" />
     </LinearLayout>
 
     <LinearLayout
@@ -74,17 +91,20 @@
         android:orientation="horizontal"
         android:gravity="end">
 
+        <!-- V2.18：用户原话「我说的是不用重新填 IP 和凭据」。
+             这个按钮直接用这张卡片自己的主机与凭证去浏览，选完就多一个片库，
+             全程不出现地址框、不出现账号密码。 -->
         <TextView
-            android:id="@+id/sourceHide"
+            android:id="@+id/sourceAddFolder"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:minWidth="52dp"
+            android:minWidth="72dp"
             android:minHeight="32dp"
             android:gravity="center"
             android:background="@drawable/bg_setup_chip"
-            android:text="@string/setup_hide"
+            android:text="@string/setup_add_folder"
             android:textSize="12sp"
-            android:textColor="@color/setup_muted" />
+            android:textColor="@color/setup_cyan" />
 
         <TextView
             android:id="@+id/sourceEdit"

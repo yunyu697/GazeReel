@@ -90,6 +90,8 @@ class VrActivity : AppCompatActivity() {
     private val tick = object : Runnable {
         override fun run() {
             val now = SystemClock.elapsedRealtime()
+            // V2.19：姿态闭环跑在主线程，33ms 一次。缓动 0.8 秒 ≈ 24 帧，够顺。
+            coordinator.updatePosture(headset.headRotation(), now)
             gaze.update(now)
             gesture.update(now)
             coordinator.tick()

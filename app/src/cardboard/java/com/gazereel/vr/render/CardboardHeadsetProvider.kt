@@ -7,6 +7,7 @@ import android.view.Surface
 import android.view.WindowManager
 import com.gazereel.vr.core.Eye
 import com.gazereel.vr.core.EyeParams
+import com.gazereel.vr.core.RotationBlend
 import com.gazereel.vr.core.TriggerEvent
 import com.gazereel.vr.core.TriggerKind
 import com.gazereel.vr.core.VrHeadsetProvider
@@ -53,6 +54,14 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
     @Volatile
     private var viewLocked = false
     private val frozen = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
+
+    // V2.19 / B5：缓转重定基准，与 SensorHeadsetProvider 同一套语义。
+    private var easing = false
+    private var easeStartMs = 0L
+    private var easeDurationMs = 800L
+    private val easeFrom = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
+    private val easeTo = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
+    private val easeScratch = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
 
     init {
         ready = runCatching {
@@ -104,9 +113,26 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
         refreshRotation()
         val result = FloatArray(16)
         synchronized(lock) {
-            Matrix.multiplyMM(result, 0, inverseOffset, 0, rotation, 0)
+            Matrix.multiplyMM(result, 0, offsetNow(), 0, rotation, 0)
         }
         return result
+    }
+
+    /**
+     * V2.19 / B5：当前生效的参考系偏移（缓转期间是插值结果）。
+     * 视图矩阵、凝视落点、手势都走这里，否则缓转时画面在动、准星已到终点。
+     */
+    private fun offsetNow(): FloatArray {
+        if (!easing) return inverseOffset
+        val now = SystemClock.elapsedRealtime()
+        val t = ((now - easeStartMs).toFloat() / easeDurationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
+        if (t >= 1f) {
+            easing = false
+            System.arraycopy(easeTo, 0, inverseOffset, 0, 16)
+            return inverseOffset
+        }
+        RotationBlend.slerp(easeFrom, easeTo, t, easeScratch)
+        return easeScratch
     }
 
     override fun setViewLocked(locked: Boolean) {
@@ -153,11 +179,31 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
         }
         refreshRotation()
         synchronized(lock) {
+            easing = false
             val inverse = FloatArray(16)
             if (Matrix.invertM(inverse, 0, rotation, 0)) {
                 System.arraycopy(inverse, 0, inverseOffset, 0, 16)
                 if (viewLocked) Matrix.setIdentityM(frozen, 0)
             }
+        }
+    }
+
+    /** V2.19 / B5：0.8 秒缓转，语义见 [VrHeadsetProvider.recenterSmooth]。 */
+    override fun recenterSmooth(durationMs: Long) {
+        if (!ready) {
+            fallback.recenterSmooth(durationMs)
+            return
+        }
+        refreshRotation()
+        synchronized(lock) {
+            val target = FloatArray(16)
+            if (!Matrix.invertM(target, 0, rotation, 0)) return
+            System.arraycopy(offsetNow(), 0, easeFrom, 0, 16)
+            System.arraycopy(target, 0, easeTo, 0, 16)
+            easeStartMs = SystemClock.elapsedRealtime()
+            easeDurationMs = durationMs.coerceAtLeast(1L)
+            easing = true
+            if (viewLocked) Matrix.setIdentityM(frozen, 0)
         }
     }
 

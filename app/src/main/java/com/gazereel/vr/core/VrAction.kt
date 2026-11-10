@@ -65,6 +65,17 @@ sealed class VrAction {
     data class SwitchCabinet(val sourceId: Long) : VrAction()
 
     /**
+     * V2.19 / B4：姿态闭环的确认。
+     *
+     * 检测到「换了姿势」只标记候选、画面一帧不动；凝视这个目标才用 0.8s 缓转过去。
+     * 不确认就什么都不发生——3DOF 分不清「换姿势」和「头转了一下」，
+     * 自动重定会抢走用户正在看的内容。
+     */
+    object ConfirmPosture : VrAction() { override val priority = 2 }
+
+    object DismissPosture : VrAction()
+
+    /**
      * V2.16：播放中调出片库之后，一个动作回到正在看的那一部。
      *
      * 原来从播放页按「片库」只有长按触发键或重新凝视那一格才能回去，

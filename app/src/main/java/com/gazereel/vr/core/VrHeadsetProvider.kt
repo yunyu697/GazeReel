@@ -38,6 +38,17 @@ interface VrHeadsetProvider {
     fun recenter()
 
     /**
+     * V2.19 / B5：把「正前方」在 [durationMs] 内**缓转**到当前姿态，而不是瞬跳。
+     *
+     * 瞬跳在头显里是典型的晕动触发源：整个视界在一帧里平移几十度。
+     * 姿态闭环的「把正前方挪到这里」必须走这条，否则用户看到的就是闪一下。
+     *
+     * 默认实现退回 [recenter]（瞬跳），保证新增 Provider 时不会编译不过，
+     * 但**只有真正实现了插值的 Provider 才算 B5 落地**。
+     */
+    fun recenterSmooth(durationMs: Long) = recenter()
+
+    /**
      * PRD FR-12「锁定视角」：冻结头追输出，画面与 UI 都停在锁定瞬间的朝向。
      * 默认空实现保证新增 Provider 时不需要立刻实现该能力。
      */

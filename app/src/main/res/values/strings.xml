@@ -39,6 +39,8 @@
     <!-- V2.18：用户真机反馈「加第二个文件夹根本不知道怎么操作」。
          加片库的入口要和已有片库放在一起，一个词说清它做什么。 -->
     <string name="setup_add_source">＋ 加片库</string>
+    <!-- V2.18：在这台设备上再选一个文件夹，不用重新填 IP 和账号。 -->
+    <string name="setup_add_folder">＋ 文件夹</string>
     <string name="setup_permission_title">需要读取视频的权限</string>
     <string name="setup_permission_detail">没有这个权限就看不到手机里的视频。点这里重新授权，或在系统设置里打开「照片和视频」权限。</string>
     <string name="setup_permission_action">去授权</string>

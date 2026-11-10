@@ -62,6 +62,16 @@ class GazeDetector(
      */
     private var mustLeave: String? = null
 
+    /**
+     * V2.19：比 [mustLeave] 更硬的一条——**准星必须先落在空白处一次**，才允许开始计时。
+     *
+     * 姿态确认浮层就是它存在的理由：浮层出现在画面正中，而「挪到这里」也在正中，
+     * 用户此刻的视线正好压在它上面。按 id 判「离开」在这里不够用——浮层一出来，
+     * 目标 id 全换了，上一帧记下的 id 永远对不上，等于没拦。
+     * 所以这里不认 id，只认「有没有看过没有目标的地方」。
+     */
+    private var mustClear = false
+
     /** 上一帧的凝视开关状态，用来识别「刚刚上膛」这个瞬间。 */
     private var wasArmed = false
 
@@ -77,6 +87,7 @@ class GazeDetector(
         lastY = Float.NaN
         armedAt = SystemClock.elapsedRealtime() + ARM_DELAY_MS
         mustLeave = null
+        mustClear = false
     }
 
     fun update(now: Long = SystemClock.elapsedRealtime()) {
@@ -112,15 +123,20 @@ class GazeDetector(
             return
         }
 
-        // 换屏（片库 → 播放器 → 格式浮层）后重新上膛：新界面第一眼不该算「停留」。
-        val screenKey = "${state.screen}/${state.overlay}"
+        // V2.19：姿态确认浮层也算一次「换屏」。它出现时准星本来就停在画面中央，
+        // 而「挪到这里」正好在中央——不算换屏的话，浮层刚出来就会被停留确认掉，
+        // 变成「没问就自己转了」，正好违背「先问再动」。
+        val postureUp = state.postureCandidate != null
+        val screenKey = "${state.screen}/${state.overlay}/$postureUp"
         if (screenKey != lastScreen) {
             lastScreen = screenKey
             armedAt = now + ARM_DELAY_MS
             currentId = null
             progress = 0f
             startedAt = now
-            mustLeave = target?.id
+            mustLeave = if (postureUp) null else target?.id
+            // 浮层里目标 id 全是新的，按 id 判「离开」必然失效，改成「先看一次空白」。
+            mustClear = postureUp
             lastHit = target?.id
             return
         }
@@ -128,6 +144,15 @@ class GazeDetector(
             currentId = null
             progress = 0f
             return
+        }
+        // V2.19：浮层刚出现时，视线本来就压在按钮上。必须先看过一次空白处。
+        if (mustClear) {
+            if (target != null) {
+                currentId = null
+                progress = 0f
+                return
+            }
+            mustClear = false
         }
         if (mustLeave != null) {
             if (target?.id == mustLeave) {

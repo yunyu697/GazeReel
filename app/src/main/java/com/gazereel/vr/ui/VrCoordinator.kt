@@ -61,6 +61,50 @@ class VrCoordinator(
     }
 
     var sources: Map<Long, SourceEntity> = emptyMap()
+
+    /** V2.19 / B4+B5：姿态闭环。它只发现「姿势变了」，动画面的是 Provider。 */
+    private val posture = PostureTracker()
+
+    /** 每帧（约 60Hz）由 VrActivity 的 tick 推一次，跑在主线程，不碰 GL 线程。 */
+    fun updatePosture(rotation: FloatArray, nowMs: Long) {
+        val pitch = posture.pitchOf(rotation)
+        val changed = posture.onPose(pitch, nowMs)
+        val candidate = posture.candidate
+        val remaining = if (candidate == null) 0L else posture.candidateRemainingMs(nowMs)
+        if (changed || candidate != uiState.postureCandidate ||
+            remaining != uiState.postureRemainingMs
+        ) {
+            uiState = uiState.copy(
+                postureCandidate = candidate,
+                postureRemainingMs = remaining
+            )
+        }
+    }
+
+    /**
+     * 确认「把正前方挪到这里」：整个参考系 0.8 秒缓转过去。
+     *
+     * 为什么不是瞬跳：整个视界在一帧里平移几十度，是最典型的晕动触发源。
+     * 为什么不是只挪 UI：那样视频留在原地，用户反而要仰头找画面。
+     */
+    private fun confirmPosture() {
+        val now = SystemClock.elapsedRealtime()
+        if (!posture.confirm(now)) {
+            showMessage("没有需要调整的姿势")
+            return
+        }
+        headset.recenterSmooth(PostureTracker.ANIM_MS)
+        // 缓转期间必须把凝视停留与手势窗口清零——只暂停命中不清零，
+        // 缓动结束首帧就会拿着缓动前的位置当场再触发一次。
+        onRecenter()
+        uiState = uiState.copy(postureCandidate = null, postureRemainingMs = 0L)
+        showMessage("正在把画面挪到你现在的姿势")
+    }
+
+    private fun dismissPosture() {
+        posture.dismiss()
+        uiState = uiState.copy(postureCandidate = null, postureRemainingMs = 0L)
+    }
     private var pendingOpen: Triple<MediaItemEntity, MediaRef, com.gazereel.vr.core.VrFormat>? = null
 
     /**
@@ -224,6 +268,9 @@ class VrCoordinator(
             VrAction.OpenCabinets -> uiState = uiState.copy(cabinetsOpen = true)
             VrAction.CloseCabinets -> uiState = uiState.copy(cabinetsOpen = false)
             is VrAction.SwitchCabinet -> switchCabinet(action.sourceId)
+            // V2.19：姿态闭环
+            VrAction.ConfirmPosture -> confirmPosture()
+            VrAction.DismissPosture -> dismissPosture()
             VrAction.ResumePlayback -> resumePlayback()
             VrAction.TogglePlay -> player.togglePlay()
             // V2.8：片库里 Next / Previous 只能是翻页。
@@ -255,6 +302,9 @@ class VrCoordinator(
             VrAction.ResetForward -> {
                 // V2.4：重定基准后清掉凝视停留与手势窗口，并给一条会消失的反馈。
                 headset.recenter()
+                // V2.19：基准归零了，候选与静默期也要一起清掉。
+                posture.reset()
+                uiState = uiState.copy(postureCandidate = null, postureRemainingMs = 0L)
                 onRecenter()
                 showMessage("正前方已重置")
             }
@@ -442,6 +492,8 @@ class VrCoordinator(
     private fun back() {
         val state = uiState
         when {
+            // V2.19：姿态确认浮层在最上层，返回键先撤它。
+            state.postureCandidate != null -> dismissPosture()
             state.overlay != VrOverlay.NONE -> uiState = state.copy(overlay = VrOverlay.NONE)
             state.screen == VrScreen.PLAYER -> {
                 player.saveProgress()

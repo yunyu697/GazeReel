@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.gazereel.vr.data.RunLog
 
 @Database(
     entities = [
@@ -44,33 +45,30 @@ abstract class AppDatabase : RoomDatabase() {
         /**
          * V2.18：断点表的主键从自增 `media_id` 换成 `media_key = sourceId:path`。
          *
-         * 为什么必须换：`media_item` 的行只要被重建过（改递归范围、换文件夹、
-         * 重扫时先删后插），自增 id 就会变，而断点还挂在旧 id 上 —— 用户看到的就是
-         * 「隐藏之后再显示回来，断点没了」。路径是稳定的，断点该挂在路径上。
+         * **建表语句必须和 Room 自己生成的一字不差。** 上一版在这里写了
+         * `DEFAULT 0`，而实体上没有 `@ColumnInfo(defaultValue = ...)`，Room 生成的
+         * DDL 里没有 DEFAULT —— 迁移跑完 Room 校验表结构不匹配，直接走
+         * `fallbackToDestructiveMigration()` **把整个库删了重建**。
+         * 用户看到的就是「扫描成功了，但断点全没了」。
          *
-         * 迁移要把现有断点接续过来：用 media_item 把 id 翻译成 path，不能直接丢，
-         * 否则升级一次就清掉用户所有断点。
+         * 教训：手写迁移不要凭想象加约束，照 Room 生成的 DDL 抄。
          */
         private val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS play_progress_new (
-                        media_key TEXT NOT NULL,
-                        position_ms INTEGER NOT NULL DEFAULT 0,
-                        updated_at INTEGER NOT NULL DEFAULT 0,
-                        finished INTEGER NOT NULL DEFAULT 0,
-                        PRIMARY KEY(media_key)
-                    )
-                    """.trimIndent()
+                    "CREATE TABLE IF NOT EXISTS `play_progress_new` (" +
+                        "`media_key` TEXT NOT NULL, " +
+                        "`position_ms` INTEGER NOT NULL, " +
+                        "`updated_at` INTEGER NOT NULL, " +
+                        "`finished` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`media_key`))"
                 )
+                // 用 media_item 把旧的 media_id 翻译成路径接续过来，不能直接丢。
                 db.execSQL(
-                    """
-                    INSERT OR REPLACE INTO play_progress_new (media_key, position_ms, updated_at, finished)
-                    SELECT m.source_id || ':' || m.path, p.position_ms, p.updated_at, p.finished
-                    FROM play_progress p
-                    JOIN media_item m ON m.id = p.media_id
-                    """.trimIndent()
+                    "INSERT OR REPLACE INTO `play_progress_new` " +
+                        "(media_key, position_ms, updated_at, finished) " +
+                        "SELECT m.source_id || ':' || m.path, p.position_ms, p.updated_at, p.finished " +
+                        "FROM play_progress p JOIN media_item m ON m.id = p.media_id"
                 )
                 db.execSQL("DROP TABLE play_progress")
                 db.execSQL("ALTER TABLE play_progress_new RENAME TO play_progress")
@@ -84,6 +82,16 @@ abstract class AppDatabase : RoomDatabase() {
                 "cardboard_vr.db"
             ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .fallbackToDestructiveMigration()
+                // V2.18：万一以后又出现迁移不匹配，至少要在日志里留下证据。
+                // 否则用户只会看到「断点没了」，而我这边什么都看不到。
+                .addCallback(object : RoomDatabase.Callback() {
+                    override fun onDestructiveMigration(db: SupportSQLiteDatabase) {
+                        RunLog.append(
+                            "db",
+                            "数据库被销毁重建 —— 迁移缺失或不匹配，断点与格式记忆已丢失"
+                        )
+                    }
+                })
                 .build().also { instance = it }
         }
     }

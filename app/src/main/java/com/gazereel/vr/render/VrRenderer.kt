@@ -54,10 +54,10 @@ class VrRenderer(
     private var surfaceTexture: SurfaceTexture? = null
     private var videoSurface: Surface? = null
     private var videoGeometry: ProjectionMesh.Geometry? = null
-    private var uiCentered: ProjectionMesh.Geometry? = null
-    private var uiLowered: ProjectionMesh.Geometry? = null
-    // V2.13：片库用更大的平面（2.4×1.2 米）。尺寸必须与 VrUiLayer.panelSpec() 一致。
-    private var uiLibrary: ProjectionMesh.Geometry? = null
+    // V2.19 / B5：UI 平面不再只有「居中 / 下移 / 片库」三块固定几何。
+    // 舒适俯角是连续量，缓动期间每帧都在变，所以按 panelSpec 现算并按需重建。
+    private var uiGeometry: ProjectionMesh.Geometry? = null
+    private var uiSpec: VrUiLayer.PanelSpec? = null
     private var lastProjection: Projection? = null
     private var lastLayout: com.gazereel.vr.core.StereoLayout? = null
     private var loggedStMatrix = false
@@ -81,9 +81,6 @@ class VrRenderer(
                 setOnFrameAvailableListener(this@VrRenderer)
             }
             videoSurface = Surface(surfaceTexture)
-            uiCentered = mesh.uiQuad(0f)
-            uiLowered = mesh.uiQuad(-0.46f)
-            uiLibrary = mesh.uiQuad(0f, width = 2.4f, height = 1.2f)
             onGlReady?.invoke(videoSurface!!)
         } catch (t: Throwable) {
             failGl(t)
@@ -159,6 +156,12 @@ class VrRenderer(
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         val panel = uiLayer.panelSpec(state)
+        // 缓动期间 centerY 每帧都在变；量化到 1mm，避免 24 帧各建一次 FloatBuffer。
+        val specKey = VrUiLayer.PanelSpec(panel.width, panel.height, Math.round(panel.centerY * 1000f) / 1000f)
+        if (uiSpec != specKey) {
+            uiSpec = specKey
+            uiGeometry = mesh.uiQuad(specKey.centerY, specKey.width, specKey.height)
+        }
 
         for (eye in listOf(Eye.LEFT, Eye.RIGHT)) {
             val viewportX = if (eye == Eye.LEFT) 0 else width / 2
@@ -188,11 +191,6 @@ class VrRenderer(
                 )
             }
 
-            val uiGeometry = when {
-                panel.width > 2f -> uiLibrary
-                panel.centerY < 0f -> uiLowered
-                else -> uiCentered
-            }
             uiGeometry?.let { geometry ->
                 drawGeometry(
                     program = uiProgram ?: return@let,
