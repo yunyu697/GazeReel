@@ -53,6 +53,16 @@
             android:screenOrientation="portrait"
             android:label="@string/log_title" />
 
+        <!-- V2.20 / A18：入盒引导。横屏、全屏。
+             它是「进入 VR」和双屏画面之间唯一的一步：对中线、摆稳、按键。
+             sensorLandscape 而不是 landscape：横着拿哪一边都行，两种都正着显示。 -->
+        <activity
+            android:name=".ui.AlignActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
+            android:theme="@style/Theme.GazeReel.Immersive" />
+
         <!-- 戴镜后：全屏横屏、锁定方向，不响应键盘输入 -->
         <activity
             android:name=".ui.VrActivity"

@@ -1,9 +1,11 @@
 package com.gazereel.vr.ui
 
 import android.os.SystemClock
+import com.gazereel.vr.core.FormatDetector
 import com.gazereel.vr.core.InputChannel
 import com.gazereel.vr.core.MediaRef
 import com.gazereel.vr.core.SourceType
+import com.gazereel.vr.core.StereoFrameJudge
 import com.gazereel.vr.core.VrAction
 import com.gazereel.vr.core.VrHeadsetProvider
 import com.gazereel.vr.data.FormatProber
@@ -209,6 +211,19 @@ class VrCoordinator(
         uiState = uiState.copy(postureCandidate = null, postureYaw = 0f, postureRemainingMs = 0L)
     }
     private var pendingOpen: Triple<MediaItemEntity, MediaRef, com.gazereel.vr.core.VrFormat>? = null
+
+    /**
+     * V2.20 / C1：这一次打开时保留的证据，供抽帧到位后重算一次。
+     *
+     * 抽帧在起播之后 ~10 帧才回来，那时候「文件名 + 宽高 + 容器」这套证据早就算过一遍了。
+     * 把同样的输入补上抽帧结论再跑一次 [com.gazereel.vr.core.FormatDetector.detect]，
+     * 比在几个分支里零散地改 layout 安全得多——判据只有一处，改也只改一处。
+     */
+    private var pendingProbe: com.gazereel.vr.core.SphericalMetadata.Probe? = null
+    private var pendingItem: MediaItemEntity? = null
+
+    /** 用户在这次播放里自己选过格式：抽帧不许覆盖他，他的话最硬。 */
+    private var userPickedFormat = false
 
     /**
      * V2.17：被隐藏的片库不进 VR 的片库页。
@@ -426,6 +441,8 @@ class VrCoordinator(
         scope.launch {
             val item = uiState.selectedItem ?: return@launch
             val ref = buildRef(item) ?: return@launch
+            userPickedFormat = false
+            pendingItem = item
             val resolution = resolveFormatFor(item, ref)
             pendingOpen = Triple(item, ref, resolution.format)
             uiState = uiState.copy(
@@ -451,13 +468,18 @@ class VrCoordinator(
         val cached = withContext(Dispatchers.IO) {
             runCatching { library.cachedFormat(ref) }.getOrNull()
         }
-        if (cached != null) return LibraryRepository.FormatResolution(cached, false)
+        if (cached != null) {
+            // 命中记忆就不再探测，抽帧重算也没有输入可用——清掉上一次的残留证据。
+            pendingProbe = null
+            return LibraryRepository.FormatResolution(cached, false)
+        }
 
         val probe = prober?.let {
             withContext(Dispatchers.IO) {
                 runCatching { withTimeoutOrNull(8_000L) { it.probe(ref) } }.getOrNull()
             }
         }
+        pendingProbe = probe
         return withContext(Dispatchers.IO) { library.resolveFormat(ref, item, probe) }
     }
 
@@ -494,6 +516,7 @@ class VrCoordinator(
     }
 
     private fun applyFormat(format: com.gazereel.vr.core.VrFormat) {
+        userPickedFormat = true
         val ref = pendingOpen?.second
         if (ref != null) {
             scope.launch(Dispatchers.IO) { library.rememberFormat(ref, format) }
@@ -501,6 +524,44 @@ class VrCoordinator(
         uiState = uiState.copy(format = format, overlay = VrOverlay.NONE)
         // 仅「首次选片」需要继续启动播放；播放中改格式不重开片源。
         if (pendingOpen != null) startPlayback()
+    }
+
+    /**
+     * V2.20 / C1：GL 线程抽到的布局结论（在 VrActivity 里切回主线程后调用）。
+     *
+     * 判据不在这里写第二遍：把抽帧结论作为又一条证据，重新跑同一个
+     * [FormatDetector.detect]。这样「容器 > 抽帧 > 文件名」的优先级只有一处定义，
+     * 以后调顺序不会两边打架。
+     *
+     * 与现有结论一致就什么都不做（绝大多数片子走这条），
+     * 不一致才当场改：只换每眼采样区域，不重开片源、不打断播放。
+     */
+    fun onFrameVerdict(verdict: StereoFrameJudge.Verdict) {
+        if (userPickedFormat) {
+            RunLog.append("fmt", "抽帧结论 ${verdict.layout.name} 未采用：用户本片已手选")
+            return
+        }
+        val item = pendingItem
+            ?: uiState.items.firstOrNull { it.id == uiState.currentMediaId }
+            ?: return
+        val ref = buildRef(item) ?: return
+        val w = pendingProbe?.width?.takeIf { it > 0 } ?: item.width
+        val h = pendingProbe?.height?.takeIf { it > 0 } ?: item.height
+
+        val redo = FormatDetector().detect(item.path, w, h, pendingProbe, verdict.evidence())
+        if (redo.format == uiState.format) {
+            RunLog.append("fmt", "抽帧与现有判据一致：${redo.format.label}")
+            return
+        }
+        val before = uiState.format
+        uiState = uiState.copy(
+            format = redo.format,
+            suggestedFormat = redo.format,
+            overlay = VrOverlay.NONE
+        )
+        scope.launch(Dispatchers.IO) { runCatching { library.rememberFormat(ref, redo.format) } }
+        RunLog.append("fmt", "抽帧校正 ${before.label} → ${redo.format.label}（${verdict.describe()}）")
+        showMessage("已按画面判为 ${redo.format.label}", 2_600L)
     }
 
     /** 自动连播：不弹格式确认，直接套用识别结果并复用共享会话（PRD 5.2）。 */

@@ -5,8 +5,11 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.hardware.display.DisplayManager
 import android.opengl.Matrix
 import android.os.SystemClock
+import android.view.Display
+import android.view.Surface
 import com.gazereel.vr.core.Eye
 import com.gazereel.vr.core.EyeParams
 import com.gazereel.vr.core.RotationBlend
@@ -14,6 +17,7 @@ import com.gazereel.vr.core.TriggerEvent
 import com.gazereel.vr.core.TriggerKind
 import com.gazereel.vr.core.VrHeadsetProvider
 import com.gazereel.vr.core.viewRotationOf
+import com.gazereel.vr.data.RunLog
 
 /**
  * 无 Cardboard AAR 时的可运行实现：Android 旋转矢量传感器 + 自绘左右眼视口。
@@ -27,6 +31,18 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     private val sensorManager =
         context.applicationContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+
+    /**
+     * V2.20：屏幕旋转必须先查出来。
+     *
+     * 旋转矢量给的是**设备物理轴**的姿态，而画出来的是**屏幕轴**（横屏时屏幕的「上」
+     * 是手机的长边）。两者差一个绕 Z 的 90° / 180° / 270°，不补这一下，
+     * 左右的转头就会被当成绕视轴的横滚。
+     */
+    private val display: Display? = runCatching {
+        (context.applicationContext.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
+            .getDisplay(Display.DEFAULT_DISPLAY)
+    }.getOrNull()
 
     private val rotation = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
     private val inverseOffset = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
@@ -58,9 +74,19 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
 
     override fun start() {
         pendingInitialRecenter = true
+        refreshDisplayRotation()
+        // 姿态出问题时，第一个要问的就是「它以为屏幕转了多少度」。
+        RunLog.append("posture", "屏幕旋转=${rotationName(displayRotation)}·全姿态（无重力投影）")
         rotationSensor?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
+    }
+
+    private fun rotationName(r: Int): String = when (r) {
+        Surface.ROTATION_90 -> "90°"
+        Surface.ROTATION_180 -> "180°"
+        Surface.ROTATION_270 -> "270°"
+        else -> "0°"
     }
 
     override fun stop() = sensorManager.unregisterListener(this)
@@ -194,9 +220,10 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
 
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
+        refreshDisplayRotation()
         val deviceToWorld = FloatArray(9)
         SensorManager.getRotationMatrixFromVector(deviceToWorld, event.values)
-        val matrix = screenPoseOf(deviceToWorld)
+        val matrix = screenPoseOf(deviceToWorld, displayRotation)
         synchronized(lock) {
             System.arraycopy(matrix, 0, rotation, 0, 16)
             if (pendingInitialRecenter) {
@@ -206,65 +233,77 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         }
     }
 
+    private var displayRotation: Int = Surface.ROTATION_0
+    private var lastRotationCheckMs = 0L
+
     /**
-     * 设备姿态 → 屏幕姿态（4x4 列主序）。
+     * 屏幕旋转在 VR 期间是锁死的，但要能读出来——它决定「屏幕轴」与「设备轴」差多少。
+     * 每秒最多查一次：`Display.getRotation()` 可能触发一次显示信息的刷新，
+     * 传感器事件是 100Hz，没必要每次都问。
+     */
+    private fun refreshDisplayRotation() {
+        val now = SystemClock.elapsedRealtime()
+        if (lastRotationCheckMs != 0L && now - lastRotationCheckMs < 1000L) return
+        lastRotationCheckMs = now
+        displayRotation = runCatching { display?.rotation ?: Surface.ROTATION_0 }
+            .getOrDefault(Surface.ROTATION_0)
+    }
+
+    /**
+     * 设备姿态 → **屏幕姿态**（4x4 列主序）。
      *
-     * 真机 V2.7.3：头左右一转画面就绕视轴旋转。原因是 VrActivity 锁了横屏，
-     * 屏幕的「上」与手机的 y 轴差 90°，而旋转矢量给的是**设备物理轴**姿态，
-     * 直接当屏幕坐标用，相机的 up 轴就落在水平面上——头一转，up 跟着在水平面
-     * 里转，画面看起来就在自转。
+     * ## V2.20：这里换了算法，原因是 V2.7.3 那套用了重力定 up，在躺姿下必然坏
      *
-     * 这里不去猜屏幕方向（锁横屏时 display rotation 的取值各厂商还不一致），
-     * 直接用重力定 up：视线 = -设备 z，up = 世界竖直投影到垂直于视线的平面。
-     * 手机横放竖放都一样，画面上方永远是「天」。
+     * 旧实现：`forward = -设备z`，`right = normalize(forward × 世界天顶)`，`up = back × right`。
+     * 目的是让「画面上方永远是天的方向」，转头的横滚被重力抵消掉。
+     * 问题出在 `forward × 天顶` 这个叉乘：**视线一旦平行于天顶就退化为零向量**。
+     * 而「躺在床上、手机扣在脸上看天花板」——也就是这个 App 最主要的用法——
+     * 视线恰好就是天顶方向。叉乘长度掉到 0.2 以下时旧代码切到「拿设备 y 轴当参考」的
+     * 兜底分支，两个参考系差 90°，于是画面在临界点附近**打转、甚至整幅翻转**。
+     * 用户反馈的「仰姿或俯姿到手机变成水平平放时画面会旋转甚至翻转」就是这条。
      *
-     * 输出的列依次是 (right, up, back)，第三列取负即视线方向——与
+     * 现在：直接用旋转矢量的**全姿态**，只补一个固定的屏幕旋转（屏幕轴 → 设备轴），
+     * 再左乘参考系偏移（`inverseOffset`，即「正前方」）。
+     *
+     * - 没有叉乘，就没有奇点：任何俯仰、任何横滚都连续；
+     * - 横滚是真的横滚。头一歪画面跟着歪，这本来就是 3DOF 该有的样子；
+     *   真正的「摆正」由参考系负责——躺下后的第一个稳定姿态就是正前方（B4），
+     *   所以戴上时画面正对着你，不需要靠重力去掰直它。
+     *
+     * 输出列依次是 (right, up, back)，第三列取负即视线方向——与
      * VrUiLayer.gazePoint / GestureRecognizer 使用的 -rotation[8..10] 一致。
      */
-    private fun screenPoseOf(m: FloatArray): FloatArray {
-        // 行主序 3x3：第三列 = 设备 z 轴在世界中的方向，屏幕朝外，故视线取其负。
-        val forward = floatArrayOf(-m[2], -m[5], -m[8])
-        var right = cross(forward, WORLD_UP)
-        if (length(right) < 0.2f) {
-            // 视线接近竖直（抬头看顶 / 躺下），与世界上方向叉乘退化。
-            // 换设备的 y 轴做参考，它此刻一定不与视线平行。
-            right = cross(forward, floatArrayOf(m[1], m[4], m[7]))
-            if (length(right) < 0.2f) {
-                right = cross(forward, floatArrayOf(m[0], m[3], m[6]))
+    private fun screenPoseOf(d2w: FloatArray, screenRotation: Int): FloatArray {
+        // 旋转矢量给的是 9 元行主序 3x3：world = R · device。转成列主序 4x4。
+        val deviceToWorld = FloatArray(16)
+        for (col in 0..2) {
+            for (row in 0..2) {
+                deviceToWorld[col * 4 + row] = d2w[row * 3 + col]
             }
         }
-        normalize(right)
-        val back = floatArrayOf(-forward[0], -forward[1], -forward[2])
-        val up = cross(back, right)
-        normalize(up)
-
+        // screen = R · S  (S: 屏幕轴 → 设备轴)。Android 的约定与 remapCoordinateSystem 一致：
+        // ROTATION_90 时屏幕右轴 = 设备 +y、屏幕上轴 = 设备 −x。
+        val screenToDevice = screenToDevice(screenRotation)
         val out = FloatArray(16)
-        out[0] = right[0]; out[1] = right[1]; out[2] = right[2]; out[3] = 0f
-        out[4] = up[0]; out[5] = up[1]; out[6] = up[2]; out[7] = 0f
-        out[8] = back[0]; out[9] = back[1]; out[10] = back[2]; out[11] = 0f
-        out[12] = 0f; out[13] = 0f; out[14] = 0f; out[15] = 1f
+        Matrix.multiplyMM(out, 0, deviceToWorld, 0, screenToDevice, 0)
         return out
     }
 
-    private fun cross(a: FloatArray, b: FloatArray): FloatArray = floatArrayOf(
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0]
-    )
-
-    private fun length(v: FloatArray): Float =
-        kotlin.math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
-
-    private fun normalize(v: FloatArray) {
-        val len = length(v)
-        if (len <= 1e-6f) return
-        v[0] /= len; v[1] /= len; v[2] /= len
+    /** 屏幕轴 → 设备轴。列 0 = 屏幕右，列 1 = 屏幕上，列 2 = 屏幕法线（指向用户）。 */
+    private fun screenToDevice(screenRotation: Int): FloatArray {
+        val (x, y) = when (screenRotation) {
+            Surface.ROTATION_90 -> floatArrayOf(0f, 1f, 0f) to floatArrayOf(-1f, 0f, 0f)
+            Surface.ROTATION_180 -> floatArrayOf(-1f, 0f, 0f) to floatArrayOf(0f, -1f, 0f)
+            Surface.ROTATION_270 -> floatArrayOf(0f, -1f, 0f) to floatArrayOf(1f, 0f, 0f)
+            else -> floatArrayOf(1f, 0f, 0f) to floatArrayOf(0f, 1f, 0f)
+        }
+        return floatArrayOf(
+            x[0], x[1], x[2], 0f,
+            y[0], y[1], y[2], 0f,
+            0f, 0f, 1f, 0f,
+            0f, 0f, 0f, 1f
+        )
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
-
-    private companion object {
-        /** 旋转矢量的世界坐标系是东-北-天，天顶即 (0,0,1)。 */
-        val WORLD_UP = floatArrayOf(0f, 0f, 1f)
-    }
 }

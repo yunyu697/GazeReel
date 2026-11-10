@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V2.20 / A18：入盒引导页（横屏）。
+
+  这一屏存在的理由不是「讲一句提示」，而是**给用户一段不用赶的时间**：
+  点「进入 VR」之后到真正戴稳之间，有一段必须做的事——把手机横过来、
+  对准盒子里的隔板、塞进去、手离开。以前这段是黑屏，现在把它变成有依据的一步：
+  中线帮他左右对正，水平仪告诉他歪不歪，稳住了才接受按键。
+
+  屏幕中线画在整高，中间被文字卡从视觉上断开，留下上下两段当准据——
+  盒子里的隔板正好从这两段之间穿过去，对不对得上，一眼就知道。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/vr_bg">
+
+    <View
+        android:id="@+id/centerRail"
+        android:layout_width="2dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="center_horizontal"
+        android:background="#2E67E8F9" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@color/vr_bg"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingLeft="48dp"
+        android:paddingTop="16dp"
+        android:paddingRight="48dp"
+        android:paddingBottom="16dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:letterSpacing="0.16"
+            android:text="@string/align_kicker"
+            android:textColor="@color/vr_accent"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/alignTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center"
+            android:text="@string/align_title"
+            android:textColor="@color/setup_text"
+            android:textSize="25sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/alignBody"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center"
+            android:lineSpacingExtra="4dp"
+            android:text="@string/align_body"
+            android:textColor="@color/setup_muted"
+            android:textSize="14sp" />
+
+        <com.gazereel.vr.ui.LevelGauge
+            android:id="@+id/levelGauge"
+            android:layout_width="180dp"
+            android:layout_height="26dp"
+            android:layout_marginTop="20dp" />
+
+        <TextView
+            android:id="@+id/alignHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:gravity="center"
+            android:text="@string/align_hint_wait"
+            android:textColor="@color/setup_muted"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/alignHintAlt"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center"
+            android:text="@string/align_hint_alt"
+            android:textColor="#668FA3BC"
+            android:textSize="11sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="16dp"
+        android:letterSpacing="0.06"
+        android:text="@string/align_foot"
+        android:textColor="#668FA3BC"
+        android:textSize="11sp" />
+</FrameLayout>
