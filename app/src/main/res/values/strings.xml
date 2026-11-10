@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 桌面图标标签保持两字，避免被 launcher 截断；全称用于导览页 / 关于页 -->
+    <string name="app_name">凝影</string>
+    <string name="app_name_full">GazeReel · 凝影</string>
+    <string name="app_tagline">目光所及，皆是片库</string>
+    <string name="setup_title">01 · 戴镜前，一次性配置</string>
+    <string name="setup_lead">网络共享、账号密码、片库扫描都在平面界面完成；之后不再需要取出手机。</string>
+    <string name="setup_share_title">添加网络共享</string>
+    <string name="setup_share_type">类型</string>
+    <string name="setup_address">设备地址</string>
+    <string name="setup_username">账号（可留空）</string>
+    <string name="setup_password">密码（可留空）</string>
+    <string name="setup_scan">连接并选文件夹</string>
+    <string name="setup_sources_title">已添加的片库</string>
+    <string name="setup_hint">配置只需做一次，凭证加密保存在本机</string>
+    <string name="setup_skip">跳过（用本地片源）</string>
+    <!-- V2.4 方向 A：配置页竖屏单栏 -->
+    <string name="setup_brand">GazeReel</string>
+    <string name="setup_brand_cn">凝影</string>
+    <string name="setup_big">看点什么</string>
+    <string name="setup_kicker">目光所及，皆是片库</string>
+    <string name="setup_add_title">添加一个片库</string>
+    <string name="setup_add_step">配置只需一次</string>
+    <string name="setup_address_help">不用写协议头、斜杠和文件夹名；连接成功后从列表里点选即可。</string>
+    <string name="setup_scan_busy">正在连接…</string>
+    <string name="setup_sources_ready">我的片库</string>
+    <string name="setup_foot">凭证加密保存在本机 · 配置只需做一次</string>
+    <string name="setup_enter">放入纸盒，进入 VR</string>
+    <!-- V2.7：第一屏只有两个动作，都不需要输入 -->
+    <string name="setup_local_title">手机里的视频</string>
+    <string name="setup_local_chip">点一下加入</string>
+    <string name="setup_local_hint">不用选目录，也不用记路径：直接读系统里的视频索引。</string>
+    <string name="setup_local_added">已加入</string>
+    <string name="setup_lan_title">同一 Wi-Fi 下的设备</string>
+    <string name="setup_lan_chip">开始找</string>
+    <string name="setup_lan_hint">自动找 NAS、电脑上的共享，不用记 IP。</string>
+    <string name="setup_manual_toggle">找不到设备？手动填地址 ▾</string>
+    <string name="setup_permission_title">需要读取视频的权限</string>
+    <string name="setup_permission_detail">没有这个权限就看不到手机里的视频。点这里重新授权，或在系统设置里打开「照片和视频」权限。</string>
+    <string name="setup_permission_action">去授权</string>
+    <string name="setup_local_empty">这台手机上还没有视频。用相机拍一段，或从别的设备传过来，再点这里。</string>
+    <string name="setup_lan_none">这个 Wi-Fi 下没找到设备。确认 NAS / 电脑开着共享，或展开下面的手动填地址。</string>
+    <string name="setup_lan_pick">选一台设备</string>
+    <!-- V2.6：「添加片库」不再是填空题 -->
+    <string name="setup_address_hint">例如 192.168.1.10 或 192.168.1.10:8080</string>
+    <string name="setup_edit">改</string>
+    <string name="setup_rescan">重扫</string>
+    <string name="setup_delete">删</string>
+    <string name="folder_title">选择文件夹</string>
+    <string name="folder_up">返回上一层</string>
+    <string name="folder_cancel">取消</string>
+    <string name="folder_choose">就用这一层</string>
+    <string name="edit_source_title">编辑片库</string>
+    <string name="edit_source_name">给它起个名字</string>
+    <string name="edit_source_user">账号（留空表示不改）</string>
+    <string name="edit_source_pass">密码（留空表示不改）</string>
+    <string name="edit_source_browse">换个文件夹</string>
+    <string name="edit_source_rescan">重新扫描</string>
+    <string name="dialog_save">保存</string>
+    <string name="notification_channel">后台串流</string>
+    <string name="notification_text">正在播放 · 保持 Wi-Fi 与 CPU 唤醒</string>
+
+    <!-- V2.7.4 测试版运行日志：出问题截图给开发 -->
+    <string name="setup_log_entry">运行日志 · 出问题请截图给我</string>
+    <string name="log_title">运行日志</string>
+    <string name="log_copy">复制</string>
+    <string name="log_clear">清空</string>
+    <string name="log_back">返回</string>
+    <string name="log_copied">已复制</string>
+    <string name="log_hint">进 VR 出的问题都记在这里：崩在哪一步、打开的是哪个文件、播放器报了什么。截图即可。</string>
+</resources>

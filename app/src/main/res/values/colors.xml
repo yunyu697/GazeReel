@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- V2.4 方向 A「熄灯后的放映室」：戴镜前的配置页也用同一套深色令牌 -->
+    <color name="setup_bg">#FF0B1422</color>
+    <color name="setup_card">#FF122036</color>
+    <color name="setup_field">#FF0E1A2B</color>
+    <color name="setup_deep">#FF0B1422</color>
+    <color name="setup_text">#FFF2F6FB</color>
+    <color name="setup_muted">#FF8FA3BC</color>
+    <color name="setup_border">#FF22344D</color>
+    <!-- 四态内联反馈：空闲 / 扫描中 / 就绪 / 需检查 -->
+    <color name="setup_cyan">#FF67E8F9</color>
+    <color name="setup_busy">#FFE8C079</color>
+    <color name="setup_err">#FFF0A29B</color>
+    <!-- GazeReel / 凝影：电光青蓝，取自 stereo-cyan-dark 品牌图标 -->
+    <color name="brand">#FF2563EB</color>
+    <color name="brand_dark">#FF1D4ED8</color>
+    <color name="brand_cyan">#FF67E8F9</color>
+    <color name="vr_bg">#FF08111E</color>
+    <color name="vr_panel">#FF122036</color>
+    <color name="vr_accent">#FF67E8F9</color>
+    <!-- 自适应图标底板，与 PNG / 矢量底板的 #0D1526 一致 -->
+    <color name="ic_launcher_background">#FF0D1526</color>
+</resources>

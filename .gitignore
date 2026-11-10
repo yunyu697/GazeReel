@@ -1,0 +1,16 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Kotlin 2.x 构建缓存
+/.kotlin/
+# 工具产物（tools/preview_library.py 生成的布局对照图等）
+/output/

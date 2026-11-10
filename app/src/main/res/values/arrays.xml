@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- V2.7：手填入口只作兜底，所以这里只留真的能用的四种；
+         FTP 排在阶段三、本地视频改成一键入口，都不再出现在这个下拉里。
+         顺序与 SetupActivity.sourceTypeAt 对应。 -->
+    <string-array name="share_types">
+        <item>Windows / NAS 共享（SMB）</item>
+        <item>NAS / 网盘（WebDAV）</item>
+        <item>局域网网页目录（HTTP）</item>
+        <item>媒体服务器（DLNA）</item>
+    </string-array>
+</resources>

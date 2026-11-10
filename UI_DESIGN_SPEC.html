@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GazeReel 凝影 · 界面设计方案 V1.0</title>
+<style>
+:root{--brand:#2563EB;--brand-soft:#E9F1FF;--cyan:#67E8F9;--ink:#0F1B2D;--muted:#5B6B80;--line:#E2E8F2;--page:#F7F9FC;--card:#FFFFFF;--ok:#0F9D6E;--warn:#B45309;--danger:#DC2626;--vr:#08111E}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:400 14px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:1080px;margin:0 auto;padding:36px 28px 72px}
+header{display:flex;gap:20px;align-items:center;padding-bottom:24px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.logo{width:64px;height:64px;flex:none}
+h1{font-size:26px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:13px;margin:0}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.badge{font-size:12px;padding:3px 10px;border-radius:20px;background:var(--brand-soft);color:var(--brand);border:1px solid #C7D9FB}
+.badge.gray{background:#F1F4F9;color:var(--muted);border-color:var(--line)}
+.meta{display:flex;gap:24px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:18px 0 30px}
+h2{font-size:19px;font-weight:600;margin:42px 0 14px;padding-left:11px;border-left:3px solid var(--brand)}
+h3{font-size:15px;font-weight:600;margin:26px 0 10px}
+p{margin:10px 0}
+.lead{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 22px;margin:18px 0}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:14px 0;font-size:13px}
+th{background:#F2F6FC;text-align:left;font-weight:600;color:var(--ink);padding:10px 13px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px 13px;border-bottom:1px solid #EEF2F7;vertical-align:top}
+tr:last-child td{border-bottom:none}
+code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;background:#F1F4F9;padding:1px 5px;border-radius:4px;color:#1D4ED8}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:16px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.card h4{margin:0 0 8px;font-size:14px;font-weight:600}
+.card p{margin:4px 0;font-size:13px;color:var(--muted)}
+.kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0}
+.kpi div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.kpi span{display:block;color:var(--muted);font-size:12px}
+.kpi strong{display:block;font-size:23px;font-weight:600;line-height:1.3}
+.swatches{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+.sw{width:132px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card)}
+.sw i{display:block;height:38px}
+.sw b{display:block;font-size:12px;font-weight:500;padding:6px 9px 0}
+.sw em{display:block;font-style:normal;font-size:11px;color:var(--muted);padding:0 9px 8px}
+.note{background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:12px 16px;font-size:13px;color:#78350F;margin:14px 0}
+.good{background:#ECFDF5;border:1px solid #A7F3D0;border-radius:10px;padding:12px 16px;font-size:13px;color:#065F46;margin:14px 0}
+ul{padding-left:20px;margin:10px 0}li{margin:5px 0}
+.p0{color:var(--danger);font-weight:600}.p1{color:var(--warn);font-weight:600}.p2{color:var(--brand);font-weight:600}
+footer{margin-top:52px;padding-top:20px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+@media print{body{background:#fff}.wrap{max-width:none;padding:0}h2{page-break-after:avoid}table{page-break-inside:avoid}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+<svg class="logo" viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg" aria-label="GazeReel 图标">
+<rect width="96" height="96" rx="22" fill="#0D1526"/>
+<defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#67E8F9"/><stop offset="1" stop-color="#2563EB"/></linearGradient></defs>
+<rect x="12" y="28" width="32" height="40" rx="11" fill="#67E8F9" fill-opacity=".17" stroke="url(#lg)" stroke-width="3.2"/>
+<rect x="52" y="28" width="32" height="40" rx="11" fill="#67E8F9" fill-opacity=".17" stroke="url(#lg)" stroke-width="3.2"/>
+<path d="M44 42 L56 48 L44 54 Z" fill="#FFFFFF"/>
+</svg>
+<div>
+<h1>GazeReel 凝影 · 界面设计方案</h1>
+<p class="sub">V1.0 · 戴镜前配置页重构 + 戴镜后 VR 界面凝视尺度重构</p>
+<div class="badges">
+<span class="badge">方案阶段 · 未改动代码</span>
+<span class="badge">阶段二 V1 之后</span>
+<span class="badge gray">无新增依赖</span>
+<span class="badge gray">包名 com.gazereel.vr</span>
+</div>
+</div>
+</header>
+
+<div class="meta">
+<span>基准工程：39 Kotlin 文件 / 约 4,494 行</span>
+<span>依据：《GazeReel 凝影 · PRD 与技术设计文档》3.5 / 4.1 / 4.3 / 4.4 / 4.5</span>
+<span>状态：已完成诊断与规格，待确认后实施</span>
+</div>
+
+<div class="lead">
+<strong>一句话结论。</strong>当前界面「粗糙」的主因不是配色，而是三处结构性错配：<code>SetupActivity</code> 锁定竖屏却使用横向双栏布局；VR 界面把 16–20 个凝视目标塞进一屏，最小目标仅约 2° 高；准星与字幕被画进同一张随面板俯角移动的 UI 纹理。本方案按「复杂前移 + 单屏 ≤ 9 目标 + 目标 ≥ 6°×4° + 屏幕空间独立层」四条硬约束重构，分 P0 / P1 / P2 三轮落地，不引入新依赖、不改动渲染管线主体。
+</div>
+
+<h2>1. 诊断：核对源码后的 10 条事实</h2>
+<table>
+<thead><tr><th style="width:34px">#</th><th>问题</th><th>源码依据</th><th>影响</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>竖屏 Activity 使用横向双栏 <code>weightSum=2</code></td><td><code>activity_setup.xml:9-13</code> 与 <code>AndroidManifest.xml</code> 的 <code>screenOrientation=portrait</code></td><td>360dp 宽屏幕每栏不足 180dp，EditText 挤压、文字换行</td></tr>
+<tr><td>2</td><td>白底 + 白卡 + 1dp 浅描边，无层次</td><td><code>setup_bg=#FFFFFF</code>、<code>bg_setup_box.xml</code> 纯白填充</td><td>卡片边界靠描边硬撑，视觉扁平</td></tr>
+<tr><td>3</td><td>六种字号混用，无层级</td><td>布局中 11 / 12 / 13 / 14 / 15 / 17sp</td><td>主次不分，小字低于可读下限</td></tr>
+<tr><td>4</td><td>控件风格三套并存</td><td>原生 <code>Spinner</code>、裸 <code>EditText</code>，三个 <code>MaterialButton</code> 分别用 Outlined / Text / 默认 + 硬编码 <code>backgroundTint</code></td><td>组件语言不统一</td></tr>
+<tr><td>5</td><td>片源列表由动态 TextView 拼装</td><td><code>SetupActivity.kt:117-135</code> <code>removeAllViews()</code> + <code>TextView(this).apply</code></td><td>无状态、无重扫、无删除、无空态设计</td></tr>
+<tr><td>6</td><td>3 个 tab 中 2 个是假按钮</td><td><code>VrCoordinator.kt:63</code> 点击只 <code>showMessage("分类筛选将在 V1 接入")</code></td><td>凝视目标被无功能项占用，误导用户</td></tr>
+<tr><td>7</td><td>「跳过」与「进入 VR」行为几乎相同</td><td><code>SetupActivity.kt:43-49</code>，两者都 <code>startActivity(VrActivity)</code>，前者仅多一个 Toast</td><td>主次 CTA 混淆，功能冗余</td></tr>
+<tr><td>8</td><td>关键反馈全部依赖 Toast</td><td>扫描成功 / 失败 / 协议未支持 / 跳过共 4 处 <code>Toast.makeText</code></td><td>戴镜前短暂易失，失败原因无法就地重试</td></tr>
+<tr><td>9</td><td>VR 色板仍是改品牌前的旧绿</td><td><code>VrUiLayer.kt:38-40</code> <code>C_PANEL_HI=0xFF173A33</code>、<code>C_ACCENT=0xFF5DCAA5</code>，而 <code>colors.xml</code> 已是 <code>#67E8F9</code></td><td>桌面图标、配置页、VR 界面三套颜色不一致</td></tr>
+<tr><td>10</td><td>准星与字幕绑在会下移的 UI 纹理上</td><td><code>VrUiLayer.kt:114-117</code> 准星画在纹理 <code>(W/2,H/2)</code>；<code>:229</code> 字幕同一 Canvas；<code>:77-78</code> 播放时 <code>panelCenterY=-0.46f</code>（约 −13°）</td><td>准星不对应真实视线中心；控制台淡出后字幕被拖到视野下方</td></tr>
+</tbody>
+</table>
+
+<h2>2. 设计原则</h2>
+<div class="grid">
+<div class="card"><h4>01 复杂前移</h4><p>所有文本输入、凭证、扫描、错误排查留在平面界面；戴镜后不出现键盘、不出现需要精确瞄准的小控件。</p></div>
+<div class="card"><h4>02 密度优先于总数</h4><p>功能不删，靠分页与次级面板降低单屏密度。单屏 ≤ 9 个目标，主操作 ≤ 5 个。</p></div>
+<div class="card"><h4>03 角度而非像素</h4><p>VR 尺寸一律以视场角度推导，再换算成 1024×512 纹理坐标，避免凭感觉定 px。</p></div>
+<div class="card"><h4>04 层分离</h4><p>世界锁定 UI、屏幕空间准星、字幕各走独立绘制，互不牵连俯角与淡出。</p></div>
+<div class="card"><h4>05 状态可见</h4><p>空 / 扫描中 / 成功 / 失败四态内联呈现，Toast 不再承载关键结论。</p></div>
+<div class="card"><h4>06 零依赖变更</h4><p>保持 <code>Theme.MaterialComponents.*</code>，用现有库的 <code>TextInputLayout</code> + 自建 style 统一，不迁移 Material3。</p></div>
+</div>
+<div class="note"><strong>技术决策：</strong>当前主题 parent 是 <code>Theme.MaterialComponents.Light.NoActionBar</code>。切 Material3 会改变所有 <code>MaterialButton</code> 默认外观并牵动 <code>themes.xml</code>、<code>colors.xml</code> 全局属性，收益与本次目标不匹配。<code>TextInputLayout</code>、<code>MaterialAutoCompleteTextView</code>、<code>MaterialCardView</code> 均已在现有 <code>com.google.android.material</code> 依赖中，直接可用。</div>
+
+<h2>3. 视场角推导与凝视目标基线</h2>
+<p><code>VrUiLayer.gazePoint()</code> 中 <code>halfWidth = atan2(0.9, 2.0) ≈ 24.2°</code>、<code>halfHeight = atan2(0.45, 2.0) ≈ 12.7°</code>，故 2 米处的 1024×512 UI 平面对应约 <strong>48.4° × 25.4°</strong> 视场，即水平 1° ≈ 21.2px、垂直 1° ≈ 20.2px。Cardboard 下头部自然微颤约 ±1°，凝视目标需留出足够余量。</p>
+<table>
+<thead><tr><th>现有控件</th><th>纹理尺寸</th><th>视场角</th><th>判定</th></tr></thead>
+<tbody>
+<tr><td>seek 分段（10 段）</td><td>86.4 × 38 px</td><td>4.1° × 1.9°</td><td>不达标</td></tr>
+<tr><td>quick 按钮（5 个）</td><td>156 × 42 px</td><td>7.4° × 2.1°</td><td>高度不达标</td></tr>
+<tr><td>设置 ± 按钮（8 个）</td><td>80 × 44 px</td><td>3.8° × 2.2°</td><td>双向不达标</td></tr>
+<tr><td>设置开关（6 个）</td><td>250 × 46 px</td><td>11.8° × 2.3°</td><td>高度不达标</td></tr>
+<tr><td>transport 按钮（5 个）</td><td>140 × 68 px</td><td>6.6° × 3.4°</td><td>接近达标</td></tr>
+<tr><td>格式大按钮（4 个）</td><td>360 × 130 px</td><td>17.0° × 6.4°</td><td>达标，作为尺寸参照</td></tr>
+</tbody>
+</table>
+<div class="kpi">
+<div><span>最小目标</span><strong>128 × 80 px</strong><span>≈ 6° × 4°</span></div>
+<div><span>目标间距</span><strong>≥ 24 px</strong><span>约 1.1°</span></div>
+<div><span>单屏上限</span><strong>≤ 9</strong><span>主操作 ≤ 5</span></div>
+<div><span>安全区</span><strong>10%</strong><span>x 102–922 · y 51–461</span></div>
+</div>
+<p>安全区从当前的 <code>RectF(40, 20, 984, 492)</code>（约 4%）收至 10%，用于规避纸盒透镜边缘畸变与厂商遮罩裁切；可用宽度从 944px 降至 820px，因此<strong>必须与目标数量削减同步实施</strong>，否则会更挤。</p>
+
+<h2>4. 双端设计令牌</h2>
+<h3>4.1 手机端（浅色）</h3>
+<div class="swatches">
+<div class="sw"><i style="background:#F7F9FC"></i><b>页面底色</b><em>#F7F9FC</em></div>
+<div class="sw"><i style="background:#FFFFFF;border-bottom:1px solid #E2E8F2"></i><b>卡面</b><em>#FFFFFF</em></div>
+<div class="sw"><i style="background:#0F1B2D"></i><b>主文本</b><em>#0F1B2D</em></div>
+<div class="sw"><i style="background:#5B6B80"></i><b>次文本</b><em>#5B6B80</em></div>
+<div class="sw"><i style="background:#E2E8F2"></i><b>描边</b><em>#E2E8F2</em></div>
+<div class="sw"><i style="background:#2563EB"></i><b>主色 / CTA</b><em>#2563EB</em></div>
+<div class="sw"><i style="background:#E9F1FF"></i><b>主色浅底</b><em>#E9F1FF</em></div>
+<div class="sw"><i style="background:#0F9D6E"></i><b>成功</b><em>#0F9D6E</em></div>
+<div class="sw"><i style="background:#DC2626"></i><b>失败</b><em>#DC2626</em></div>
+</div>
+<h3>4.2 VR 端（深色，取自 <code>colors.xml</code> 与图标）</h3>
+<div class="swatches">
+<div class="sw"><i style="background:#08111E"></i><b>视频底</b><em>#08111E</em></div>
+<div class="sw"><i style="background:#0B1626"></i><b>面板</b><em>#0B1626</em></div>
+<div class="sw"><i style="background:#122036"></i><b>次级面板</b><em>#122036</em></div>
+<div class="sw"><i style="background:#123B4A"></i><b>高亮面板</b><em>#123B4A（替换旧绿 #173A33）</em></div>
+<div class="sw"><i style="background:#30405E"></i><b>描边</b><em>#30405E</em></div>
+<div class="sw"><i style="background:#67E8F9"></i><b>强调 / 凝视环</b><em>#67E8F9（替换旧绿 #5DCAA5）</em></div>
+<div class="sw"><i style="background:#EAF2FA"></i><b>主文本</b><em>#EAF2FA</em></div>
+<div class="sw"><i style="background:#B9C6DA"></i><b>次文本</b><em>#B9C6DA</em></div>
+<div class="sw"><i style="background:#1C3552"></i><b>海报底</b><em>#1C3552</em></div>
+</div>
+<h3>4.3 排版、间距与形状</h3>
+<table>
+<thead><tr><th>类别</th><th>手机端</th><th>VR 端（纹理坐标）</th></tr></thead>
+<tbody>
+<tr><td>字号</td><td>12 / 14 / 16 / 20 / 24 sp（五级，全部 sp）</td><td>20 / 26 / 32 px（三级，最低 20）</td></tr>
+<tr><td>字重</td><td>400 / 500 两种</td><td>400 / 500 两种，标题不依赖字重靠字号区分</td></tr>
+<tr><td>间距</td><td>4 / 8 / 12 / 16 / 24 dp；卡片内 16dp；区块间 24dp</td><td>目标间距 ≥ 24px；面板内边距 32px</td></tr>
+<tr><td>圆角</td><td>卡片 16dp、控件 12dp、chip 8dp</td><td>面板 24px、按钮 16px</td></tr>
+<tr><td>描边</td><td>1dp <code>#E2E8F2</code>；靠页面与卡面底色差形成层次，不加阴影</td><td>2px <code>#30405E</code>，高亮态 3px <code>#67E8F9</code></td></tr>
+<tr><td>对比度</td><td>正文 ≥ 4.5:1，大字 ≥ 3:1；状态不能只靠颜色（附文字 / 图标）</td><td>字幕加 <code>0xDD08111E</code> 半透明底，保证亮画面可读</td></tr>
+</tbody>
+</table>
+
+<h2>5. 配置页（戴镜前）规格</h2>
+<h3>5.1 布局与断点</h3>
+<ul>
+<li>根布局改为 <code>CoordinatorLayout</code> + <code>NestedScrollView</code> + 底部固定 CTA 栏，竖屏单栏；主 CTA 常驻首屏底部，不随内容滚动丢失。</li>
+<li>新增 <code>res/layout-sw600dp/activity_setup.xml</code>：≥600dp 时才启用双栏，左「添加片源」右「片库列表」，CTA 仍固定右下。<code>AndroidManifest.xml</code> 的 <code>portrait</code> 保持不变。</li>
+<li>最窄验证宽度 360dp；所有输入控件单行全宽，账号 / 密码在竖屏改上下排列。</li>
+</ul>
+<h3>5.2 自上而下的五个区块</h3>
+<table>
+<thead><tr><th style="width:110px">区块</th><th>内容与规格</th></tr></thead>
+<tbody>
+<tr><td>品牌头</td><td>内联 48dp logo + 「GazeReel · 凝影」20sp/500 + tagline「目光所及，皆是片库」12sp/次文本。当前配置页完全没有品牌露出。</td></tr>
+<tr><td>步骤引导</td><td>三段式段落标题「01 选择协议 / 02 填写地址 / 03 确认添加」，同页分区而非多步 wizard，避免额外导航。替换现有孤立的「01 · 戴镜前，一次性配置」。</td></tr>
+<tr><td>添加片源卡</td><td>协议用 <code>TextInputLayout</code> + <code>MaterialAutoCompleteTextView</code> 下拉（替换原生 Spinner）；选中 FTP / SFTP 时内联显示「阶段三接入」并禁用提交按钮，不再等点击后弹 Toast。地址用 <code>TextInputLayout</code> + <code>helperText</code> 按协议展示示例，<code>error</code> 内联校验。密码框带显隐切换。全宽主按钮「扫描并添加」56dp。</td></tr>
+<tr><td>片库列表卡</td><td><code>RecyclerView</code> + <code>item_source.xml</code>：协议色标 + 名称 + 地址（单行省略）+ 状态 chip + 溢出菜单（重扫 / 删除）。空态为图文引导「还没有片库 · 添加第一个片源」。</td></tr>
+<tr><td>底部 CTA</td><td>「进入 VR」全宽 56dp 主色按钮；删除冗余的「跳过」按钮 —— 两者当前行为一致。如需保留「暂不添加」语义，降级为 CTA 下方的文字链接并明确写「不添加片源，直接进入」。</td></tr>
+</tbody>
+</table>
+<h3>5.3 状态机与反馈</h3>
+<table>
+<thead><tr><th>状态</th><th>界面表现</th><th>可操作项</th></tr></thead>
+<tbody>
+<tr><td>EMPTY</td><td>列表卡空态插画 + 引导文案，CTA 置灰但可点</td><td>添加片源 / 直接进入</td></tr>
+<tr><td>SCANNING</td><td>按钮显示内联进度并禁用；对应列表行 chip 显示「扫描中」</td><td>不可重复提交</td></tr>
+<tr><td>SUCCESS</td><td>行 chip「已就绪 · N 部」，绿色；下方内联提示「已添加，扫描到 N 个新片源」</td><td>重扫 / 删除 / 进入 VR</td></tr>
+<tr><td>ERROR</td><td>行 chip「不可达」，红色；内联说明原因（地址 / 凭证 / 局域网 / 协议差异）并保留已保存配置</td><td>重试 / 编辑地址 / 删除</td></tr>
+</tbody>
+</table>
+<p>扫描结果仍来自 <code>MediaIndexer.scan()</code> 的返回值与 <code>runCatching</code>，不改变数据层；仅把 <code>addShare()</code> 里的 <code>Toast</code> 分支映射为上述状态。<code>SourceEntity</code> 无需改表，状态可作为 UI 侧内存态保存；若需跨重启保留，P2 再考虑加字段。</p>
+
+<h2>6. VR 界面（戴镜后）规格</h2>
+<div class="note"><strong>版本提示：</strong>本文件是 <code>UI_VISUAL_DESIGN.html</code> <b>V2.6</b> 的实施附录。V2.1 取代了本附录中所有要求「凝视做连续精调」的条目（整行步进条、凝视左右半区加减、± 小按钮、摇头一部部翻片）；V2.2 第 08 章把产品本体从「电影点播」修正为「用户自己的影带柜」，因此本附录中按 <code>title</code> 排序、按首字母分段、以海报为默认卡面、格式三元组只列球面组合的规格，均需在实现前按 V2.2 的 08.5 节修订：<code>media_item</code> 补分组 / 拍摄时间 / 设备字段，索引轮改月份刻度，格式模型补鱼眼与立方体并让 FOV 真正生效。<b>V2.3 第 09 章追加姿态约束：</b>本附录第 1 章第 10 项与 6.3 里写死的 <code>panelCenterY = −0.46f</code>（约 −13° 控制台俯角）不再是常量，需改为随姿态缓动的 <code>comfortPitch</code>；世界锁定 UI、字幕与屏幕空间准星三层在 0.8s 缓转期间必须同步移动，绘制与凝视命中判定不得错位；并需补 <code>PostureMonitor</code> 的迟滞判据与「锁定视角」下 <code>recenter()</code> 失效的修复（见 09.4 表）。<b>V2.3.1 复核（第 10 章）追加三条实施前置：</b>① <code>GazeDetector</code> 需新增 <code>reset()</code> 清 <code>progress/startedAt/lastX/lastY/currentId</code>，否则缓转结束首帧会误触发；<code>VrCoordinator.tick()</code> 的 fade 判据需在缓转期挂起；② V2.1 的三层拆分（准星 / 字幕独立屏幕层）是 <code>comfortPitch</code> 跟随规则的<b>前置依赖</b>，当前准星仍画在 UI 纹理中心，未拆之前绘制与命中必然错位；③ 「接入环境光传感器给亮度自动档」作废，改为戴镜前读一次初始档、戴镜后冻结。<b>本附录尚未按 V2.2 / V2.3 全面重写，尺寸推导与安全区结论仍有效，数据模型结论以第 08 章为准，姿态与俯角结论以第 09 章为准，前提修订以第 10 章为准。<b>V2.4 定案：</b>姿态机制改为「检测到稳定变化 → 凝视一次确认 → 才缓转」，09 章的自动重定与「3 秒触发键撤销」作废；实现时 <code>GazeDetector.reset()</code> 清状态、<code>tick()</code> 挂起 fade 为缓转前置，且确认大目标与环境层第 5 目标合二为一。</b></div>
+<div class="note"><strong>V2.4 落地状态（14:36）：</strong>首个最小可验证切片已改到源码并真编译通过：<code>SensorHeadsetProvider</code> / <code>CardboardHeadsetProvider</code> 修复锁定视角下 <code>recenter()</code> 失效；<code>GazeDetector</code> / <code>GestureRecognizer</code> 已补 <code>reset()</code>；<code>ResetForward</code> 回写状态并给 2.4 秒后自动消失的反馈；配置页已改为竖屏单栏 + 方向 A 深色 + 四态内联反馈（<code>item_source.xml</code> 卡片行），Toast 与重复的「跳过」按钮移除。本附录中的 <code>comfortPitch</code>、三层拆分、姿态检测与确认大目标、<code>PostureMonitor</code> 迟滞判据、缓转期挂起 fade <b>仍未实现</b>；已落地与未落地逐项以 <code>UI_VISUAL_DESIGN.html</code> 10.6 为准。</div>
+<div class="note"><strong>V2.5 落地状态（15:21）：</strong>用户拍板 2D 采用<b>世界锁定银幕</b>，本轮已改到源码并真编译。<code>VrFormat.QUICK_CHOICES</code> 由四项扩到六项（新增 <code>PLANE_2D+MONO</code> / <code>PLANE_2D+SBS</code>），<code>label</code> 改「2D 银幕」；<code>FormatDetector</code> 对显式平面标记、常见非 VR 画幅与宽高未知兜底均给 <code>PLANE_2D</code> 建议，<code>_3dh / _3dv</code> 降置信度并强制确认；<code>MediaIndexer</code> 不再把低置信度猜测写进 <code>detected_format</code>，<code>LibraryRepository.resolveFormat()</code> 改为现场重判；<code>VrUiLayer.drawFormat()</code> 由两列改三列两行，按钮按宽自动缩字。<b>渲染层未改</b>：<code>ProjectionMesh.build(PLANE_2D)</code> 本就是 2 米处 2.4×1.35m 的世界锁定 quad，与 UI 共用含头追的 MVP。本附录的视场角推导、10% 安全区与 ≥6°×4° 目标尺度结论仍有效；<code>FieldOfView.FLAT</code> 仍只存不用，几何由 <code>PLANE_2D</code> 决定。逐项与未做清单以 <code>UI_VISUAL_DESIGN.html</code> 10.7 为准。</div>
+<div class="note"><strong>V2.6 落地状态（16:08）：</strong>真机实测反馈「添加片库」难用后，本轮把戴镜前入口重做并真编译通过。<b>本附录第 5 章「配置页规格」与第 9 章文件清单中「配置页表单 = 手填完整地址 + 扫描按钮」的口径作废</b>，改为：只填设备地址 → 程序按 <code>SourceType</code> 补协议头与分隔符 → 连接后逐层点选文件夹 → 保存选中层；已添加片库必须提供改 / 重扫 / 删。新增 <code>SourceAddress.kt</code>、<code>FolderBrowser.kt</code>、<code>dialog_folder.xml</code>、<code>item_folder.xml</code>、<code>dialog_edit_source.xml</code>；<code>NetworkSources.kt</code> 的 WebDAV / HTTP 扫描现在返回目录条目；<code>MediaIndexer.list()</code> 公开给浏览与扫描共用；<code>Daos.kt</code> 补 <code>update / deleteById</code> 与按 source 清理；<code>SetupActivity.kt</code> 与 <code>item_source.xml</code> 重做；<code>decodeCredentials(null)</code> 不再伪造 guest 身份。<b>视场角推导、10% 安全区、≥6°×4° 目标尺度、单屏 ≤9 目标仍然有效</b>，但它们是 VR 内规格，不覆盖手机端表单。逐项与已知边界（SMB 共享名启发式探测、单层扫描、DLNA 容器未展开）以 <code>UI_VISUAL_DESIGN.html</code> 第 11 章为准。</div>
+<h3>6.1 凝视目标重构（精确口径）</h3>
+<table>
+<thead><tr><th>界面</th><th>现状目标数</th><th>改造后</th><th>具体做法</th></tr></thead>
+<tbody>
+<tr><td>片库（有片源）</td><td>8（3 tab + 3 卡片 + 2 底部）</td><td><strong>5</strong></td><td>删掉「最近 / 收藏」两个未实现 tab，「全部」改为纯标题；prev / open / next 三卡放大至 ≥ 200×180；底部保留「设置」「退出」两个 160×80 按钮。</td></tr>
+<tr><td>播放控制台</td><td>20（10 seek + 5 transport + 5 quick）</td><td><strong>8</strong></td><td>10 段 seek 合并为 1 条整条进度目标（凝视落点的相对 x 决定 fraction，需让 <code>GazeTarget</code> 动作携带位置参数）；5 个 transport 保留并放大到 160×80；5 个 quick 收敛为「格式」「更多」两个入口。</td></tr>
+<tr><td>「更多」二级页</td><td>不存在</td><td><strong>≤ 6</strong></td><td><strong>V2.1 修订：</strong>不再出现亮度 / 音量步进条。精确值前移到戴镜前手机滑杆；音量用实体侧键 5 档，亮度环境光自动 + 3 档大胶囊，档位变化在视野中央浮出大字 1.2 秒。二级页只留「格式 / 设置 / 字幕 / 退出」等入口。</td></tr>
+<tr><td>设置</td><td>16（8 ± + 6 开关 + 2 底部）</td><td><strong>每页 ≤ 6</strong></td><td><strong>V2.1 修订：</strong>拆成「画面与声音」「交互」两个分页；删除全部 ± 小按钮，改为 3 档亮度大胶囊 + 音量档位只读显示；6 个开关每页 3 个，尺寸 ≥ 240×88；返回按钮固定。</td></tr>
+<tr><td>格式确认</td><td>5（4 选项 + 返回）</td><td><strong>7</strong></td><td><strong>V2.5 已落地：</strong>扩为六项（4 球面 + 2D 银幕 Mono / SBS）并改三列两行，各 248×128px ≈ 11.8°×6.1°；加「返回」共 7 个目标，仍守单屏 ≤9；标题下补一句人话「2D 银幕会像真实银幕一样固定在世界里，转头能看到边缘」；按钮文字按可用宽度自动缩字，建议项高亮与返回 ≥ 264×80 的规格保留。</td></tr>
+</tbody>
+</table>
+<div class="good"><strong>关键取舍：</strong>功能一个不删，全部通过「主控制台 8 个 + 二级页 ≤ 6 个 + 设置分页」承载。相比 20 个目标挤在 200px 高的面板里，分页后每个目标都有 ≥ 128×80px 的呼吸空间。</div>
+<h3>6.2 层分离</h3>
+<table>
+<thead><tr><th>层</th><th>当前位置</th><th>目标位置</th><th>理由</th></tr></thead>
+<tbody>
+<tr><td>世界锁定 UI</td><td><code>VrUiLayer</code> 单张 1024×512 纹理</td><td>不变，仅收至 10% 安全区并统一色板</td><td>左右眼共用同一纹理，双眼融合一致</td></tr>
+<tr><td>准星</td><td><code>VrUiLayer.render():114-117</code> 画在纹理中心</td><td>拆为屏幕空间层：每眼视口中心各画一次固定 NDC 四边形，不参与头追矩阵与 <code>panelCenterY</code></td><td>准星必须对应真实视线中心；播放时面板下移 13° 不应带走准星</td></tr>
+<tr><td>凝视进度环</td><td>目标中心半径 30 的圆弧，同纹理</td><td>保留在世界锁定 UI，但改为沿目标矩形外沿描边，半径与目标尺寸联动</td><td>进度反馈属于目标本身，应贴合目标</td></tr>
+<tr><td>字幕</td><td><code>drawSubtitle()</code> 同纹理，<code>top=196</code></td><td>独立屏幕空间层，固定在每眼视野中心下方约 6–8°，最多两行，行高 34px、字号 26px、宽度 ≤ 安全区 80%</td><td>控制台淡出后字幕仍在，且不随面板俯角沉底</td></tr>
+</tbody>
+</table>
+<p><code>VrRenderer</code> 当前在左右眼各绘制一次 UI 平面；拆层时复用同一次视口循环，在 UI 平面绘制之后追加正交投影的准星 / 字幕 quad 即可，不需要离屏 FBO，也不触碰 <code>uBrightness</code>、<code>uEyeRegion</code> 等已验证的着色器路径。桶形畸变仍是独立专项，本方案不涉及。</p>
+<h3>6.3 交互与动效</h3>
+<ul>
+<li>凝视时长沿用 <code>SettingsRepository</code> 的 600–2400ms 可调值，默认不改；进度环 0→1 与此时长线性同步。</li>
+<li>控制台 8 秒无操作淡出现有逻辑（<code>VrCoordinator.tick()</code> + <code>consoleTimeoutMs</code>）保持不变，仅补淡入 120ms / 淡出 200ms 的透明度过渡。</li>
+<li>目标按下反馈 80ms 缩放至 0.97 + 描边高亮；触发键与凝视共用同一 <code>targetAt()</code> 判定，不新增输入分支。</li>
+<li>禁止视差、大幅位移与跟随头部的弹性动画，避免 VR 不适。</li>
+</ul>
+
+<h2>7. 实施优先级</h2>
+<table>
+<thead><tr><th style="width:64px">优先级</th><th>范围</th><th>主要文件</th><th>风险</th></tr></thead>
+<tbody>
+<tr><td class="p0">P0</td><td>纯视觉与可用性，不改功能：竖屏单栏、TextInputLayout、RecyclerView + 四态、Toast 收敛、删除冗余 skip、VR 色板统一到 <code>#67E8F9</code>、删两个假 tab</td><td><code>activity_setup.xml</code>、<code>SetupActivity.kt</code>、<code>colors.xml</code>、<code>strings.xml</code>、<code>VrUiLayer.kt</code>、<code>VrCoordinator.kt</code>、新增 <code>item_source.xml</code> / <code>SourceListAdapter.kt</code> / <code>dimens.xml</code> / <code>styles.xml</code></td><td>低。仅资源与 UI 层，数据层与播放链路不动</td></tr>
+<tr><td class="p1">P1</td><td>结构重构：seek 合并为整条进度目标、quick 折进「更多」、设置分页、10% 安全区、准星与字幕拆为屏幕空间层</td><td><code>core/GazeTarget.kt</code>、<code>render/VrUiLayer.kt</code>、<code>render/VrRenderer.kt</code>、<code>ui/VrCoordinator.kt</code>、新增 <code>render/VrReticleLayer.kt</code></td><td>中。涉及命中判定与新增 GL draw，需真机确认</td></tr>
+<tr><td class="p2">P2</td><td>精细化：<code>layout-sw600dp</code> 双栏、动效、触觉反馈、大字号设置项、卡片阴影微调、纸盒遮罩与厂商图标裁切校准</td><td>新增 <code>layout-sw600dp/activity_setup.xml</code>、<code>themes.xml</code>、<code>SettingsRepository.kt</code></td><td>低，但部分项必须真机验证</td></tr>
+</tbody>
+</table>
+
+<h2>8. 落地文件清单</h2>
+<div class="grid">
+<div class="card"><h4>新增</h4><p><code>res/layout/item_source.xml</code><br><code>res/layout-sw600dp/activity_setup.xml</code><br><code>res/drawable/bg_card.xml</code> / <code>bg_chip_state.xml</code><br><code>res/values/dimens.xml</code> / <code>styles.xml</code><br><code>ui/SourceListAdapter.kt</code><br><code>render/VrReticleLayer.kt</code><br><code>UI_DESIGN_SPEC.html</code>（本文档）</p></div>
+<div class="card"><h4>修改</h4><p><code>res/layout/activity_setup.xml</code><br><code>res/drawable/bg_setup_box.xml</code><br><code>res/values/colors.xml</code> / <code>themes.xml</code> / <code>strings.xml</code> / <code>arrays.xml</code><br><code>ui/SetupActivity.kt</code> / <code>ui/VrCoordinator.kt</code><br><code>core/GazeTarget.kt</code><br><code>render/VrUiLayer.kt</code> / <code>render/VrRenderer.kt</code><br><code>tools/check_structure.py</code>（新增资源校验）</p></div>
+<div class="card"><h4>不动</h4><p><code>app/build.gradle.kts</code>（无新依赖、版本不动）<br><code>AndroidManifest.xml</code>（portrait / landscape 保持，靠资源限定符解决）<br><code>VrActivity.kt</code>、<code>PlayerController.kt</code>、<code>MediaIndexer.kt</code>、全部 data 层与 Room 表结构<br><code>Shaders.VIDEO_FRAGMENT</code> 视频着色器</p></div>
+<div class="card"><h4>品牌一致性</h4><p>配置页品牌头补 logo 与 tagline；VR 强调色统一 <code>#67E8F9</code>；<code>setup_enter</code> 文案里的「Cardboard」按 PRD 约定保留为纸盒通用名，或改为「纸盒眼镜」，二选一待确认。</p></div>
+</div>
+
+<h2>9. 验收标准</h2>
+<ul>
+<li><code>python tools/check_structure.py</code> 通过：包路径、跨模块引用、括号、XML 资源、Gradle alias 全部一致。</li>
+<li><code>./gradlew clean :app:assembleDebug</code> BUILD SUCCESSFUL，APK 仍为 <code>com.gazereel.vr</code> / 标签「凝影」。</li>
+<li>360dp 宽竖屏下配置页无横向溢出、无文字截断，主 CTA 首屏可见且不随滚动消失。</li>
+<li>配置页四种状态（空 / 扫描中 / 成功 / 失败）均可在界面内联呈现，关键结论不再依赖 Toast。</li>
+<li>VR 每屏可见凝视目标 ≤ 9，主操作 ≤ 5；所有目标 ≥ 128×80px、间距 ≥ 24px、落在安全区 <code>x 102–922 / y 51–461</code> 内。</li>
+<li><code>VrUiLayer.kt</code> 不再出现 <code>0xFF5DCAA5</code> / <code>0xFF173A33</code>，色值可从 <code>colors.xml</code> 对齐追溯。</li>
+<li>准星在播放控制台显示与淡出两种状态下均固定于每眼屏幕中心；字幕在控制台淡出后仍稳定显示在视野中心下方。</li>
+<li>删除的两个 tab 不再出现在 <code>currentTargets()</code>；<code>VrCoordinator</code> 不再有「分类筛选将在 V1 接入」分支。</li>
+</ul>
+
+<h2>10. 未决事项</h2>
+<ul>
+<li>方案阶段，<strong>本轮未改动任何工程代码</strong>，仅新增本设计文档。</li>
+<li>准星 / 字幕拆层属于 P1，涉及 GL 绘制顺序与双眼视口，需要真机确认融合舒适度。</li>
+<li>整条进度目标需要 <code>GazeTarget</code> 携带凝视落点的相对位置；若不想改数据结构，可退化为 5 段 ≥ 128px 的粗定位（控制台变 12 个目标，仍优于现状 20）。</li>
+<li>桶形畸变、FTP / SFTP、语音控制、一阶 Ambisonic 等仍属独立专项 / 阶段三，不在本方案范围。</li>
+<li>所有阶段二与品牌成果目前只有静态校验与真实编译验证，尚无真机联调记录。</li>
+</ul>
+
+<footer>
+GazeReel 凝影 · 界面设计方案 V1.0 · 依据《GazeReel 凝影 · PRD 与技术设计文档》与当前 commit 的工程源码逐行核对编写 · 标语：目光所及，皆是片库
+</footer>
+
+</div>
+</body>
+</html>

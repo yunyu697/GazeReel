@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="256" height="256" role="img" aria-label="stereo 电光青"><defs>
+<linearGradient id="vr25-lg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#67E8F9"/><stop offset="100%" stop-color="#2563EB"/></linearGradient>
+<linearGradient id="vr25-btn" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#38BDF8"/><stop offset="100%" stop-color="#2563EB"/></linearGradient>
+<radialGradient id="vr25-halo" cx="50%" cy="44%" r="62%"><stop offset="0%" stop-color="#67E8F9" stop-opacity="0.20"/><stop offset="100%" stop-color="#67E8F9" stop-opacity="0"/></radialGradient>
+<radialGradient id="vr25-sphere" cx="38%" cy="30%" r="72%"><stop offset="0%" stop-color="#67E8F9" stop-opacity="0.32"/><stop offset="100%" stop-color="#2563EB" stop-opacity="0.05"/></radialGradient>
+</defs><rect width="96" height="96" rx="22" fill="#0D1526"/><rect width="96" height="96" rx="22" fill="url(#vr25-halo)"/><rect x="0.5" y="0.5" width="95" height="95" rx="21.5" fill="none" stroke="#1C2942" stroke-width="1"/><rect x="12" y="28" width="32" height="40" rx="11" fill="#67E8F9" fill-opacity=".17" stroke="url(#vr25-lg)" stroke-width="3.2"/>
+<rect x="52" y="28" width="32" height="40" rx="11" fill="#67E8F9" fill-opacity=".17" stroke="url(#vr25-lg)" stroke-width="3.2"/>
+<path d="M25 38 v20 M71 38 v20" stroke="#67E8F9" stroke-width="2.4" stroke-linecap="round" opacity=".34"/>
+<circle cx="48" cy="48" r="14.5" fill="#0D1526"/>
+<circle cx="48" cy="48" r="12.5" fill="url(#vr25-btn)"/>
+<path d="M44 42 L56 48 L44 54 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.8" stroke-linejoin="round"/></svg>

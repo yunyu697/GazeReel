@@ -1,0 +1,80 @@
+package com.gazereel.vr.core
+
+import android.graphics.RectF
+
+enum class InputChannel { GAZE, TRIGGER, GESTURE, SYSTEM }
+
+/** PRD 6.5：三个输入模块产出统一的 VrAction，由 ActionDispatcher 分发。 */
+sealed class VrAction {
+
+    /** 数值越大越优先；播放状态相关动作高于设置类动作。 */
+    open val priority: Int get() = 1
+    open val isPlaybackRelated: Boolean get() = false
+
+    data class Confirm(val targetId: String) : VrAction()
+    data class OpenMedia(val mediaId: Long) : VrAction() {
+        override val priority = 3
+        override val isPlaybackRelated = true
+    }
+    data class SeekTo(val fraction: Float) : VrAction() {
+        override val priority = 2
+        override val isPlaybackRelated = true
+    }
+    data class SeekBy(val seconds: Int) : VrAction() {
+        override val priority = 2
+        override val isPlaybackRelated = true
+    }
+    data class SetFormat(val format: VrFormat) : VrAction() {
+        override val priority = 3
+        override val isPlaybackRelated = true
+    }
+    data class Adjust(val key: String, val delta: Int) : VrAction()
+    data class ToggleOption(val key: String) : VrAction()
+
+    /**
+     * V2.8：片库整页翻。
+     *
+     * 设计文档第 528 行：「摇头翻页从 1 部改为 10 部一页」。这里不把翻页塞进
+     * [Next] / [Previous]，是因为那两个是「换一部片」，属于播放相关动作，
+     * 在片库里被执行就会直接开始播放——翻页不能有这种副作用。
+     */
+    data class PageFlip(val delta: Int) : VrAction()
+
+    object TogglePlay : VrAction() {
+        override val priority = 3
+        override val isPlaybackRelated = true
+    }
+    object Next : VrAction() {
+        override val priority = 3
+        override val isPlaybackRelated = true
+    }
+    object Previous : VrAction() {
+        override val priority = 3
+        override val isPlaybackRelated = true
+    }
+    object Back : VrAction() { override val priority = 2 }
+    object Exit : VrAction() { override val priority = 4 }
+    object OpenFormat : VrAction()
+    object OpenSettings : VrAction()
+    object CloseOverlay : VrAction()
+    object ShowConsole : VrAction()
+
+    /**
+     * V2.9：把凝视「上膛」。
+     *
+     * 只由触发键单击发出。它是进 VR 之后的第一个动作，在此之前准星不确认任何目标，
+     * 所以配戴过程中的晃动不会误开视频。
+     */
+    object ArmGaze : VrAction() { override val priority = 4 }
+    object ResetForward : VrAction()
+    object LockView : VrAction()
+    object ClearFormatMemory : VrAction()
+}
+
+/** 世界锁定 UI 上的可凝视区域；坐标用 UI 画布像素，左右眼共用同一份布局。 */
+data class GazeTarget(
+    val id: String,
+    val label: String,
+    val rect: RectF,
+    val action: VrAction
+)

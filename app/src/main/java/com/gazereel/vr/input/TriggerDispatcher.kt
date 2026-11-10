@@ -1,0 +1,75 @@
+package com.gazereel.vr.input
+
+import com.gazereel.vr.core.ActionDispatcher
+import com.gazereel.vr.core.InputChannel
+import com.gazereel.vr.core.TriggerEvent
+import com.gazereel.vr.core.TriggerKind
+import com.gazereel.vr.core.VrAction
+import com.gazereel.vr.core.VrHeadsetProvider
+import com.gazereel.vr.render.VrUiLayer
+import com.gazereel.vr.ui.VrOverlay
+import com.gazereel.vr.ui.VrScreen
+import com.gazereel.vr.ui.VrUiState
+
+/**
+ * PRD 4.2 / 6.5：归一化单击、双击、长按，屏蔽 v2 导电触控片与 v1 磁铁差异。
+ * 单击执行当前准星目标；无目标时在播放页切换播放/暂停，避免「必须瞄准按钮」。
+ */
+class TriggerDispatcher(
+    private val uiLayer: VrUiLayer,
+    private val headset: VrHeadsetProvider,
+    private val dispatcher: ActionDispatcher,
+    private val stateProvider: () -> VrUiState,
+    private val onActivity: () -> Unit
+) {
+    companion object {
+        const val LONG_PRESS_MS = 600L
+        private const val DOUBLE_TAP_MS = 320L
+    }
+
+    private var lastClickAt = 0L
+
+    fun onTrigger(event: TriggerEvent) {
+        onActivity()
+
+        // V2.9：还没上膛时，触发键只有一种含义 ——「我戴稳了，开始」。
+        //
+        // 长按 / 双击在这里一律忽略：配戴过程中手指会蹭到触控片，
+        // 那两下如果生效就是「突然弹出设置」或「突然退回配置页」，
+        // 而且此时用户还看不见屏幕，根本不知道发生了什么。
+        if (!stateProvider().gazeArmed) {
+            if (event.kind == TriggerKind.CLICK) {
+                lastClickAt = 0L
+                dispatcher.dispatch(VrAction.ArmGaze, InputChannel.TRIGGER)
+            }
+            return
+        }
+
+        when (event.kind) {
+            TriggerKind.LONG_PRESS -> {
+                lastClickAt = 0L
+                dispatcher.dispatch(VrAction.Back, InputChannel.TRIGGER)
+            }
+            TriggerKind.DOUBLE_CLICK -> {
+                lastClickAt = 0L
+                dispatcher.dispatch(VrAction.OpenSettings, InputChannel.TRIGGER)
+            }
+            TriggerKind.CLICK -> {
+                if (event.atMs - lastClickAt < DOUBLE_TAP_MS) {
+                    lastClickAt = 0L
+                    dispatcher.dispatch(VrAction.OpenSettings, InputChannel.TRIGGER)
+                    return
+                }
+                lastClickAt = event.atMs
+                val state = stateProvider()
+                val target = uiLayer.targetAt(headset.headRotation(), state)
+                when {
+                    target != null -> dispatcher.dispatch(target.action, InputChannel.TRIGGER)
+                    state.screen == VrScreen.PLAYER && state.overlay == VrOverlay.NONE ->
+                        dispatcher.dispatch(VrAction.TogglePlay, InputChannel.TRIGGER)
+                    else -> dispatcher.dispatch(VrAction.ShowConsole, InputChannel.TRIGGER)
+                }
+            }
+        }
+    }
+}

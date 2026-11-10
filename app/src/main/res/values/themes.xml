@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- V2.4 方向 A：戴镜前也是「熄灯后的放映室」，与 VR 内不换风格 -->
+    <style name="Theme.GazeReel" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="colorPrimary">@color/brand_cyan</item>
+        <item name="colorPrimaryDark">@color/setup_bg</item>
+        <item name="colorAccent">@color/brand_cyan</item>
+        <item name="android:colorBackground">@color/setup_bg</item>
+        <item name="android:textColorPrimary">@color/setup_text</item>
+        <item name="android:textColorHint">@color/setup_muted</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">@color/setup_bg</item>
+    </style>
+
+    <!-- V2.6：选文件夹 / 编辑 / 删除确认对话框沿用放映室深色，别突然弹出一块白 -->
+    <style name="SetupDialog" parent="Theme.MaterialComponents.Dialog.Alert">
+        <item name="android:windowBackground">@color/setup_card</item>
+        <item name="android:textColorPrimary">@color/setup_text</item>
+        <item name="android:textColorSecondary">@color/setup_muted</item>
+        <item name="colorAccent">@color/setup_cyan</item>
+        <item name="android:colorBackground">@color/setup_card</item>
+    </style>
+
+    <!-- 戴镜后：全屏、无状态栏干扰、暗色底，避免暗场强光刺激（PRD 4.6） -->
+    <style name="Theme.GazeReel.Immersive" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowBackground">@color/vr_bg</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:colorBackground">@color/vr_bg</item>
+    </style>
+</resources>

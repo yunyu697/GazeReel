@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- GazeReel / 凝影 应用内矢量图标。
+     启动图标请用 @mipmap/ic_launcher（PNG，含完整渐变与光晕）；
+     这里保留一份纯色降级的矢量版，供应用内引用，viewport 与源 SVG 同为 96。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <path
+        android:fillColor="#FF0D1526"
+        android:pathData="M22,0 H74 A22,22 0 0 1 96,22 V74 A22,22 0 0 1 74,96 H22 A22,22 0 0 1 0,74 V22 A22,22 0 0 1 22,0 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF1C2942"
+        android:strokeWidth="1"
+        android:pathData="M22,0.5 H74 A21.5,21.5 0 0 1 95.5,22 V74 A21.5,21.5 0 0 1 74,95.5 H22 A21.5,21.5 0 0 1 0.5,74 V22 A21.5,21.5 0 0 1 22,0.5 Z" />
+    <!-- 左右镜片：17% 青填充 + 渐变中段色描边 -->
+    <path
+        android:fillColor="#2B67E8F9"
+        android:strokeColor="#FF46A6F2"
+        android:strokeWidth="3.2"
+        android:pathData="M23,28 H33 A11,11 0 0 1 44,39 V57 A11,11 0 0 1 33,68 H23 A11,11 0 0 1 12,57 V39 A11,11 0 0 1 23,28 Z" />
+    <path
+        android:fillColor="#2B67E8F9"
+        android:strokeColor="#FF46A6F2"
+        android:strokeWidth="3.2"
+        android:pathData="M63,28 H73 A11,11 0 0 1 84,39 V57 A11,11 0 0 1 73,68 H63 A11,11 0 0 1 52,57 V39 A11,11 0 0 1 63,28 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#5767E8F9"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M25,38 L25,58 M71,38 L71,58" />
+    <!-- 中央播放键 -->
+    <path
+        android:fillColor="#FF0D1526"
+        android:pathData="M33.5,48 A14.5,14.5 0 1,0 62.5,48 A14.5,14.5 0 1,0 33.5,48 Z" />
+    <path
+        android:fillColor="#FF2E90F1"
+        android:pathData="M35.5,48 A12.5,12.5 0 1,0 60.5,48 A12.5,12.5 0 1,0 35.5,48 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineJoin="round"
+        android:pathData="M44,42 L56,48 L44,54 Z" />
+</vector>

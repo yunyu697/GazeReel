@@ -1,0 +1,12 @@
+# 仓库内统一 LF：gradlew 是 shell 脚本，带 CRLF 到 Linux 上会报 `\r: command not found`，
+# CI 直接挂。Windows 侧的 .bat 保留 CRLF。
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制，不要做换行转换
+*.jks binary
+*.aar binary
+*.jar binary
+*.png binary
+*.apk binary

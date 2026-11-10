@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GazeReel 凝影 · 视觉设计 V2.6 · 熄灯后的放映室</title>
+<style>
+:root{--paper:#F6F6F3;--paper2:#FFFFFF;--ink:#14202E;--muted:#6B7787;--line:#E3E6E3;--cyan:#1F9CB8;--deep:#070E19;--s1:#0E1B2C;--s2:#152740;--stroke:#22364F;--light:#67E8F9;--blue:#2563EB;--txt:#F2F7FF;--dim:#8FA3BC;--amber:#C98A3C}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:400 14px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1160px;margin:0 auto;padding:52px 30px 100px}
+header{border-bottom:1px solid var(--line);padding-bottom:34px;margin-bottom:8px}
+.eyebrow{font-size:12px;letter-spacing:.22em;color:var(--cyan);margin:0 0 16px}
+h1{font-size:38px;font-weight:500;letter-spacing:-.02em;line-height:1.25;margin:0 0 12px}
+h1 em{font-style:normal;color:var(--cyan)}
+.lede{font-size:16px;color:var(--muted);max-width:680px;margin:0}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-size:12px;padding:4px 12px;border:1px solid var(--line);border-radius:20px;background:var(--paper2);color:var(--muted)}
+.badge.hi{border-color:#BFE4EC;background:#EAF7FA;color:var(--cyan)}
+h2{font-size:13px;font-weight:500;letter-spacing:.18em;color:var(--cyan);margin:64px 0 10px;text-transform:uppercase}
+h3{font-size:24px;font-weight:500;letter-spacing:-.01em;margin:0 0 14px}
+h4{font-size:15px;font-weight:500;margin:0 0 6px}
+p{margin:10px 0;max-width:760px}
+.sub{color:var(--muted);font-size:14px;margin:0 0 26px;max-width:760px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:24px 0}
+.card{background:var(--paper2);border:1px solid var(--line);border-radius:14px;padding:20px 22px}
+.card p{font-size:13px;color:var(--muted);margin:5px 0 0}
+.num{font-size:12px;color:var(--cyan);letter-spacing:.1em;display:block;margin-bottom:8px}
+.phones{display:flex;gap:26px;flex-wrap:wrap;margin:26px 0 10px}
+.phone-slot{width:296px;flex:none}
+.cap{font-size:12px;color:var(--muted);margin:12px 0 0;text-align:center}
+.cap b{color:var(--ink);font-weight:500}
+.phone{width:288px;height:576px;background:var(--deep);border:7px solid #1B2738;border-radius:36px;box-shadow:0 20px 44px rgba(12,24,40,.16);overflow:hidden;margin:0 auto}
+.scr{height:100%;padding:18px 17px 16px;display:flex;flex-direction:column;color:var(--txt);position:relative}
+.status{display:flex;justify-content:space-between;font-size:11px;color:#5F7490;margin-bottom:18px}
+.brand{display:flex;align-items:center;gap:7px}
+.brand span{font-size:12px;letter-spacing:.1em;font-weight:500}
+.brand i{margin-left:auto;font-style:normal;font-size:11px;color:var(--dim)}
+.big{font-size:27px;font-weight:500;line-height:1.3;letter-spacing:.01em;margin-top:24px}
+.kicker{font-size:11px;letter-spacing:.18em;color:var(--light);margin-top:9px}
+.paths{display:flex;flex-direction:column;gap:9px;margin-top:24px}
+.path{background:var(--s1);border:1px solid var(--stroke);border-radius:12px;padding:11px 12px}
+.path.hi{background:#12283F;border-color:#3A82A6;border-left:3px solid var(--light)}
+.path.dead{opacity:.62}
+.path b{display:block;font-size:13px;font-weight:500}
+.path small{display:block;font-size:11px;color:var(--dim);margin-top:3px}
+.spacer{flex:1}
+.cta{background:var(--light);color:#06121E;text-align:center;border-radius:26px;padding:12px;font-size:13px;font-weight:500;margin-top:12px}
+.cta.ghost{background:transparent;border:1px solid var(--stroke);color:var(--dim);font-weight:400}
+.foot{text-align:center;font-size:11px;color:#6E829D;margin-top:10px}
+.src{display:flex;gap:10px;align-items:center;background:var(--s1);border:1px solid var(--stroke);border-radius:12px;padding:11px 12px;margin-bottom:9px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--light);flex:none}
+.dot.wait{background:var(--amber)}.dot.bad{background:#E0685F}.dot.busy{background:var(--blue);animation:pulse 1.4s infinite}
+@keyframes pulse{50%{opacity:.35}}
+.src b{display:block;font-size:13px;font-weight:500}.src small{display:block;font-size:11px;color:var(--dim);margin-top:2px}
+.chip{margin-left:auto;font-size:10px;padding:3px 8px;border-radius:12px;white-space:nowrap;background:#123A33;color:#7FE0BE}
+.chip.wait{background:#3A2E1B;color:#F0BE79}.chip.bad{background:#3A1E22;color:#F0A29B}.chip.busy{background:#16294A;color:#9DBEFF}
+.field{margin-top:14px}
+.field label{display:block;font-size:11px;color:var(--dim);margin-bottom:6px}
+.field div{background:var(--s1);border:1px solid var(--stroke);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--txt)}
+.field .err{border-color:#7A3B42;background:#241A22}
+.hint{font-size:11px;color:var(--dim);margin-top:7px;line-height:1.55}
+.ready{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;gap:0}
+.ring{width:118px;height:118px;border-radius:50%;border:2px solid var(--stroke);display:flex;align-items:center;justify-content:center;position:relative}
+.ring:after{content:"";position:absolute;inset:-9px;border-radius:50%;border:2px solid transparent;border-top-color:var(--light);transform:rotate(28deg)}
+.ring i{width:56px;height:56px;border-radius:50%;border:1px solid var(--blue);display:block;background:radial-gradient(circle at 35% 32%,#1E4E88,#0C1B31)}
+.vrrow{margin:20px 0 34px}
+.vrframe{display:flex;gap:10px;background:#03070D;border-radius:20px;padding:12px;max-width:760px;box-shadow:0 20px 44px rgba(12,24,40,.16)}
+.eye{flex:1;min-width:0;min-height:288px;background:var(--deep);border:1px solid #1B2C42;border-radius:48px;overflow:hidden;text-align:center;color:var(--txt);padding:16px 10px;position:relative}
+.eye .top{font-size:11px;letter-spacing:.14em;color:var(--dim)}
+.posterrow{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:16px}
+.side{width:30px;height:96px;flex:none;background:var(--s2);border-radius:7px;opacity:.5}
+.focus{width:94px;height:124px;flex:none;background:#1C3552;border:2px solid var(--light);border-radius:9px;display:flex;align-items:center;justify-content:center}
+.focus i{width:40px;height:40px;border-radius:50%;background:var(--blue);display:block}
+.ttl{font-size:14px;font-weight:500;margin-top:11px}.resume{font-size:11px;color:var(--light);margin-top:3px;letter-spacing:.03em}
+.pill{display:inline-block;margin-top:11px;border:1px solid var(--light);color:var(--light);border-radius:20px;padding:5px 18px;font-size:11px}
+.tip{font-size:11px;color:#6E829D;margin-top:12px}
+.scene{position:absolute;inset:0;background:radial-gradient(circle at 50% 42%,#173A5E 0%,#0A1728 46%,#050B14 100%)}
+.scene i{position:absolute;left:50%;top:40%;width:96px;height:96px;margin:-48px 0 0 -48px;border-radius:50%;background:#2C6BB0;opacity:.55}
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;padding:0 14px 16px}
+.subtitle{align-self:center;background:rgba(4,10,20,.82);border-radius:8px;padding:6px 12px;font-size:11px;margin-bottom:12px}
+.console{background:rgba(9,20,34,.9);border:1px solid #29415E;border-radius:16px;padding:10px 10px 12px}
+.bar{height:4px;background:#22364F;border-radius:4px;overflow:hidden;margin-bottom:10px}.bar i{display:block;width:42%;height:100%;background:var(--light)}
+.ctrl{display:flex;gap:5px;justify-content:center}
+.ctrl span{flex:1;text-align:center;font-size:10px;padding:7px 0;border:1px solid #29415E;border-radius:14px;color:var(--dim)}
+.ctrl span.on{border-color:var(--light);color:var(--light);background:#102B3C}
+.fmt{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:18px;padding:0 4px}
+.fmt div{background:var(--s1);border:1px solid var(--stroke);border-radius:10px;padding:14px 6px;font-size:11px;color:var(--dim);text-align:center}
+.fmt div.on{border-color:var(--light);background:#12283F;color:var(--txt)}
+.fmt small{display:block;font-size:10px;color:var(--light);margin-top:4px}
+.setrow{margin-top:14px;padding:0 4px;text-align:left}
+.setrow small{display:block;font-size:10px;color:var(--dim);margin-bottom:5px}
+.setrow div{background:var(--s1);border:1px solid var(--stroke);border-radius:12px;padding:9px 12px;font-size:12px;display:flex;justify-content:space-between;margin-bottom:8px}
+.setrow div b{font-weight:400;color:var(--light)}
+.swatches{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0}
+.sw{width:124px;background:var(--paper2);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.sw i{display:block;height:44px}.sw b{display:block;font-size:11px;font-weight:500;padding:7px 9px 0}.sw em{display:block;font-style:normal;font-size:10px;color:var(--muted);padding:0 9px 8px}
+.glow{height:150px;border-radius:14px;background:radial-gradient(ellipse at 50% 108%,rgba(103,232,249,.28),rgba(37,99,235,.10) 42%,transparent 70%),#070E19;display:flex;align-items:center;justify-content:center;color:var(--light);font-size:12px;letter-spacing:.2em;margin:18px 0}
+table{width:100%;border-collapse:collapse;background:var(--paper2);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:18px 0;font-size:13px}
+th{background:#F0F2F0;text-align:left;font-weight:500;padding:11px 14px;border-bottom:1px solid var(--line)}
+td{padding:11px 14px;border-bottom:1px solid #EDEEEB;vertical-align:top}tr:last-child td{border-bottom:none}
+td:first-child{color:var(--cyan);white-space:nowrap;font-size:12px}
+.quote{border-left:2px solid var(--cyan);padding:4px 0 4px 18px;color:var(--muted);font-size:14px;margin:24px 0}
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0}
+.compare>div{background:var(--paper2);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+.compare h4{color:var(--muted)}.compare ul{padding-left:18px;margin:8px 0 0;font-size:13px;color:var(--muted)}
+.note{background:#EAF7FA;border:1px solid #BFE4EC;border-radius:12px;padding:16px 20px;font-size:13px;color:#14566A;margin:22px 0}
+footer{margin-top:72px;padding-top:22px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+@media(max-width:720px){.wrap{padding:32px 18px 70px}h1{font-size:29px}.compare{grid-template-columns:1fr}.vrframe{flex-direction:column}.eye{min-height:250px}}
+@media print{body{background:#fff}.phone,.vrframe{box-shadow:none}h2{page-break-after:avoid}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+<p class="eyebrow">GAZEREEL 凝影 / VISUAL DESIGN V2.6 · 真机实测反馈 · 添加片库重做 / 已落地</p>
+<h1>熄灯之后，<em>只剩一束光</em></h1>
+<p class="lede">不是深色模式，是一间刚熄灯的放映室：一片近黑的蓝里，青色只落在当前该看的那一处。圆形是胶片盘，也是凝视环，也是所有按钮的形状。V2.2 补的是柜子里装的东西——不是电影，是你自己拍的那几叠影带；V2.3 补的是躺下之后，这束光还该落在哪里；<b>V2.3.1 回头查漏</b>，找出 11 处盲区；<b>V2.4 定案</b>：姿态变化改为「检测到变化 → 凝视一次确认」，不再自动重定参考系，并首次开始改工程代码；<b>V2.5 定案</b>：2D 内容采用世界锁定银幕——普通视频终于能像一块真实银幕一样待在原地，而不是贴死在眼前；<b>V2.6 来自真机实测</b>：前面几轮都在设计「戴镜之后」，用户上手第一关却卡在「戴镜之前」——加片库要手敲反斜杠、要背文件夹名、加错了还改不了也删不掉。这一版把整条链路从填空题改成点选。</p>
+<div class="badges">
+<span class="badge hi">方向 A 已确认</span>
+<span class="badge hi">V2.1 省力调节与快速找片</span>
+<span class="badge hi">V2.2 私人影带柜 · 换柜子 · 看图选格式</span>
+<span class="badge hi">V2.3 姿态变化 · 舒适中心 · 环境层</span>
+<span class="badge hi">V2.3.1 全链路复核</span>
+<span class="badge hi">V2.4 检测 → 凝视确认</span>
+<span class="badge hi">V2.5 2D 世界锁定银幕</span>
+<span class="badge hi">V2.6 只填 IP · 连上选文件夹 · 可改可删</span>
+<span class="badge">含两套方向 A / B</span>
+<span class="badge">配置页 4 态 + 过渡页 + VR 4 屏</span>
+<span class="badge">V2.6 已落地 · BUILD SUCCESSFUL</span>
+</div>
+</header>
+
+<h2>00 / 为什么重做</h2>
+<h3>上一份不是设计</h3>
+<p>上一版交付的是可用性整改清单：视场角推导、目标最小像素、状态机、文件清单、验收标准。它回答的是「怎么才能不出错」，没有回答「它长什么样」「用起来什么感觉」。好看与顺手都不是工程约束的副产品，得先有立意，再谈尺寸。本文件只谈这两件事；上一版 <code>UI_DESIGN_SPEC.html</code> 降级为方向选定后的实施附录。</p>
+
+<h2>01 / 概念</h2>
+<h3>从品牌名长出来的画面</h3>
+<p>GazeReel 凝影——目光停住，胶片盘开始转。于是界面不该是「一个播放器设置页」，而是走进放映室的过程：手机上是检票与选片，塞进纸盒是熄灯，头显里只剩下银幕和你要看的那部。</p>
+<div class="grid2">
+<div class="card"><span class="num">01 光</span><h4>一屏只有一处亮</h4><p>#67E8F9 不用于装饰，只给「现在该点的那个」。所有次级信息退到 #8FA3BC，背景退到 #070E19。</p></div>
+<div class="card"><span class="num">02 圆</span><h4>胶片盘母题</h4><p>按钮是胶囊、进度是环、焦点是圆盘。全界面不出现直角方块，和图标里的两片圆角镜片对上。</p></div>
+<div class="card"><span class="num">03 留白</span><h4>一次只给一个决定</h4><p>首屏不放表单、控制台不放二十个按钮。留白不是风格，是替用户把注意力收窄。</p></div>
+<div class="card"><span class="num">04 连续</span><h4>不跳色、不换语言</h4><p>手机与头显同底色、同字阶、同圆角。塞进纸盒那一刻，视觉不重新开始。</p></div>
+<div class="card"><span class="num">05 质地</span><h4>靠排版，不靠特效</h4><p>层次来自底色阶、字距与比例，不靠投影和描边堆。暗环境里发光边缘会脏，纯色更干净。</p></div>
+</div>
+<div class="glow">一束光从画面下缘抬起 · 唯一光源母题</div>
+
+<h2>02 / 方向 A · 放映室（主推）</h2>
+<h3>戴镜前：从「不知道填什么」开始</h3>
+<p class="sub">四种状态共用同一套骨架。首屏没有输入框——第一次打开最不方便的从来不是输入，是不知道该输入什么。三条路径里，推荐的那条带唯一一处青光。</p>
+<div class="phones">
+
+<div class="phone-slot">
+<div class="phone"><div class="scr">
+<div class="status"><span>9:41</span><span>●●● ▮</span></div>
+<div class="brand"><svg width="24" height="24" viewBox="0 0 96 96" aria-hidden="true"><rect width="96" height="96" rx="22" fill="#0D1526"/><rect x="12" y="28" width="32" height="40" rx="11" fill="#67E8F9" fill-opacity=".17" stroke="#67E8F9" stroke-width="4"/><rect x="52" y="28" width="32" height="40" rx="11" fill="#67E8F9" fill-opacity=".17" stroke="#67E8F9" stroke-width="4"/><path d="M44 42 L56 48 L44 54 Z" fill="#FFFFFF"/></svg><span>GazeReel</span><i>凝影</i></div>
+<div class="big">让整面墙<br>变成银幕</div>
+<div class="kicker">目光所及，皆是片库</div>
+<div class="paths">
+<div class="path hi"><b>发现局域网片库</b><small>自动找到同一 Wi-Fi 下的 NAS 与 DLNA</small></div>
+<div class="path"><b>输入共享地址</b><small>SMB · WebDAV · HTTP 直链</small></div>
+<div class="path"><b>先试手机里的视频</b><small>不用网络，立刻体验</small></div>
+</div>
+<div class="spacer"></div>
+<div style="font-size:11px;color:#8FA3BC;margin-top:14px;">还没有片库 · 配置只需一次</div>
+<div class="cta">选一种方式开始</div>
+<div class="foot">凭证加密保存在本机</div>
+</div></div>
+<p class="cap"><b>01 首次打开</b> · 三条路，零表单</p>
+</div>
+
+<div class="phone-slot">
+<div class="phone"><div class="scr">
+<div class="status"><span>9:42</span><span>●●● ▮</span></div>
+<div class="brand"><span style="font-size:13px;">添加片库</span><i>第 1 步 / 共 2 步</i></div>
+<div class="field"><label>在哪儿找</label><div>同一 Wi-Fi 下自动发现</div></div>
+<div class="field"><label>共享地址</label><div style="color:#8FA3BC;">\\192.168.1.10\VR</div></div>
+<div class="hint">不知道地址？打开 NAS 的共享设置，或直接在电脑上复制网络路径。</div>
+<div class="field"><label>账号 / 密码</label><div style="color:#8FA3BC;">可留空 · 仅本机保存</div></div>
+<div class="spacer"></div>
+<div class="src"><span class="dot busy"></span><div style="flex:1"><b>正在找片…</b><small>已发现 12 部，还在继续</small></div><span class="chip busy">扫描中</span></div>
+<div class="cta ghost" style="margin-top:4px;">停止扫描</div>
+<div class="foot">随时可以取消，已找到的会保留</div>
+</div></div>
+<p class="cap"><b>02 扫描中</b> · 进度是人话，可取消</p>
+</div>
+
+<div class="phone-slot">
+<div class="phone"><div class="scr">
+<div class="status"><span>9:43</span><span>●●● ▮</span></div>
+<div class="brand"><span style="font-size:13px;">我的片库</span><i>已就绪</i></div>
+<div style="font-size:26px;font-weight:500;margin-top:20px;">38 部</div>
+<div class="kicker" style="color:#8FA3BC;letter-spacing:.1em;">2 个片源 · 上次更新刚刚</div>
+<div style="margin-top:22px;">
+<div class="src"><span class="dot"></span><div style="flex:1"><b>客厅 NAS</b><small>\\192.168.1.10\VR · SMB</small></div><span class="chip">31 部</span></div>
+<div class="src"><span class="dot"></span><div style="flex:1"><b>平板里的片子</b><small>本地存储 / OTG</small></div><span class="chip">7 部</span></div>
+</div>
+<div class="spacer"></div>
+<div class="cta">放入纸盒，开始观看</div>
+<div class="foot">＋ 再添加一个片源</div>
+</div></div>
+<p class="cap"><b>03 已就绪</b> · 数字先于列表，主 CTA 常驻</p>
+</div>
+
+<div class="phone-slot">
+<div class="phone"><div class="scr">
+<div class="status"><span>9:44</span><span>●●● ▮</span></div>
+<div class="brand"><span style="font-size:13px;">客厅 NAS</span><i>需要检查</i></div>
+<div class="field"><label>共享地址</label><div class="err">\\192.168.1.10\VR</div></div>
+<div class="hint" style="color:#F0A29B;">没找到这台设备。手机和 NAS 在同一个 Wi-Fi 吗？设备可能睡着了，或者地址写错了。</div>
+<div class="field"><label>账号 / 密码</label><div>已保存，不用重填</div></div>
+<div class="src" style="margin-top:18px;"><span class="dot bad"></span><div style="flex:1"><b>配置已保留</b><small>修好地址后直接重试</small></div><span class="chip bad">不可达</span></div>
+<div class="spacer"></div>
+<div class="cta">重试连接</div>
+<div class="foot">改地址 · 删除这个片源</div>
+</div></div>
+<p class="cap"><b>04 失败</b> · 就地修，不重填，文案说人话</p>
+</div>
+
+</div>
+
+<h3>塞进纸盒前：一个被完全漏掉的界面</h3>
+<p class="sub">现在点「进入 VR」会直接跳到头显界面，手机还拿在手上，画面已经在双眼分屏——用户第一眼看到的是扭曲的半截界面。这里需要一页明确的过渡。</p>
+<div class="phones">
+<div class="phone-slot">
+<div class="phone"><div class="scr">
+<div class="status"><span>9:45</span><span>●●● ▮</span></div>
+<div class="ready">
+<div class="ring"><i></i></div>
+<div style="font-size:19px;font-weight:500;margin-top:26px;">把手机放进纸盒</div>
+<div style="font-size:12px;color:#8FA3BC;margin-top:8px;line-height:1.7;">屏幕中线对准纸盒中线<br>扣好后就不用再拿出来</div>
+<div style="font-size:11px;letter-spacing:.2em;color:#67E8F9;margin-top:30px;">3 秒后自动开始</div>
+<div style="font-size:11px;color:#6E829D;margin-top:14px;">按触发键或点屏幕跳过</div>
+</div>
+</div></div>
+<p class="cap"><b>05 过渡页</b> · 熄灯的那一下</p>
+</div>
+<div class="phone-slot" style="flex:1;min-width:280px;max-width:520px;">
+<div class="card" style="height:100%;display:flex;flex-direction:column;justify-content:center;">
+<span class="num">这一页解决什么</span>
+<h4>看不见屏幕之后，就没有「再确认一次」的机会</h4>
+<p>倒计时给手留出操作时间；大字说明对准方式，避免塞歪后头显里画面偏半边；随时可跳过，不强迫熟练用户等三秒。它同时是品牌时刻——熄灯动画从这一页的圆形胶片盘淡入头显视野，视觉上连续。</p>
+</div>
+</div>
+</div>
+
+<h3>戴镜后：银幕、字幕、和一层浮起的控制台</h3>
+<p class="sub">左右眼内容一致，双眼融合不打架。画面里没有常驻按钮——控制台只在低头或按触发键时从下方浮起，8 秒无操作淡出，字幕留下。</p>
+
+<div class="vrrow">
+<h4>片库 · 正前方只有一部</h4>
+<div class="vrframe">
+<div class="eye" id="vr-lib">
+<div class="top">片库 · 38 部</div>
+<div class="posterrow"><div class="side"></div><div class="focus"><i></i></div><div class="side"></div></div>
+<div class="ttl">星际穿越</div><div class="resume">上次看到 42:16</div>
+<div class="pill">继续观看</div><div class="tip">转头选片 · 凝视确认</div>
+</div>
+<div class="eye" data-mirror="vr-lib"></div>
+</div>
+</div>
+
+<div class="vrrow">
+<h4>播放 · 控制台浮起，字幕留在中央</h4>
+<div class="vrframe">
+<div class="eye" id="vr-play">
+<div class="scene"><i></i></div>
+<div class="overlay">
+<div class="subtitle">We are not meant to save the world...</div>
+<div class="console">
+<div class="bar"><i></i></div>
+<div class="ctrl"><span>上一部</span><span>−60s</span><span class="on">暂停</span><span>+60s</span><span>下一部</span></div>
+</div>
+<div class="tip" style="margin-top:8px;">格式 · 更多　｜　8 秒后淡出</div>
+</div>
+</div>
+<div class="eye" data-mirror="vr-play"></div>
+</div>
+</div>
+
+<div class="vrrow">
+<h4>格式确认 · 建议项自带光，选错可返回重选</h4>
+<div class="vrframe">
+<div class="eye" id="vr-fmt">
+<div class="top" style="margin-bottom:2px;">确认视频格式</div>
+<div style="font-size:11px;color:#8FA3BC;margin-top:6px;">已自动识别，凝视即可确认</div>
+<div class="fmt">
+<div class="on">360° 球面 · 单眼<small>自动识别 · 建议</small></div>
+<div>360° 球面 · 左右</div>
+<div>180° 半球 · 左右</div>
+<div>180° 半球 · 上下</div>
+</div>
+<div class="pill" style="margin-top:14px;border-color:#29415E;color:#8FA3BC;">返回片库</div>
+</div>
+<div class="eye" data-mirror="vr-fmt"></div>
+</div>
+</div>
+
+<div class="vrrow">
+<h4>设置 · 分页，每页只回答一类问题</h4>
+<div class="vrframe">
+<div class="eye" id="vr-set">
+<div class="top">设置 · 画面与声音</div>
+<div class="setrow">
+<small>亮度 · 默认跟随环境光，手动只三档</small>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;background:transparent;border:none;padding:0;margin:0 0 10px;">
+<span style="background:#0E1B2C;border:1px solid #22364F;border-radius:12px;padding:10px 4px;text-align:center;font-size:12px;color:#8FA3BC;">暗</span>
+<span style="background:#12283F;border:1px solid #67E8F9;border-radius:12px;padding:10px 4px;text-align:center;font-size:12px;color:#F2F7FF;">标准</span>
+<span style="background:#0E1B2C;border:1px solid #22364F;border-radius:12px;padding:10px 4px;text-align:center;font-size:12px;color:#8FA3BC;">亮</span>
+</div>
+<small>音量 · 手机侧键调，不用在这里瞄准</small>
+<div>音量 <b>高 · ▮▮▮▮▯</b></div>
+<div style="background:transparent;border:none;padding:0;margin-top:4px;text-align:center;"><span class="pill" style="border-color:#29415E;color:#8FA3BC;">下一页：交互</span></div>
+</div>
+<div class="tip">任何变化在视野中央浮出大字，1.2 秒淡出</div>
+</div>
+<div class="eye" data-mirror="vr-set"></div>
+</div>
+</div>
+
+<h2>03 / 方向 B · 银盐（备选）</h2>
+<h3>如果它更像一本片单，而不是一间放映室</h3>
+<p class="sub">暖白纸感、墨蓝正文、琥珀色作为唯一暖光；衬线大标题、细线分隔、海报像胶片 contact sheet 一样排。气质更文艺、更像私人收藏，代价是塞进纸盒的那一瞬间会明显换一次色。</p>
+<div class="phones">
+<div class="phone-slot">
+<div class="phone" style="background:#F4F0E8;border-color:#DDD6C8;">
+<div class="scr" style="color:#16283F;">
+<div class="status" style="color:#9A9384;"><span>9:41</span><span>●●● ▮</span></div>
+<div style="font-size:11px;letter-spacing:.24em;color:#C98A3C;">GAZEREEL · 凝影</div>
+<div style="font-family:Georgia,'Songti SC',serif;font-size:29px;line-height:1.3;margin-top:22px;">你的片库，<br>不必取出手机</div>
+<div style="font-size:12px;color:#8A8578;margin-top:10px;">目光所及，皆是片库</div>
+<div style="border-top:1px solid #DDD6C8;margin-top:24px;padding-top:14px;">
+<div style="display:flex;justify-content:space-between;font-size:12px;padding:11px 0;border-bottom:1px solid #E5DFD2;"><span>发现局域网片库</span><span style="color:#C98A3C;">推荐 →</span></div>
+<div style="display:flex;justify-content:space-between;font-size:12px;padding:11px 0;border-bottom:1px solid #E5DFD2;"><span>输入共享地址</span><span style="color:#AAA396;">→</span></div>
+<div style="display:flex;justify-content:space-between;font-size:12px;padding:11px 0;border-bottom:1px solid #E5DFD2;"><span>先试手机里的视频</span><span style="color:#AAA396;">→</span></div>
+</div>
+<div class="spacer"></div>
+<div style="font-family:Georgia,serif;font-size:22px;">38 <span style="font-size:12px;font-family:inherit;color:#8A8578;">部 · 2 个片源</span></div>
+<div style="background:#16283F;color:#F4F0E8;text-align:center;border-radius:2px;padding:12px;font-size:13px;margin-top:12px;">放入纸盒，开始观看</div>
+<div class="foot" style="color:#9A9384;">配置只需做一次</div>
+</div></div>
+<p class="cap"><b>方向 B 首屏</b> · 杂志式片单</p>
+</div>
+<div class="phone-slot" style="flex:1;min-width:280px;max-width:520px;">
+<div class="card" style="height:100%;display:flex;flex-direction:column;justify-content:center;">
+<span class="num">两个方向怎么选</span>
+<h4>A 是「沉浸的连续」，B 是「收藏的体面」</h4>
+<p>A 与启动图标、头显视野同色系，熄灯动作一气呵成，品牌辨识更强；适合把「放进纸盒看片」当核心体验。B 更像一个值得摆在桌上的片库应用，手机端更耐看、暗光下不刺眼，但与 VR 内深色界面有视觉断层。也可以折中：手机端用 B，塞入纸盒的过渡页渐暗到 A 的近黑蓝。</p>
+</div>
+</div>
+</div>
+
+<h2>04 / 视觉语言</h2>
+<div class="swatches">
+<div class="sw"><i style="background:#070E19"></i><b>熄灯底</b><em>#070E19</em></div>
+<div class="sw"><i style="background:#0E1B2C"></i><b>一级面</b><em>#0E1B2C</em></div>
+<div class="sw"><i style="background:#152740"></i><b>二级面</b><em>#152740</em></div>
+<div class="sw"><i style="background:#22364F"></i><b>分隔线</b><em>#22364F</em></div>
+<div class="sw"><i style="background:#67E8F9"></i><b>唯一光源</b><em>#67E8F9</em></div>
+<div class="sw"><i style="background:#2563EB"></i><b>辅助蓝</b><em>#2563EB</em></div>
+<div class="sw"><i style="background:#F2F7FF"></i><b>主文本</b><em>#F2F7FF</em></div>
+<div class="sw"><i style="background:#8FA3BC"></i><b>次文本</b><em>#8FA3BC</em></div>
+</div>
+<table>
+<thead><tr><th style="width:120px">要素</th><th>规则</th></tr></thead>
+<tbody>
+<tr><td>字阶</td><td>手机 28 / 16 / 13 / 11 sp，只有 400 与 500 两档字重；英文与数字用等宽，像放映机计数器。标题靠字号和留白建立层级，不靠加粗。</td></tr>
+<tr><td>字距</td><td>大写英文与短标语 0.16–0.24em，中文正文不加字距。信息越轻，字距越开。</td></tr>
+<tr><td>形状</td><td>按钮一律全圆角胶囊，卡片 12–16px 圆角，VR 视野 48px 圆角。全界面不出现锐角方块。</td></tr>
+<tr><td>光的使用</td><td>青色面积不超过单屏 5%，只给推荐项、当前焦点、进行中的进度、主 CTA。其余一律退到蓝灰阶。</td></tr>
+<tr><td>留白节奏</td><td>手机端区块间距 24sp、卡片内 12sp；VR 端焦点元素四周至少留出一个自身高度的空区，保证凝视时没有其他东西抢注意力。</td></tr>
+<tr><td>动效</td><td>只用透明度与 8–16px 的垂直位移，缓动 cubic-bezier(.2,.7,.2,1)，120–240ms。控制台从下方浮起、字幕交叉淡入、熄灯过渡 600ms 渐黑。禁止视差、回弹与跟随头部的弹性动画。</td></tr>
+<tr><td>反馈</td><td>凝视进度用目标外沿的环形描边而非独立转圈；确认时目标短暂填实青色 80ms。破坏性操作二次确认，且「取消」比「确认」更容易命中。</td></tr>
+</tbody>
+</table>
+
+<h2>05 / 顺手：按真实使用顺序的十个决定</h2>
+<p class="sub">不是「目标多大」，是「这一刻人手里在干什么、眼睛能看到什么、做错了能不能回来」。</p>
+<table>
+<thead><tr><th style="width:150px">时刻</th><th>设计决定</th></tr></thead>
+<tbody>
+<tr><td>第一次打开</td><td>首屏不给表单，给三条路；局域网自动发现是默认推荐。地址输入收进次级页，并附一句「去哪找这个地址」的人话。</td></tr>
+<tr><td>输入时</td><td>边输边校验，示例地址随协议变化；错误文案写清可能原因（同一 Wi-Fi / 设备休眠 / 地址写错 / 凭证不对），不出现错误码。</td></tr>
+<tr><td>等扫描</td><td>不转圈，写「已发现 12 部，还在继续」，可随时停止且已找到的保留。</td></tr>
+<tr><td>失败之后</td><td>地址与凭证就地保留，一键重试；不回首页、不重填。未实现的协议在下拉里就置灰说明，而不是点完才弹提示。</td></tr>
+<tr><td>塞进纸盒前</td><td>新增过渡页：大字对准说明 + 3 秒倒计时 + 可跳过。避免手机还在手上就跳进双眼分屏。</td></tr>
+<tr><td>刚戴稳</td><td>第一屏永远是正前方舒适区的片库，且默认停在上次看的那一部；不需要抬头低头找入口。<b>V2.3 补充：</b>「正前方」不是水平前方，而是当前姿态下的舒适中心（见第 09 章）；躺下后画面要跟过去，不能让人仰头找片库。</td></tr>
+<tr><td>找片</td><td><b>V2.2 修订，以第 08 章为准。</b>先在手机上按<b>拍摄时间 / 文件夹 / 设备</b>选好一叠，戴镜后第一屏就是这一叠；VR 内不做键盘检索。胶片盘索引轮从「首字母 A–Z」改为<b>月份刻度</b>，摇头一次换一叠而非翻 1 部。V2.1 的「片名搜索 + 待看清单」保留为电影类片源的次要入口，不再是默认路径。</td></tr>
+<tr><td>播放中调音量</td><td>控制台默认不出现，低头或触发键唤出，8 秒淡出，字幕留下。<b>音量交给手机实体侧键</b>，一次一档、零瞄准；亮度默认跟随环境光，手动只有三档大胶囊。任何档位变化在视野中央浮出大字与 5 段条，1.2 秒淡出。<b>不做凝视滑杆、不做要反复瞄准的 ± 按钮。</b></td></tr>
+<tr><td>选错格式</td><td>确认浮层有明确「返回片库」，改格式不重开片源；自动识别项高亮但永远可以改，不被系统替用户做决定。</td></tr>
+<tr><td>想出来</td><td>任意界面一个动作回到片库，片库一个动作回到手机配置；退出用长按触发键而不是瞄准一个小叉。删除片源、清除格式记忆二次确认。</td></tr>
+</tbody>
+</table>
+<div class="quote">判断标准很简单：用户能不能在不开灯、不取出手机、不重新学习的情况下，把一部片从头看到尾，中途还能调音量、换片、退出来。</div>
+
+<h2>06 / 与现状的差别</h2>
+<div class="compare">
+<div><h4>现在</h4><ul><li>白底白卡，六个字号，三种按钮风格</li><li>竖屏里塞横向双栏，裸露 Spinner 与 EditText</li><li>打开就是一张不知道填什么的表单</li><li>片源是几行动态 TextView，无状态无重扫</li><li>成功失败全靠一闪而过的 Toast</li><li>点头就进双眼分屏，手机还在手上</li><li>VR 一屏 20 个小按钮，字幕跟着面板沉底</li></ul></div>
+<div><h4>本方案</h4><ul><li>熄灯底色，一级字阶，青色只给一处焦点</li><li>竖屏单栏 + 底部常驻 CTA，胶囊贯穿两端</li><li>三条快速开始，推荐项自带光</li><li>片源卡带四态、重扫、删除与就地重试</li><li>结论写在界面里，扫描进度说人话</li><li>新增「放入纸盒」过渡页，熄灯有仪式</li><li>VR 一屏一个决定，控制台浮起、字幕独立</li></ul></div>
+</div>
+<h2>07 / V2.1 增补：把「调」和「找」从脖子上挪走</h2>
+<div class="note"><strong>V2.2 修订：</strong>本章 07.1 的省力调节结论继续有效；07.2 的<b>首字母索引轮、按片名搜索、待看清单</b>三项建立在「内容是电影」的前提上，已被第 08 章的<b>按拍摄时间成叠 + 月份刻度</b>取代，仅保留为电影类片源的次要入口。07.3 中「按首字母分段的计数查询」相应改为按月份分段。</div>
+<div class="note"><strong>V2.3.1 修订（前提错误）：本章所有「亮度默认跟随环境光自动定档」的表述一律作废。</strong>手机塞进纸盒后，光线传感器被纸盒与脸完全遮住，读数恒为极暗；躺姿下再叠一层枕头 / 被子，自动亮度会把画面压到最暗。核对源码也确认：全工程只注册了 <code>TYPE_ROTATION_VECTOR</code>，<b>没有任何 <code>TYPE_LIGHT</code> 监听</b>，<code>brightness</code> 是纯手动整数（默认 70）经 <code>uBrightness</code> 生效。改为：<b>环境光只在戴镜前读一次，作为初始档位写进设置；塞进纸盒后冻结，不再自动变化</b>，播放中只保留暗 / 标准 / 亮三个大胶囊。07.3 表里「接入环境光传感器给亮度自动档」相应改为「戴镜前读一次初始亮度」。配置页首屏的「默认跟随环境光」文案改为「戴镜前按环境定档」。</div>
+<h3>头动只该用来「选」</h3>
+<p>方向 A 确认后，用户指出两处仍然累人的地方：亮度音量完全靠头的运动做精确调节；影片很多时没有快速找片的办法。这两个问题同根——把连续、高频、要求精度的动作交给了脖子。核对源码也确认了：<code>VrActivity.onKeyDown</code> 已把手机实体音量键接成 <code>VrAction.Adjust("volume", ±1)</code>，但 <code>adjust()</code> 只改写设置值，播放时视野里没有任何反馈；<code>TriggerDispatcher</code> 的长按是返回、双击是打开设置，<code>GestureRecognizer</code> 的点头摇头也已被播控占满，系统里根本没有为连续调节留通道。而 <code>mediaDao().observeAll()</code> 是 <code>ORDER BY title</code> 全量平铺，片库一次只露三张卡、摇头翻 1 部，832 部就要摇 832 次。</p>
+
+<h4>07.1 亮度与音量：精确值前移，头显里只留粗档</h4>
+<div class="grid2">
+<div class="card"><span class="num">01 精确值</span><h4>戴镜前用手指设一次</h4><p>配置页加一组真实滑杆设定亮度与音量精确值，按片源记忆。手指适合连续精调，脖子不适合。</p></div>
+<div class="card"><span class="num">02 音量</span><h4>交给手机实体侧键</h4><p><code>KEYCODE_VOLUME_UP/DOWN</code> 通道已存在，一次跳一档（静音 / 低 / 中 / 高 / 最大），零瞄准、有肌肉记忆。补的只是 UI 反馈与首次引导。</p></div>
+<div class="card"><span class="num">03 亮度</span><h4>让「调」变成「不用调」</h4><p>默认跟随手机环境光传感器自动定档；手动只有暗 / 标准 / 亮三个大胶囊，凝视一次跳一档，没有百分比和小加号。</p></div>
+<div class="card"><span class="num">04 反馈</span><h4>值的变化自己浮出来</h4><p>视野中央大字档位 + 5 段条，1.2 秒淡出；不必低头进控制台确认，也不占用常驻画面。</p></div>
+</div>
+
+<div style="background:#070E19;border:1px solid #1B2C42;border-radius:48px;max-width:520px;margin:20px auto;padding:26px 20px;text-align:center;color:#F2F7FF;">
+<div style="font-size:11px;letter-spacing:.18em;color:#67E8F9;">音量</div>
+<div style="font-size:32px;font-weight:500;line-height:1.4;">高</div>
+<div style="display:flex;gap:6px;justify-content:center;margin-top:8px;">
+<span style="width:32px;height:6px;border-radius:4px;background:#67E8F9;"></span><span style="width:32px;height:6px;border-radius:4px;background:#67E8F9;"></span><span style="width:32px;height:6px;border-radius:4px;background:#67E8F9;"></span><span style="width:32px;height:6px;border-radius:4px;background:#67E8F9;"></span><span style="width:32px;height:6px;border-radius:4px;background:#22364F;"></span>
+</div>
+<div style="font-size:11px;color:#8FA3BC;margin-top:14px;">手机侧键调节 · 不用低头找按钮</div>
+</div>
+
+<table>
+<thead><tr><th style="width:150px">动作</th><th>通道</th><th>为什么</th></tr></thead>
+<tbody>
+<tr><td>精确数值</td><td>戴镜前手机滑杆，一次设定并记忆</td><td>手指适合连续精调</td></tr>
+<tr><td>音量粗调</td><td>手机实体音量键 / 有线耳机线控</td><td>零瞄准，闭着眼也能按</td></tr>
+<tr><td>亮度</td><td>环境光自动 + 三档大胶囊</td><td>多数情况无需调，调也只一次</td></tr>
+<tr><td>档位变化</td><td>视野中央大字 + 5 段条，1.2 秒淡出</td><td>不用低头确认</td></tr>
+</tbody>
+</table>
+<div class="quote">作废：V2.0 的「凝视左右半区调节」「触发键长按直调」「亮度 70% − ＋」「音量 60% − ＋」全部删除。这些仍然要求反复精确瞄准，正是被指出的累人之处。</div>
+
+<h4>07.2 影片很多时：把「从 832 部里找 1 部」变成「从 12 部里挑 1 部」</h4>
+<p>检索需要键盘、需要扫视、需要筛选——这些在戴镜后全都不具备。解法是第二次「复杂前移」：手机上有一整块屏幕和一双手，先把片单排好，头显里只负责挑。</p>
+
+<div class="phones">
+<div class="phone-slot">
+<div class="phone"><div class="scr">
+<div class="status"><span>9:46</span><span>●●● ▮</span></div>
+<div style="font-size:22px;font-weight:500;margin-top:18px;">今晚看什么</div>
+<div style="font-size:11px;color:#8FA3BC;margin-top:5px;">在手机上选好，戴镜后两下就到</div>
+<div style="background:#0E1B2C;border:1px solid #22364F;border-radius:12px;padding:10px 12px;margin-top:18px;font-size:12px;color:#8FA3BC;"><span style="color:#67E8F9;">⌕</span>　搜片名 · 832 部可搜</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">
+<span style="font-size:11px;padding:5px 10px;border-radius:16px;background:#12283F;border:1px solid #3A82A6;color:#67E8F9;">未看完</span>
+<span style="font-size:11px;padding:5px 10px;border-radius:16px;background:#0E1B2C;border:1px solid #22364F;color:#8FA3BC;">客厅 NAS</span>
+<span style="font-size:11px;padding:5px 10px;border-radius:16px;background:#0E1B2C;border:1px solid #22364F;color:#8FA3BC;">4K</span>
+</div>
+<div style="display:flex;justify-content:space-between;margin-top:20px;"><span style="font-size:12px;font-weight:500;">待看清单</span><span style="font-size:11px;color:#8FA3BC;">12 部 · 可拖动排序</span></div>
+<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">
+<div class="src" style="margin:0;"><span style="font-size:11px;color:#67E8F9;">01</span><span style="width:26px;height:34px;border-radius:5px;background:#1C3552;flex:none;"></span><div style="flex:1"><b>星际穿越</b><small style="color:#67E8F9;">上次看到 42:16</small></div></div>
+<div class="src" style="margin:0;"><span style="font-size:11px;color:#67E8F9;">02</span><span style="width:26px;height:34px;border-radius:5px;background:#1C3552;flex:none;"></span><div style="flex:1"><b>沙丘</b><small>2h 35m · 未看</small></div></div>
+<div class="src" style="margin:0;"><span style="font-size:11px;color:#67E8F9;">03</span><span style="width:26px;height:34px;border-radius:5px;background:#1C3552;flex:none;"></span><div style="flex:1"><b>银翼杀手 2049</b><small>2h 44m · 未看</small></div></div>
+</div>
+<div class="spacer"></div>
+<div class="cta">放入纸盒，开始观看</div>
+<div class="foot">头显里第一屏就是这份清单</div>
+</div></div>
+<p class="cap"><b>配置页新增一屏</b> · 检索发生在手指和键盘上</p>
+</div>
+<div class="phone-slot" style="flex:1;min-width:280px;max-width:520px;">
+<div class="card" style="height:100%;display:flex;flex-direction:column;justify-content:center;">
+<span class="num">三层找片</span>
+<h4>默认不用找 · 提前选好 · 兜底能粗跳</h4>
+<p><b>第一层</b>：片库默认视图是「继续观看 + 待看清单」，覆盖绝大多数使用；<code>ProgressDao</code> 已有按更新时间取最近观看的查询可直接复用。</p>
+<p><b>第二层</b>：手机端「今晚看什么」——搜索、筛选、排序、拖入待看清单，结果作为播放队列写入本地库；戴镜后按队列装载，而不是全量 <code>ORDER BY title</code>。</p>
+<p><b>第三层</b>：万一戴镜后才想翻全库，用胶片盘索引轮按首字母粗跳到某一段，再在段内小范围翻。顶部常驻「第 137 / 832 部」给出位置感，摇头一次翻 10 部而非 1 部。</p>
+</div>
+</div>
+</div>
+
+<svg viewBox="0 0 680 370" width="100%" role="img" xmlns="http://www.w3.org/2000/svg" style="max-width:680px;display:block;margin:24px auto 8px;">
+<title>GazeReel 胶片盘索引轮</title>
+<desc>八个大扇区按首字母与最近观看分组，转向大致方向即可高亮扇区并进入该段。</desc>
+<defs>
+<path id="seg2" d="M340 80 A110 110 0 0 1 417.8 112.2 L376.8 153.2 A52 52 0 0 0 340 138 Z"/>
+</defs>
+<text x="340" y="48" text-anchor="middle" font-size="14" font-weight="500" fill="#14202E">片库索引 · 832 部</text>
+<text x="340" y="68" text-anchor="middle" font-size="12" fill="#6B7787">转头指向大致方向，触发键进入该段</text>
+<use href="#seg2" fill="#152740" stroke="#22364F" stroke-width="0.5"/>
+<use href="#seg2" fill="#67E8F9" stroke="#67E8F9" stroke-width="0.5" transform="rotate(45 340 190)"/>
+<use href="#seg2" fill="#152740" stroke="#22364F" stroke-width="0.5" transform="rotate(90 340 190)"/>
+<use href="#seg2" fill="#152740" stroke="#22364F" stroke-width="0.5" transform="rotate(135 340 190)"/>
+<use href="#seg2" fill="#152740" stroke="#22364F" stroke-width="0.5" transform="rotate(180 340 190)"/>
+<use href="#seg2" fill="#152740" stroke="#22364F" stroke-width="0.5" transform="rotate(225 340 190)"/>
+<use href="#seg2" fill="#152740" stroke="#22364F" stroke-width="0.5" transform="rotate(270 340 190)"/>
+<use href="#seg2" fill="#152740" stroke="#22364F" stroke-width="0.5" transform="rotate(315 340 190)"/>
+<circle cx="340" cy="190" r="52" fill="#070E19" stroke="#22364F" stroke-width="0.5"/>
+<text x="340" y="186" text-anchor="middle" font-size="19" font-weight="500" fill="#F2F7FF" dominant-baseline="central">832</text>
+<text x="340" y="208" text-anchor="middle" font-size="11" fill="#8FA3BC" dominant-baseline="central">部 · 按片名</text>
+<text x="371" y="115" text-anchor="middle" font-size="11" fill="#B9C6DA" dominant-baseline="central">A–C</text>
+<text x="415" y="159" text-anchor="middle" font-size="11" font-weight="500" fill="#06121E" dominant-baseline="central">D–F</text>
+<text x="415" y="221" text-anchor="middle" font-size="11" fill="#B9C6DA" dominant-baseline="central">G–I</text>
+<text x="371" y="265" text-anchor="middle" font-size="11" fill="#B9C6DA" dominant-baseline="central">J–L</text>
+<text x="309" y="265" text-anchor="middle" font-size="11" fill="#B9C6DA" dominant-baseline="central">M–P</text>
+<text x="265" y="221" text-anchor="middle" font-size="11" fill="#B9C6DA" dominant-baseline="central">Q–T</text>
+<text x="265" y="159" text-anchor="middle" font-size="11" fill="#B9C6DA" dominant-baseline="central">U–Z</text>
+<text x="309" y="115" text-anchor="middle" font-size="11" fill="#B9C6DA" dominant-baseline="central">最近</text>
+<text x="340" y="330" text-anchor="middle" font-size="13" font-weight="500" fill="#14202E">当前指向 D–F · 96 部</text>
+<text x="340" y="350" text-anchor="middle" font-size="11" fill="#6B7787">扇区是大目标，转头只需方向，不必瞄准字母</text>
+</svg>
+<p class="cap" style="margin-bottom:26px;"><b>胶片盘索引轮（V2.1 原稿）</b> · 圆母题复用，8 个大扇区，粗指向一次跳段。<b>V2.2：</b>扇区标签由 A–Z 换成 1–12 月，母题与命中判定不变。</p>
+
+<table>
+<thead><tr><th style="width:150px">场景</th><th>路径</th><th>头部动作</th></tr></thead>
+<tbody>
+<tr><td>接着上次看</td><td>打开即「继续观看」，无需检索</td><td>0 次</td></tr>
+<tr><td>知道想看什么</td><td>手机搜片名 → 加入待看清单 → 戴镜</td><td>转头 1–2 次</td></tr>
+<tr><td>大致记得月份 · V2.2</td><td>索引轮指向「7 月」→ 触发键进入那一叠；字母扇区对 <code>VID_</code> / <code>GOPR</code> 前缀无效，已废止</td><td>1 次大幅转头</td></tr>
+<tr><td>随便挑一部</td><td>按片源 / 未看完 / 类型分组，组内翻 10 部一页</td><td>少量摇头</td></tr>
+<tr><td>说出片名</td><td>语音搜索（阶段三，圆盘保留入口位置）</td><td>0 次</td></tr>
+</tbody>
+</table>
+
+<h4>07.3 落到工程上的改动点</h4>
+<table>
+<thead><tr><th style="width:230px">位置</th><th>改动</th></tr></thead>
+<tbody>
+<tr><td><code>VrActivity.kt</code></td><td>实体音量键沿用现有 <code>onKeyDown</code>，补发「档位变化」事件；接入环境光传感器给亮度自动档。</td></tr>
+<tr><td><code>VrCoordinator.kt</code></td><td><code>adjust()</code> 从 ±10% 连续值改为 5 档音量 / 3 档亮度；新增 <code>AdjustFeedback</code> 状态带 1.2 秒有效期；<code>loadItems()</code> 支持按播放队列装载与按段跳转。</td></tr>
+<tr><td><code>VrUiLayer.kt</code></td><td>删除设置页 ± 小按钮；新增档位大字反馈层与胶片盘索引轮绘制（扇区是大目标，命中判定沿用 <code>targetAt()</code>）。</td></tr>
+<tr><td><code>db/</code> 与 <code>LibraryRepository.kt</code></td><td>新增播放队列（或给 <code>media_item</code> 加 <code>queue_order</code>）；保留现有 <code>ORDER BY title</code> 作为全库视图，计数查询按月份分段。<b>V2.2 追加：</b>补 <code>parent_path</code> / <code>captured_at</code> / <code>device_tag</code> / <code>group_key</code> / <code>preview_frame</code> 字段，见 08.5。</td></tr>
+<tr><td><code>SetupActivity.kt</code> 与配置页</td><td>新增「今晚看什么」搜索 / 筛选 / 排序屏与观影偏好滑杆；「放入纸盒」过渡页复用。</td></tr>
+<tr><td><code>GestureRecognizer.kt</code></td><td>摇头翻页从 1 部改为 10 部一页；点头 / 长按 / 双击的既有语义不动，避免用户重新学习。</td></tr>
+</tbody>
+</table>
+
+<h2>08 / V2.2 增补：柜子里装的不是电影</h2>
+<h3>三个问题，同一个前提错误</h3>
+<p>用户评审原话：「不错，确实已经在向好用的方向修改了；但是还不够，比如说检索是以电影为对象的，但如果是用户自己的视频呢？另外要让用户在配载后尽可能不需要手动取下手机，那么 VR 内是不是要提供切换服务器 / 目录的功能？还有 VR 视频的格式是不都支持齐全了，因为还有鱼眼、立方体，甚至 SBS 的 3D 视频是不是也要提供支持？」</p>
+<p>这三句不是三个补充需求，是同一个错误的三个切面：<b>前面所有版本都默认 GazeReel 是「电影点播应用」</b>。片名、海报、首字母索引轮、待看清单，全部建立在「内容有片名、有海报、按字母排」这个前提上。而真实的主角是 <code>VID_20260712_143022.mp4</code>、<code>GOPR0231.MP4</code>、<code>MVI_2043.MP4</code>——没有片名、没有海报、几百个同前缀、按 <code>DCIM/Camera/</code> 和拍摄日期天然成组，还混着 2D 家庭录像、360 相机片段和 SBS 3D。</p>
+<p>核对源码后可以确认：这不是「检索方式要改」，而是<b>片库的数据模型里根本没有「用户自己的视频」这个东西</b>。V2.1 那条「头动只用来选」的铁律因此要再进一格。</p>
+<div class="quote">V2.2 铁律：戴镜后只做「换」，不做「找」和「配」。所有需要命名、输入、逐层浏览、精确判断的事，都在戴镜前替用户做好；头显里只出现「已经整理好的几格」。</div>
+
+<h4>08.1 检索对象：从「片名」换成「一次拍摄」</h4>
+<p>方向 A 的深色沉浸不变，变的是片库的组织原则——从「排片表」换成「家里的影带柜」。一格不是一部电影，是<b>一趟出行、一次拍摄、一个文件夹</b>；标签写「7月12日 · 海边」，缩略图用视频首帧，标题显示拍摄时间而不是文件名。手机端提供按时间 / 文件夹 / 设备三种看法，戴镜后只剩「换一叠」这一个动作。</p>
+
+<svg viewBox="0 0 680 490" width="100%" role="img" xmlns="http://www.w3.org/2000/svg" style="max-width:680px;display:block;margin:24px auto 8px;">
+<title>GazeReel V2.2 手机端私人影带柜视觉稿</title>
+<desc>手机屏幕按拍摄日期把用户自己的视频自动分成一叠一叠，用第一帧代替海报，标题显示时间和事件而不是文件名。</desc>
+<rect x="48" y="40" width="230" height="430" rx="28" fill="#070E19" stroke="#1B2C42" stroke-width="1"/>
+<text x="64" y="66" font-size="11" fill="#5F7490">9:46</text>
+<text x="248" y="66" font-size="11" text-anchor="end" fill="#5F7490">●●● ▮</text>
+<text x="64" y="104" font-size="21" font-weight="500" fill="#F2F7FF">7 月 · 海边</text>
+<text x="64" y="122" font-size="11" fill="#8FA3BC">38 段 · 相机 SD 卡 · 12 段未看</text>
+<rect x="64" y="136" width="60" height="24" rx="12" fill="#12283F" stroke="#3A82A6" stroke-width="0.5"/>
+<text x="94" y="152" font-size="11" text-anchor="middle" fill="#67E8F9">按时间</text>
+<rect x="130" y="136" width="68" height="24" rx="12" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="164" y="152" font-size="11" text-anchor="middle" fill="#8FA3BC">按文件夹</text>
+<rect x="204" y="136" width="58" height="24" rx="12" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="233" y="152" font-size="11" text-anchor="middle" fill="#8FA3BC">按设备</text>
+<text x="64" y="184" font-size="11" fill="#67E8F9">7月12日 周六 · 一次拍摄 · 14 段</text>
+<rect x="64" y="194" width="198" height="58" rx="9" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<rect x="70" y="200" width="58" height="46" rx="5" fill="#173A5E"/>
+<path d="M70 232 L128 232 L128 246 L70 246 Z" fill="#2C6BB0" opacity="0.7"/>
+<circle cx="108" cy="211" r="7" fill="#E8C98A" opacity="0.85"/>
+<text x="138" y="218" font-size="12" font-weight="500" fill="#F2F7FF">14:30 · 2:14</text>
+<text x="138" y="236" font-size="11" fill="#8FA3BC">海边 · 360 全景</text>
+<rect x="64" y="258" width="198" height="58" rx="9" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<rect x="70" y="264" width="58" height="46" rx="5" fill="#173A5E"/>
+<path d="M70 296 L128 296 L128 310 L70 310 Z" fill="#2C6BB0" opacity="0.7"/>
+<circle cx="108" cy="275" r="7" fill="#E8C98A" opacity="0.85"/>
+<text x="138" y="282" font-size="12" font-weight="500" fill="#F2F7FF">14:36 · 0:48</text>
+<text x="138" y="300" font-size="11" fill="#67E8F9">上次看到 0:21</text>
+<rect x="64" y="322" width="198" height="46" rx="9" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="76" y="350" font-size="11" fill="#8FA3BC">7月6日 · 家里</text>
+<text x="250" y="350" font-size="11" text-anchor="end" fill="#8FA3BC">9 段 ›</text>
+<rect x="64" y="378" width="198" height="46" rx="9" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="76" y="406" font-size="11" fill="#8FA3BC">6月28日 · 客厅 NAS</text>
+<text x="250" y="406" font-size="11" text-anchor="end" fill="#8FA3BC">15 段 ›</text>
+<rect x="64" y="434" width="198" height="26" rx="13" fill="#67E8F9"/>
+<text x="163" y="451" font-size="11" font-weight="500" text-anchor="middle" fill="#06121E">把这一叠放进纸盒</text>
+<circle cx="316" cy="108" r="3" fill="#1F9CB8"/>
+<text x="328" y="105" font-size="13" font-weight="500" fill="#14202E">不是片名，是拍摄时间</text>
+<text x="328" y="123" font-size="11" fill="#6B7787">VID_20260712_143022 → 7月12日 14:30</text>
+<path d="M310 130 L280 150" fill="none" stroke="#C9CFCB" stroke-width="0.5" stroke-dasharray="3 3"/>
+<circle cx="316" cy="196" r="3" fill="#1F9CB8"/>
+<text x="328" y="193" font-size="13" font-weight="500" fill="#14202E">同一段拍摄自动成一叠</text>
+<text x="328" y="211" font-size="11" fill="#6B7787">按文件时间聚类，不要求用户建相册</text>
+<path d="M310 218 L280 186" fill="none" stroke="#C9CFCB" stroke-width="0.5" stroke-dasharray="3 3"/>
+<circle cx="316" cy="282" r="3" fill="#1F9CB8"/>
+<text x="328" y="279" font-size="13" font-weight="500" fill="#14202E">没有海报，就用第一帧</text>
+<text x="328" y="297" font-size="11" fill="#6B7787">缩略图取视频首帧，同名图片只是可选</text>
+<path d="M310 290 L266 224" fill="none" stroke="#C9CFCB" stroke-width="0.5" stroke-dasharray="3 3"/>
+<circle cx="316" cy="374" r="3" fill="#1F9CB8"/>
+<text x="328" y="371" font-size="13" font-weight="500" fill="#14202E">戴镜后只换叠，不翻文件</text>
+<text x="328" y="389" font-size="11" fill="#6B7787">一次摇头换一叠，组内再换片</text>
+<path d="M310 388 L266 446" fill="none" stroke="#C9CFCB" stroke-width="0.5" stroke-dasharray="3 3"/>
+</svg>
+<p class="cap" style="margin-bottom:26px;"><b>手机端 · 私人影带柜</b> · 按一次拍摄成叠，深色底色与方向 A 一致</p>
+
+<table>
+<thead><tr><th style="width:210px">代码现状</th><th>V2.2 要求</th></tr></thead>
+<tbody>
+<tr><td><code>MediaIndexer.scan()</code></td><td><code>if (entry.isDirectory || ...) continue</code> 把子目录直接丢弃，所有协议只扫一层。<code>DCIM/Camera/</code> 里的视频根本进不了库。目录应成为分组依据，而不是被跳过。</td></tr>
+<tr><td><code>title</code></td><td>来自 <code>entry.name.substringBeforeLast('.')</code>，于是「片名」就是 <code>GOPR0231</code>。展示名改为拍摄时间 + 事件，文件名降为副行。</td></tr>
+<tr><td><code>mtime</code></td><td>写的是 <code>System.currentTimeMillis()</code>，即<b>扫描时间</b>而非文件时间——按时间 / 事件分组在数据层就不可能。必须取文件真实 mtime 或媒体元数据。</td></tr>
+<tr><td><code>posterPath</code></td><td>依赖同名图片与文字封面回退；自己的视频两者都没有。改为异步抽视频首帧，失败才退到文字封面。</td></tr>
+<tr><td><code>MediaItemEntity</code></td><td>没有父目录、设备、媒体类别、分组字段；<code>path</code> 一列混装完整 URL / 绝对路径 / share 相对路径三种语义。补 <code>parent_path</code> / <code>captured_at</code> / <code>device_tag</code> / <code>group_key</code> / <code>preview_frame</code>。</td></tr>
+<tr><td><code>observeAll()</code> 与 <code>loadItems()</code></td><td><code>ORDER BY title</code> 全量平铺，且每次刷新把 <code>selectedIndex</code> 重置为 0——换一次源就丢掉当前位置。改为按 <code>group_key</code> 分页装载，并按 sourceId 保存 / 恢复游标。</td></tr>
+</tbody>
+</table>
+<div class="note"><strong>连带作废：</strong>V2.1 的胶片盘索引轮按首字母 A–Z 分段，对 <code>VID_</code> / <code>GOPR</code> / <code>MVI_</code> 前缀毫无分辨力，几百个文件会全塞进同一扇区。母题与 8 扇区保留，标签换成 <b>1–12 月</b>，一次转头跳到「7 月那一叠」；「片名搜索 + 待看清单」降级为电影类片源的次要入口。</div>
+
+<h4>08.2 戴镜后不取手机：换柜子，不做文件管理器</h4>
+<p>这里必须先做一个判断：<b>VR 内绝不能做文件管理器</b>。逐层展开目录树、在头显里瞄准小箭头返回上级，比取下手机更糟——它把「找」这个最不适合脖子的动作搬进了视野。正确形态是「<b>换柜子</b>」：一个整层界面，一次凝视换掉整个视野，每个柜子记得你上次看到哪一叠。</p>
+
+<svg viewBox="0 0 680 380" width="100%" role="img" xmlns="http://www.w3.org/2000/svg" style="max-width:680px;display:block;margin:24px auto 8px;">
+<title>GazeReel V2.2 VR 内切换片源视觉稿</title>
+<desc>戴镜状态下左右眼显示同一个换柜界面，四个大目标分别代表不同服务器与本机目录，每个目标标注上次看到的位置，切换时整层推移而非弹出菜单。</desc>
+<text x="340" y="34" font-size="14" font-weight="500" text-anchor="middle" fill="#14202E">换柜子 · 戴镜后不取出手机</text>
+<rect x="40" y="52" width="290" height="272" rx="40" fill="#070E19" stroke="#1B2C42" stroke-width="1"/>
+<rect x="350" y="52" width="290" height="272" rx="40" fill="#070E19" stroke="#1B2C42" stroke-width="1"/>
+<text x="56" y="78" font-size="11" letter-spacing="1" fill="#8FA3BC">片源 · 4 个柜子</text>
+<rect x="54" y="90" width="132" height="44" rx="9" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="66" y="109" font-size="12" font-weight="500" fill="#F2F7FF">家里 NAS</text>
+<text x="66" y="125" font-size="11" fill="#8FA3BC">上次 · 6月28日</text>
+<rect x="54" y="140" width="132" height="44" rx="9" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="66" y="159" font-size="12" font-weight="500" fill="#F2F7FF">手机本机</text>
+<text x="66" y="175" font-size="11" fill="#8FA3BC">上次 · 看完</text>
+<rect x="54" y="190" width="132" height="44" rx="9" fill="#12283F" stroke="#67E8F9" stroke-width="2"/>
+<text x="66" y="209" font-size="12" font-weight="500" fill="#67E8F9">相机 SD 卡</text>
+<text x="66" y="225" font-size="11" fill="#B9C6DA">上次 · 7月12日 第3格</text>
+<rect x="54" y="240" width="132" height="44" rx="9" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="66" y="259" font-size="12" font-weight="500" fill="#F2F7FF">共享盘</text>
+<text x="66" y="275" font-size="11" fill="#8FA3BC">上次 · 未打开</text>
+<rect x="196" y="90" width="118" height="194" rx="10" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="206" y="112" font-size="11" fill="#67E8F9">当前这一叠</text>
+<rect x="206" y="122" width="98" height="76" rx="6" fill="#173A5E"/>
+<path d="M206 174 L304 174 L304 198 L206 198 Z" fill="#2C6BB0" opacity="0.7"/>
+<circle cx="276" cy="138" r="9" fill="#E8C98A" opacity="0.85"/>
+<text x="206" y="216" font-size="12" font-weight="500" fill="#F2F7FF">7月12日 · 海边</text>
+<text x="206" y="234" font-size="11" fill="#8FA3BC">14 段 · 第 3 格</text>
+<rect x="206" y="246" width="98" height="26" rx="13" fill="#12283F" stroke="#3A82A6" stroke-width="0.5"/>
+<text x="255" y="263" font-size="11" text-anchor="middle" fill="#67E8F9">接着上次看</text>
+<circle cx="185" cy="188" r="7" fill="none" stroke="#F2F7FF" stroke-width="1.5"/>
+<circle cx="185" cy="188" r="1.5" fill="#F2F7FF"/>
+<text x="366" y="78" font-size="11" letter-spacing="1" fill="#8FA3BC">片源 · 4 个柜子</text>
+<rect x="364" y="90" width="132" height="44" rx="9" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="376" y="109" font-size="12" font-weight="500" fill="#F2F7FF">家里 NAS</text>
+<text x="376" y="125" font-size="11" fill="#8FA3BC">上次 · 6月28日</text>
+<rect x="364" y="140" width="132" height="44" rx="9" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="376" y="159" font-size="12" font-weight="500" fill="#F2F7FF">手机本机</text>
+<text x="376" y="175" font-size="11" fill="#8FA3BC">上次 · 看完</text>
+<rect x="364" y="190" width="132" height="44" rx="9" fill="#12283F" stroke="#67E8F9" stroke-width="2"/>
+<text x="376" y="209" font-size="12" font-weight="500" fill="#67E8F9">相机 SD 卡</text>
+<text x="376" y="225" font-size="11" fill="#B9C6DA">上次 · 7月12日 第3格</text>
+<rect x="364" y="240" width="132" height="44" rx="9" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="376" y="259" font-size="12" font-weight="500" fill="#F2F7FF">共享盘</text>
+<text x="376" y="275" font-size="11" fill="#8FA3BC">上次 · 未打开</text>
+<rect x="506" y="90" width="118" height="194" rx="10" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="516" y="112" font-size="11" fill="#67E8F9">当前这一叠</text>
+<rect x="516" y="122" width="98" height="76" rx="6" fill="#173A5E"/>
+<path d="M516 174 L614 174 L614 198 L516 198 Z" fill="#2C6BB0" opacity="0.7"/>
+<circle cx="586" cy="138" r="9" fill="#E8C98A" opacity="0.85"/>
+<text x="516" y="216" font-size="12" font-weight="500" fill="#F2F7FF">7月12日 · 海边</text>
+<text x="516" y="234" font-size="11" fill="#8FA3BC">14 段 · 第 3 格</text>
+<rect x="516" y="246" width="98" height="26" rx="13" fill="#12283F" stroke="#3A82A6" stroke-width="0.5"/>
+<text x="565" y="263" font-size="11" text-anchor="middle" fill="#67E8F9">接着上次看</text>
+<circle cx="495" cy="188" r="7" fill="none" stroke="#F2F7FF" stroke-width="1.5"/>
+<circle cx="495" cy="188" r="1.5" fill="#F2F7FF"/>
+<text x="340" y="352" font-size="12" text-anchor="middle" fill="#6B7787">单屏 4 个大目标 · 一次凝视换整柜 · 不弹菜单、不逐层翻目录、不重新扫描</text>
+</svg>
+<p class="cap" style="margin-bottom:26px;"><b>VR 内 · 换柜子整层</b> · 柜子即片源，右侧显示上次那一叠，左右眼共用同一份 UI</p>
+
+<div class="grid2">
+<div class="card"><span class="num">01 换整层</span><h4>不是弹菜单</h4><p>一次凝视换掉整个视野。弹窗会盖住正在播的画面，还要求再瞄准一次「关闭」。</p></div>
+<div class="card"><span class="num">02 记得位置</span><h4>每个柜子一个游标</h4><p>切回「相机 SD 卡」直接落回「7月12日 第 3 格」，而不是回到第一部。</p></div>
+<div class="card"><span class="num">03 目录折叠成叠</span><h4>不逐层展开</h4><p>一次拍摄 / 一个文件夹 = 一格。戴镜视野里不存在「返回上级」这种动作。</p></div>
+<div class="card"><span class="num">04 不等待</span><h4>切换只换视图</h4><p>凭证与索引都在戴镜前就绪；换柜不触发重新扫描，不出现进度圈。</p></div>
+<div class="card"><span class="num">05 失败原地留</span><h4>柜子离线也不出戏</h4><p>留在当前柜，给一行人话与重试；不弹错误码、不弹回配置页、不要求取手机。</p></div>
+<div class="card"><span class="num">06 入口不新增目标</span><h4>把假 tab 变成真柜子</h4><p>片库顶部「全部 / 最近 / 收藏」目前是假按钮（<code>showMessage("分类筛选将在 V1 接入")</code>）。直接换成柜子胶囊：位置复用、目标数不变、假功能变真功能。</p></div>
+</div>
+<p>源码侧的依据也很清楚：<code>VrCoordinator.sources: Map&lt;Long, SourceEntity&gt;</code> 已存在，但只在 <code>buildRef()</code> 里被用来拼播放地址；<code>VrUiLayer.drawLibrary()</code> 的三个 tab 没有任何筛选逻辑。换句话说，<b>切换片源所需的数据已经在戴镜后的进程里，只是界面没有给它一个动作</b>。</p>
+
+<h4>08.3 格式：不齐全，而且三元组里有一元是「死的」</h4>
+<p>先给不含糊的结论。已经真实存在的部分要肯定：<code>eyeTextureRegion()</code> 里 MONO / SBS / TAB 的每眼纹理区域采样是实现了的，<code>uEyeRegion</code> 也确实进了片元着色器，所以<b>球面 360 / 180 语境下的 SBS、TAB 3D 现在就能看</b>。但缺口很硬：</p>
+<table>
+<thead><tr><th style="width:190px">能力</th><th>核查结论</th></tr></thead>
+<tbody>
+<tr><td>球面 360 / 180 网格</td><td><code>Projection.SPHERE_360 / HALF_SPHERE_180</code> 齐备，<code>ProjectionMesh.build(projection)</code> 按投影重建几何。<b>已支持。</b></td></tr>
+<tr><td>Mono / SBS / TAB</td><td><code>TextureRegion</code> 与 <code>uEyeRegion</code> 真实生效。<b>已支持</b>，这也是「SBS 的 3D 视频」在球面语境下已能播放的依据。</td></tr>
+<tr><td>2D 平面</td><td><b>V2.5 已落地，本行原结论「名义支持，实际选不到」作废。</b>回查源码发现底层几何本来就是世界锁定银幕：<code>ProjectionMesh.build(PLANE_2D)</code> 是 2 米处 2.4×1.35m 的 quad，与 UI quad 共用同一个含头追旋转的 MVP 矩阵。真正缺的只是「用户选不到」：<code>QUICK_CHOICES</code> 现由四项扩到六项（含 <code>PLANE_2D+MONO</code> 与 <code>PLANE_2D+SBS</code>），<code>label</code> 改称「2D 银幕」，确认屏改三列两行；<code>FormatDetector</code> 不再把 16:9 落回 360；扫描期也不再把「无宽高 → 360」写死进 <code>detected_format</code>。<b>现在既能选到，也能被自动建议。</b></td></tr>
+<tr><td>2D 平面 SBS 3D</td><td><b>V2.5 部分落地：</b><code>QUICK_CHOICES</code> 新增 <code>PLANE_2D+SBS+FLAT</code>，每眼仍由 <code>uEyeRegion</code> 取半幅纹理；<code>_3dh / _3dv</code> 降为低置信度并强制弹确认，不再被武断判成 VR180 半球，用户可改选 2D 银幕。<b>仍未做：</b>非标准半宽片源的宽高比自动还原（half-SBS 每眼本身 16:9，贴到 16:9 银幕比例正确）。</td></tr>
+<tr><td>视场角</td><td><code>FieldOfView</code> 不进 <code>label</code>、不进网格、不进 shader；<code>VrRenderer</code> 仅在 <code>projection</code> 变化时重建几何。它只被写进数据库和 <code>format_override</code>，<b>从不参与渲染——是死的</b>。</td></tr>
+<tr><td>鱼眼 / 立方体 / EAC</td><td>无 <code>FISHEYE_180 / FISHEYE_220 / CUBEMAP_3x2 / EAC</code> 枚举，无对应网格与 shader 分支，无径向反畸变与每镜头内参。<b>待补。</b></td></tr>
+</tbody>
+</table>
+<p>比补枚举更重要的是界面决定：<b>戴镜时不能让人学 <code>SBS / TAB / Fisheye / EAC</code> 这些词</b>。格式确认屏改成看图选，一句人话，看一眼就知道自己拍的是哪一种。</p>
+<div class="note"><strong>V2.5 落地边界：</strong>本节的「看图选」仍是<b>设计稿，未实现</b>。V2.5 实际做的是把确认浮层从四个球面术语按钮改成六个术语按钮（三列两行），并在标题下补一句人话「2D 银幕会像真实银幕一样固定在世界里，转头能看到边缘」。六项各 248×128px ≈ 11.8°×6.1°，加「返回」共 7 个目标，仍守单屏 ≤9；长标签按按钮宽度自动缩字。<b>画面示意图、按设备属性继承格式、group_key 仍是下一刀。</b></div>
+
+<svg viewBox="0 0 680 292" width="100%" role="img" xmlns="http://www.w3.org/2000/svg" style="max-width:680px;display:block;margin:24px auto 8px;">
+<title>GazeReel V2.2 格式确认屏视觉稿</title>
+<desc>四个大格子用画面示意图代替专业术语，分别表示等距柱状全景、双鱼眼、立方体贴图和左右半宽 3D，每格配一句人话说明与当前支持状态。</desc>
+<text x="340" y="30" font-size="14" font-weight="500" text-anchor="middle" fill="#14202E">这是什么片子 · 看图选一次</text>
+<rect x="40" y="48" width="138" height="200" rx="10" fill="#F0F2F0" stroke="#E3E6E3" stroke-width="0.5"/>
+<rect x="50" y="58" width="118" height="88" rx="5" fill="#173A5E"/>
+<path d="M50 84 Q109 74 168 84" fill="none" stroke="#67E8F9" stroke-width="0.5" opacity="0.7"/>
+<path d="M50 120 Q109 130 168 120" fill="none" stroke="#67E8F9" stroke-width="0.5" opacity="0.7"/>
+<path d="M109 58 L109 146" fill="none" stroke="#2C6BB0" stroke-width="0.5" opacity="0.7"/>
+<text x="109" y="106" font-size="11" text-anchor="middle" fill="#B9C6DA">一圈都在里面</text>
+<text x="52" y="168" font-size="13" font-weight="500" fill="#14202E">360 全景</text>
+<text x="52" y="188" font-size="11" fill="#6B7787">一张被拉长的</text>
+<text x="52" y="203" font-size="11" fill="#6B7787">完整球面</text>
+<rect x="52" y="216" width="56" height="20" rx="10" fill="#E1F5EE"/>
+<text x="80" y="230" font-size="11" text-anchor="middle" fill="#0F6E56">已支持</text>
+<rect x="194" y="48" width="138" height="200" rx="10" fill="#F0F2F0" stroke="#E3E6E3" stroke-width="0.5"/>
+<rect x="204" y="58" width="118" height="88" rx="5" fill="#0E1B2C"/>
+<circle cx="235" cy="102" r="27" fill="#173A5E" stroke="#2C6BB0" stroke-width="0.5"/>
+<circle cx="291" cy="102" r="27" fill="#173A5E" stroke="#2C6BB0" stroke-width="0.5"/>
+<path d="M228 96 L242 102 L228 108 Z" fill="#67E8F9" opacity="0.8"/>
+<path d="M284 96 L298 102 L284 108 Z" fill="#67E8F9" opacity="0.8"/>
+<text x="206" y="168" font-size="13" font-weight="500" fill="#14202E">双鱼眼 180</text>
+<text x="206" y="188" font-size="11" fill="#6B7787">两个圆镜头</text>
+<text x="206" y="203" font-size="11" fill="#6B7787">拼在一起</text>
+<rect x="206" y="216" width="46" height="20" rx="10" fill="#FAEEDA"/>
+<text x="229" y="230" font-size="11" text-anchor="middle" fill="#854F0B">待补</text>
+<rect x="348" y="48" width="138" height="200" rx="10" fill="#F0F2F0" stroke="#E3E6E3" stroke-width="0.5"/>
+<rect x="358" y="58" width="118" height="88" rx="5" fill="#0E1B2C"/>
+<rect x="365" y="66" width="32" height="32" rx="2" fill="#173A5E" stroke="#2C6BB0" stroke-width="0.5"/>
+<rect x="401" y="66" width="32" height="32" rx="2" fill="#2C6BB0" stroke="#67E8F9" stroke-width="0.5"/>
+<rect x="437" y="66" width="32" height="32" rx="2" fill="#173A5E" stroke="#2C6BB0" stroke-width="0.5"/>
+<rect x="365" y="102" width="32" height="32" rx="2" fill="#173A5E" stroke="#2C6BB0" stroke-width="0.5"/>
+<rect x="401" y="102" width="32" height="32" rx="2" fill="#173A5E" stroke="#2C6BB0" stroke-width="0.5"/>
+<rect x="437" y="102" width="32" height="32" rx="2" fill="#173A5E" stroke="#2C6BB0" stroke-width="0.5"/>
+<text x="360" y="168" font-size="13" font-weight="500" fill="#14202E">立方体</text>
+<text x="360" y="188" font-size="11" fill="#6B7787">六个方块</text>
+<text x="360" y="203" font-size="11" fill="#6B7787">围成一个球</text>
+<rect x="360" y="216" width="46" height="20" rx="10" fill="#FAEEDA"/>
+<text x="383" y="230" font-size="11" text-anchor="middle" fill="#854F0B">待补</text>
+<rect x="502" y="48" width="138" height="200" rx="10" fill="#F0F2F0" stroke="#E3E6E3" stroke-width="0.5"/>
+<rect x="512" y="58" width="118" height="88" rx="5" fill="#0E1B2C"/>
+<path d="M571 58 L571 146" fill="none" stroke="#67E8F9" stroke-width="0.5" stroke-dasharray="3 3"/>
+<path d="M518 130 L535 108 L552 130 Z" fill="#2C6BB0" opacity="0.8"/>
+<path d="M590 130 L607 108 L624 130 Z" fill="#2C6BB0" opacity="0.8"/>
+<text x="514" y="168" font-size="13" font-weight="500" fill="#14202E">左右 3D</text>
+<text x="514" y="188" font-size="11" fill="#6B7787">左右眼各一幅</text>
+<text x="514" y="203" font-size="11" fill="#6B7787">普通电影也有</text>
+<rect x="514" y="216" width="56" height="20" rx="10" fill="#FAEEDA"/>
+<text x="542" y="230" font-size="11" text-anchor="middle" fill="#854F0B">半支持</text>
+<text x="340" y="274" font-size="12" text-anchor="middle" fill="#6B7787">同一台相机导出的 200 个文件，继承这一次选择，不确认 200 次</text>
+</svg>
+<p class="cap" style="margin-bottom:26px;"><b>格式确认屏 · 看图选</b> · 四个大目标，画面示意代替术语，仍满足单屏 ≤ 9 目标</p>
+
+<div class="grid2">
+<div class="card"><span class="num">01 看图</span><h4>不读术语</h4><p>球面展开长条 / 两个圆 / 六个方块 / 左右两幅画，四张示意图本身就是说明文字。</p></div>
+<div class="card"><span class="num">02 四个目标</span><h4>不加分页</h4><p>补了鱼眼与立方体也不塞成八宫格；不确定的类型收进「更多」二级页，仍守单屏 ≤ 9。</p></div>
+<div class="card"><span class="num">03 建议来自设备</span><h4>不靠文件名猜</h4><p><code>group_key</code> / 相机标记优先于 <code>_3dh</code> 之类的文件名启发式，避免整批误判。</p></div>
+<div class="card"><span class="num">04 按柜子继承</span><h4>一次选择覆盖一批</h4><p>同一台相机导出的 200 个文件不该确认 200 次；单片覆盖只作为例外。</p></div>
+</div>
+
+<h4>08.4 把三件事串成一根线</h4>
+<p>「用户自己的视频」「换柜子」「格式支持」其实是同一个东西的三个视图：<b>柜子 = 一台设备 / 一个来源，叠 = 一次拍摄，格式 = 这台设备的属性</b>。现在 <code>format_override</code> 的键是 <code>media_key = sourceId:path</code>，逐片记忆；对一批相机文件，这个粒度既啰嗦又容易每片猜错一次。改成按 <code>group_key</code>（文件夹 / 相机 / 设备）继承，单片覆盖保留为例外，三个问题一起解。</p>
+<table>
+<thead><tr><th style="width:190px">真实场景</th><th>旧设计</th><th>V2.2</th></tr></thead>
+<tbody>
+<tr><td>导入 200 个相机文件</td><td>每播一部弹一次格式确认，最多 200 次</td><td>第一张看图选一次，整叠继承</td></tr>
+<tr><td>想看 NAS 上另一趟旅行</td><td>取下手机改配置 → 重扫 → 从头翻</td><td>片库顶部凝视换柜 → 落回上次那一格</td></tr>
+<tr><td>忘了片名叫什么</td><td>搜片名 / 首字母索引（对 VID_ 无效）</td><td>转头指向月份 → 进入那一叠 → 组内翻片</td></tr>
+</tbody>
+</table>
+
+<h4>08.5 落到工程上的改动点</h4>
+<table>
+<thead><tr><th style="width:230px">位置</th><th>改动</th></tr></thead>
+<tbody>
+<tr><td><code>db/Entities.kt</code></td><td><code>media_item</code> 补 <code>parent_path</code> / <code>captured_at</code> / <code>device_tag</code> / <code>group_key</code> / <code>preview_frame</code>；<code>format_override</code> 增加 <code>group_key</code> 继承键与 <code>scope</code>。</td></tr>
+<tr><td><code>MediaIndexer.kt</code></td><td>去掉 <code>isDirectory</code> 直接 continue，改为按目录递归并把目录写成 <code>group_key</code>；<code>mtime</code> 取文件真实时间；<code>title</code> 保留原始文件名为副行。</td></tr>
+<tr><td><code>PosterRepository.kt</code></td><td>同名图优先改为视频首帧抽帧（异步、低优先级、限流、有缓存上限），失败才退文字封面。</td></tr>
+<tr><td><code>Daos.kt</code> / <code>LibraryRepository.kt</code></td><td>新增按 <code>group_key</code> 分页与月份分段计数；复用已有 <code>observeBySource()</code>；<code>loadItems()</code> 不再重置 <code>selectedIndex</code>，按 sourceId 保存 / 恢复游标。</td></tr>
+<tr><td><code>VrUiLayer.kt</code></td><td>三个假 tab 换成柜子胶囊；新增「换柜子」整层；索引轮 A–Z 改 1–12 月；格式浮层四格换成画面示意；顺带把残留的旧绿色 <code>C_ACCENT</code> / <code>C_PANEL_HI</code> 统一到品牌青蓝。</td></tr>
+<tr><td><code>VrCoordinator.kt</code></td><td><code>Confirm("tab…")</code> 从 <code>showMessage("分类筛选将在 V1 接入")</code> 改为 <code>switchCabinet()</code>；新增 per-source cursor 与按叠装载；格式解析先查 <code>group_key</code> 继承。</td></tr>
+<tr><td><code>VrFormat.kt</code> / <code>ProjectionMesh.kt</code> / <code>GlUtils.kt</code> / <code>VrRenderer.kt</code></td><td><b>V2.5 已落地其中的平面部分：</b><code>QUICK_CHOICES</code> 六项含 <code>PLANE_2D + SBS</code>，<code>label</code> 改「2D 银幕」；<code>ProjectionMesh</code> / <code>VrRenderer</code> <b>无需改动</b>（世界锁定几何本就存在）。<b>仍未做：</b>鱼眼 / 立方体 / EAC 枚举与网格、<code>FieldOfView</code> 参与渲染、平面半宽自动还原。</td></tr>
+<tr><td><code>FormatDetector.kt</code></td><td><b>V2.5 已落地其中「16:9 无标记时默认平面」：</b>显式平面标记、常见非 VR 画幅与宽高未知兜底都给 <code>PLANE_2D</code>，低置信度一律弹确认。<b>仍未做：</b>以 <code>device_tag</code> / <code>group_key</code> 为主的文件名启发式降权。</td></tr>
+<tr><td><code>MediaIndexer.kt</code> / <code>LibraryRepository.kt</code> / <code>VrUiLayer.kt</code></td><td><b>V2.5 补入的链路修复：</b>扫描期不再把低置信度猜测写进 <code>detected_format</code>；播放时按当前规则现场重判，不受旧库数据污染；格式确认屏改三列两行容纳六项，并给按钮文字加按宽缩字。</td></tr>
+</tbody>
+</table>
+
+<h4>08.6 验收：戴镜后一次都不取手机</h4>
+<div class="grid2">
+<div class="card"><span class="num">戴上到看到</span><h4>0 次取出手机</h4><p>第一屏就是上次那一柜、那一叠、那一格，不需要找入口。</p></div>
+<div class="card"><span class="num">换一趟旅行</span><h4>1 次凝视 + 1 次摇头</h4><p>换柜、换叠，0 次等待扫描，0 次返回上级。</p></div>
+<div class="card"><span class="num">导入一批新片</span><h4>格式确认最多 1 次</h4><p>按柜子继承，不是 200 次；选错可在播放中改且不重开片源。</p></div>
+</div>
+<div class="quote">V2.2 作废清单：V2.1 的「首字母 A–Z 索引轮」「按片名搜索作为默认找片路径」「待看清单作为默认视图」全部降级或替换；「格式确认浮层四个术语按钮」改为画面示意；<code>FieldOfView</code> 只存不用的现状不再被当作已支持。</div>
+
+<h2>09 / V2.3 增补：姿态变了，正前方也该跟着变</h2>
+<h3>先给结论：目前没有自动处理</h3>
+<p>用户最后确认的问题：「如果用户在配戴之后姿态发生改变，比如坐姿变成躺姿，有没有相应的处理方式呢」。把头追链路从传感器到 UI 查完，答案是：<b>工程里对「人坐着还是躺着」零感知，唯一的手动兜底在躺姿下也基本用不上</b>。</p>
+<table>
+<thead><tr><th style="width:250px">位置</th><th>现状</th></tr></thead>
+<tbody>
+<tr><td><code>SensorHeadsetProvider.start()</code></td><td>只注册 <code>TYPE_ROTATION_VECTOR</code>；<code>VrActivity</code> 没有第二个传感器监听，全工程无重力 / 姿态判据。</td></tr>
+<tr><td><code>VrUiState.kt</code> / <code>VrSettings.kt</code></td><td>没有姿态、重力、舒适中心或姿势模式字段，<code>VrActivity</code> 的 <code>onResume/onPause</code> 也只管 GL 与播放器。</td></tr>
+<tr><td><code>VrCoordinator.kt:83</code></td><td><code>VrAction.ResetForward -> headset.recenter()</code>：只调一次方法，<b>不回写 uiState、不给任何反馈、不重置手势窗口</b>，用户不知道有没有生效。</td></tr>
+<tr><td><code>VrUiLayer.kt:290</code></td><td>入口是设置浮层里 250×46px 的小按钮「重置正前方」，藏在 16 个目标中。躺下后的路径是「双击 → 设置 → 瞄准小按钮 → 确认」，还得先仰头到能看见画面的角度。</td></tr>
+<tr><td><code>GestureRecognizer.kt:83</code></td><td>判据是「700ms 内 pitch 往返 ≥10° 判点头 / yaw 往返 ≥15° 判摇头」。从坐到躺 pitch 连续变化 60–90° 且伴随回弹与调整，<b>极可能被误判成点头或摇头</b>，触发播放 / 暂停或切片；<code>onActivity()</code> 还会顺手把控制台唤出来。</td></tr>
+<tr><td><code>SensorHeadsetProvider.headRotation():58</code></td><td><code>viewLocked</code> 时直接 <code>return frozen.copyOf()</code>，而 <code>recenter()</code> 只改 <code>inverseOffset</code>——后者仅在非锁定分支的 <code>Matrix.multiplyMM</code> 里被用到。<b>一旦开启「锁定视角」，躺下后怎么按都重置不了。</b></td></tr>
+<tr><td><code>VrRenderer.kt:72</code> / <code>VrUiLayer.kt:78</code></td><td><code>uiQuad(-0.46f)</code> 与 <code>panelCenterY()</code> 把播放控制台固定在世界坐标下方约 13°。躺姿下「下方」意味着朝脚的方向看，脖子并不舒服；这个俯角需要随姿态变。</td></tr>
+</tbody>
+</table>
+<div class="note"><strong>好消息：底层数学是够的。</strong>两个 Provider 的 <code>recenter()</code> 都用 <code>Matrix.invertM(inverseOffset, 0, raw, 0)</code> 取<b>完整旋转矩阵的逆</b>，不是只清 yaw；所以按一次就能把含 pitch / roll 的当前姿态设为新零点，2 米处世界锁定的 UI 平面会跟着新参考系走。<b>缺的是触发时机、反馈、姿态感知与人体工学俯角，不是能力本身。</b></div>
+<p>另有边界要说准：Cardboard 是 3DOF，手机贴在脸上，躺下时眼睛相对手机的位置不变，IPD 与畸变也不变。<b>这纯粹是旋转参考系与 UI 人体工学问题，不是缺硬件、也不需要位置补偿。</b></p>
+
+<h4>09.1 不做「坐 / 躺」两个模式，做舒适中心</h4>
+<p>半躺、靠沙发、侧躺是连续量，二元模式开关会反复误判。更合适的抽象是「<b>舒适中心</b>」：正前方不由重力或磁北定义，而是「当前稳定姿态下视线的自然落点」。系统只在这个落点持续偏移时，把整个参考系重定一次——视频、UI、字幕、准星作为一个整体走，不分别处理。</p>
+
+<svg viewBox="0 0 680 330" width="100%" role="img" xmlns="http://www.w3.org/2000/svg" style="max-width:680px;display:block;margin:24px auto 8px;">
+<title>坐姿与躺姿下的视野参考系对比</title>
+<desc>三栏示意：坐姿时画面在水平正前方；躺姿且未处理时画面仍钉在旧水平前方需要仰头；V2.3 把舒适中心重定后画面随缓动转到天花板方向。</desc>
+<text x="340" y="26" font-size="14" font-weight="500" text-anchor="middle" fill="#14202E">姿态变了，「正前方」也该跟着变</text>
+<text x="340" y="45" font-size="12" text-anchor="middle" fill="#6B7787">3DOF 手机贴在脸上，位置不变，只有参考系需要重定</text>
+<rect x="40" y="62" width="190" height="242" rx="10" fill="#F0F2F0" stroke="#E3E6E3" stroke-width="0.5"/>
+<rect x="240" y="62" width="190" height="242" rx="10" fill="#F0F2F0" stroke="#E3E6E3" stroke-width="0.5"/>
+<rect x="440" y="62" width="190" height="242" rx="10" fill="#F0F2F0" stroke="#E3E6E3" stroke-width="0.5"/>
+<text x="56" y="86" font-size="13" font-weight="500" fill="#14202E">坐着 · 现状</text>
+<text x="256" y="86" font-size="13" font-weight="500" fill="#14202E">躺下 · 现状</text>
+<text x="456" y="86" font-size="13" font-weight="500" fill="#14202E">躺下 · V2.3</text>
+<text x="56" y="104" font-size="11" fill="#0F6E56">画面在正前方</text>
+<text x="256" y="104" font-size="11" fill="#A32D2D">画面钉在旧水平前方</text>
+<text x="456" y="104" font-size="11" fill="#185FA5">舒适中心重定</text>
+<path d="M56 232 L214 232" fill="none" stroke="#9AA3A0" stroke-width="0.5" stroke-dasharray="3 3"/>
+<path d="M256 232 L414 232" fill="none" stroke="#9AA3A0" stroke-width="0.5" stroke-dasharray="3 3"/>
+<path d="M456 232 L614 232" fill="none" stroke="#9AA3A0" stroke-width="0.5" stroke-dasharray="3 3"/>
+<text x="56" y="246" font-size="11" fill="#6B7787">水平地面</text>
+<text x="256" y="246" font-size="11" fill="#6B7787">水平地面</text>
+<text x="456" y="246" font-size="11" fill="#6B7787">水平地面</text>
+<circle cx="96" cy="172" r="16" fill="#14202E"/>
+<rect x="84" y="190" width="24" height="42" rx="10" fill="#14202E"/>
+<rect x="112" y="165" width="11" height="15" rx="2" fill="#67E8F9"/>
+<path d="M123 172 L162 172" fill="none" stroke="#1F9CB8" stroke-width="1.5" stroke-dasharray="4 3"/>
+<rect x="162" y="152" width="52" height="40" rx="5" fill="#173A5E" stroke="#67E8F9" stroke-width="1"/>
+<text x="188" y="176" font-size="11" text-anchor="middle" fill="#B9C6DA">片库</text>
+<rect x="266" y="200" width="60" height="22" rx="10" fill="#14202E"/>
+<circle cx="266" cy="211" r="14" fill="#14202E"/>
+<rect x="256" y="188" width="15" height="9" rx="2" fill="#67E8F9"/>
+<path d="M263 186 L263 130" fill="none" stroke="#1F9CB8" stroke-width="1.5" stroke-dasharray="4 3"/>
+<path d="M263 130 Q310 130 348 172" fill="none" stroke="#A32D2D" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="300" y="122" font-size="11" fill="#A32D2D">仰头约 90°</text>
+<rect x="362" y="152" width="52" height="40" rx="5" fill="#173A5E" stroke="#67E8F9" stroke-width="1"/>
+<text x="388" y="176" font-size="11" text-anchor="middle" fill="#B9C6DA">片库</text>
+<rect x="466" y="200" width="60" height="22" rx="10" fill="#14202E"/>
+<circle cx="466" cy="211" r="14" fill="#14202E"/>
+<rect x="456" y="188" width="15" height="9" rx="2" fill="#67E8F9"/>
+<path d="M463 186 L463 152" fill="none" stroke="#1F9CB8" stroke-width="1.5" stroke-dasharray="4 3"/>
+<rect x="437" y="112" width="52" height="40" rx="5" fill="#173A5E" stroke="#67E8F9" stroke-width="1"/>
+<text x="463" y="136" font-size="11" text-anchor="middle" fill="#B9C6DA">片库</text>
+<path d="M530 172 Q530 132 495 132" fill="none" stroke="#185FA5" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="534" y="160" font-size="11" fill="#185FA5">0.8s 缓转</text>
+<text x="56" y="278" font-size="11" fill="#6B7787">头不动，画面就在眼前</text>
+<text x="256" y="278" font-size="11" fill="#6B7787">要一直仰着脖子才看得见</text>
+<text x="456" y="278" font-size="11" fill="#6B7787">画面转到天花板方向</text>
+</svg>
+<p class="cap" style="margin-bottom:26px;"><b>姿态与视野参考系</b> · 躺姿下要重定的是整个参考系，不是让用户把头仰回去</p>
+
+<h4>09.2 三层保障：迟钝地感知、先问再动、随时可改</h4>
+<div class="grid2">
+<div class="card"><span class="num">01 感知要迟钝</span><h4>不碰现有头追链路</h4><p><b>V2.3.1 修订：</b>不必注册第二个传感器——<code>SensorManager.getRotationMatrixFromVector()</code> 输出的矩阵已含重力对齐（世界 Z 指天），从现有 <code>headRotation()</code> 的原始矩阵反解重力方向即可，省一个监听、也避免两个数据源时间不同步。判据仍是「新方向稳定 ≥1.5s + 角速度低于阈值 + 与当前基准偏离 &gt;40° + 迟滞带」。低头调纸盒、咳嗽、翻身、侧躺微调都不该让画面动。<b>V2.4 定案：检测结果只用来「提问」，不再直接重定</b>；360 内容里长时间主动抬头因此不会抢走画面。</p></div>
+<div class="card"><span class="num">02 先问再动</span><h4>检测不等于执行</h4><p><b>V2.4 定案：</b>检测到稳定姿态变化后，<b>只</b>在舒适中心浮出一个大目标「姿势变了 · 把正前方挪到这里？」，画面一帧都不动。用户凝视一次才进入 0.8s 缓转；不理它，提示数秒后自行淡去，画面与参考系保持原样。世界锁定 UI 平面整体转过去，屏幕空间准星与字幕不动。</p></div>
+<div class="card"><span class="num">03 零学习成本</span><h4>不新增手势、不占用触发键</h4><p>确认用的就是已经学会的「凝视停留」，命中判定与片库里选片完全一致。长按=返回、双击=设置、单击=播放 / 暂停、点头摇头=播控<b>一律不动</b>，也不需要撤销窗口——不确认就什么都不发生。躺姿下够不着触发键不再是个问题。</p></div>
+<div class="card"><span class="num">04 兜底在环境层</span><h4>不进设置浮层</h4><p>临时确认浮层与环境层第 5 个大目标「把正前方挪到这里」<b>是同一个控件</b>：自动检测到就浮出来问，用户主动进环境层也能随时重定。单屏仍是 5 个目标，不进设置浮层、不取手机。</p></div>
+</div>
+
+<svg viewBox="0 0 680 350" width="100%" role="img" xmlns="http://www.w3.org/2000/svg" style="max-width:680px;display:block;margin:24px auto 8px;">
+<title>GazeReel V2.3 环境层视觉稿</title>
+<desc>左右眼共用同一份环境层：四个柜子目标加第五个大目标把正前方挪到这里，顶部显示姿势已变与凝视确认提示。</desc>
+<text x="340" y="26" font-size="14" font-weight="500" text-anchor="middle" fill="#14202E">环境层 · 一个动作把正前方挪过来</text>
+<rect x="40" y="46" width="290" height="264" rx="40" fill="#070E19" stroke="#1B2C42" stroke-width="1"/>
+<rect x="350" y="46" width="290" height="264" rx="40" fill="#070E19" stroke="#1B2C42" stroke-width="1"/>
+<rect x="54" y="60" width="262" height="34" rx="9" fill="#12283F" stroke="#3A82A6" stroke-width="0.5"/>
+<text x="185" y="75" font-size="11" text-anchor="middle" fill="#67E8F9">姿势变了</text>
+<text x="185" y="89" font-size="11" text-anchor="middle" fill="#B9C6DA">凝视确认后跟随</text>
+<rect x="364" y="60" width="262" height="34" rx="9" fill="#12283F" stroke="#3A82A6" stroke-width="0.5"/>
+<text x="495" y="75" font-size="11" text-anchor="middle" fill="#67E8F9">姿势变了</text>
+<text x="495" y="89" font-size="11" text-anchor="middle" fill="#B9C6DA">凝视确认后跟随</text>
+<rect x="54" y="104" width="132" height="38" rx="8" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="66" y="128" font-size="12" fill="#F2F7FF">家里 NAS</text>
+<rect x="54" y="148" width="132" height="38" rx="8" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="66" y="172" font-size="12" fill="#F2F7FF">手机本机</text>
+<rect x="54" y="192" width="132" height="38" rx="8" fill="#12283F" stroke="#67E8F9" stroke-width="2"/>
+<text x="66" y="216" font-size="12" fill="#67E8F9">相机 SD 卡</text>
+<rect x="54" y="236" width="132" height="38" rx="8" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="66" y="260" font-size="12" fill="#F2F7FF">共享盘</text>
+<rect x="196" y="104" width="118" height="170" rx="10" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="206" y="124" font-size="11" fill="#8FA3BC">环境 · 第 5 个目标</text>
+<rect x="204" y="140" width="102" height="72" rx="9" fill="#173A5E" stroke="#67E8F9" stroke-width="2"/>
+<circle cx="255" cy="168" r="13" fill="none" stroke="#67E8F9" stroke-width="1.5"/>
+<path d="M255 150 L255 158 M255 178 L255 186 M237 168 L245 168 M265 168 L273 168" fill="none" stroke="#67E8F9" stroke-width="1.5"/>
+<text x="255" y="202" font-size="11" text-anchor="middle" fill="#F2F7FF">对准这里</text>
+<text x="206" y="234" font-size="12" font-weight="500" fill="#67E8F9">把正前方挪到这里</text>
+<text x="206" y="252" font-size="11" fill="#8FA3BC">凝视一次 · 不用取下手机</text>
+<circle cx="190" cy="190" r="7" fill="none" stroke="#F2F7FF" stroke-width="1.5"/>
+<circle cx="190" cy="190" r="1.5" fill="#F2F7FF"/>
+<rect x="364" y="104" width="132" height="38" rx="8" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="376" y="128" font-size="12" fill="#F2F7FF">家里 NAS</text>
+<rect x="364" y="148" width="132" height="38" rx="8" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="376" y="172" font-size="12" fill="#F2F7FF">手机本机</text>
+<rect x="364" y="192" width="132" height="38" rx="8" fill="#12283F" stroke="#67E8F9" stroke-width="2"/>
+<text x="376" y="216" font-size="12" fill="#67E8F9">相机 SD 卡</text>
+<rect x="364" y="236" width="132" height="38" rx="8" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="376" y="260" font-size="12" fill="#F2F7FF">共享盘</text>
+<rect x="506" y="104" width="118" height="170" rx="10" fill="#0E1B2C" stroke="#22364F" stroke-width="0.5"/>
+<text x="516" y="124" font-size="11" fill="#8FA3BC">环境 · 第 5 个目标</text>
+<rect x="514" y="140" width="102" height="72" rx="9" fill="#173A5E" stroke="#67E8F9" stroke-width="2"/>
+<circle cx="565" cy="168" r="13" fill="none" stroke="#67E8F9" stroke-width="1.5"/>
+<path d="M565 150 L565 158 M565 178 L565 186 M547 168 L555 168 M575 168 L583 168" fill="none" stroke="#67E8F9" stroke-width="1.5"/>
+<text x="565" y="202" font-size="11" text-anchor="middle" fill="#F2F7FF">对准这里</text>
+<text x="516" y="234" font-size="12" font-weight="500" fill="#67E8F9">把正前方挪到这里</text>
+<text x="516" y="252" font-size="11" fill="#8FA3BC">凝视一次 · 不用取下手机</text>
+<circle cx="500" cy="190" r="7" fill="none" stroke="#F2F7FF" stroke-width="1.5"/>
+<circle cx="500" cy="190" r="1.5" fill="#F2F7FF"/>
+<text x="340" y="334" font-size="12" text-anchor="middle" fill="#6B7787">换片源与重定正前方都在同一层 · 5 个目标 · 不新增手势</text>
+</svg>
+<p class="cap" style="margin-bottom:26px;"><b>环境层</b> · 左右眼共用同一份 UI；换柜子与重定正前方是同类操作，不该分属两处</p>
+
+<table>
+<thead><tr><th style="width:210px">时刻</th><th>通道</th><th>为什么</th></tr></thead>
+<tbody>
+<tr><td>重力方向稳定 &gt;1.5s 且偏离 &gt;40°</td><td>系统<b>只标记候选</b>，舒适中心浮出确认大目标，<b>画面与参考系都不动</b></td><td>检测与执行分离，主动注视不会被抢画面</td></tr>
+<tr><td>凝视确认后 0.8s 缓转</td><td>世界锁定 UI 平面整体转过去；<code>GazeDetector.reset()</code> 清 <code>progress/startedAt/lastX/lastY</code></td><td>不瞬跳；防缓转结束首帧误触发（A2）</td></tr>
+<tr><td>缓转期间</td><td><code>GestureRecognizer</code> 静默 + <code>GazeDetector</code> 暂停命中 + <code>tick()</code> 挂起 fade 判据</td><td>防姿态变化被读成点头 / 摇头、防控制台被唤出</td></tr>
+<tr><td>用户不理提示</td><td>提示数秒后淡去，画面与参考系原样保留</td><td>默认「不动」永远是最安全的结果</td></tr>
+<tr><td>想主动重定</td><td>环境层第 5 个大目标「把正前方挪到这里」</td><td>不进设置浮层、不取手机</td></tr>
+<tr><td>戴镜前</td><td>配置页「姿势：自动询问 / 一直坐 / 一直躺」，默认自动询问</td><td>自动可关，用户保留最终控制权</td></tr>
+</tbody>
+</table>
+
+<h4>09.3 语义纠正：冻结 ≠ 重定基准</h4>
+<p>这是躺姿场景最容易搞混、也是当前代码里真实出错的地方。<code>VrSettings.lockView</code> 是「冻结头追输出」，<code>recenter()</code> 是「换参考系」，两者不是一回事，更不能让前者绕过后者。</p>
+<table>
+<thead><tr><th style="width:170px"></th><th>锁定视角 <code>lockView</code></th><th>重定基准 <code>recenter</code></th></tr></thead>
+<tbody>
+<tr><td>作用</td><td>冻结头追，画面钉在锁定瞬间的朝向</td><td>换参考系，画面随新的正前方重新对齐</td></tr>
+<tr><td>躺姿下</td><td>应临时让位，否则用户被钉在旧朝向</td><td><b>凝视确认后</b>触发一次</td></tr>
+<tr><td>代码现状</td><td><code>headRotation()</code> 返回 <code>frozen</code></td><td>只改 <code>inverseOffset</code>，被 frozen 分支绕过 → <b>失效</b></td></tr>
+<tr><td>修正</td><td>姿态重定时临时解锁</td><td>重定后按新基准重新冻结；无论是否 locked 都要生效</td></tr>
+</tbody>
+</table>
+
+<h4>09.4 落到工程上的改动点</h4>
+<table>
+<thead><tr><th style="width:250px">位置</th><th>改动</th></tr></thead>
+<tbody>
+<tr><td><code>SensorHeadsetProvider.kt</code> / <code>CardboardHeadsetProvider.kt</code></td><td>让 <code>recenter()</code> 在 <code>viewLocked</code> 下也生效；姿态重定后按新基准重新冻结，避免锁定态绕过参考系。</td></tr>
+<tr><td>新增 <code>PostureMonitor.kt</code></td><td>从现有旋转矩阵反解重力方向（V2.3.1 C3）+ 迟滞带与稳定计时；输出连续倾角与<b>「候选姿态」事件</b>，不直接调 <code>recenter()</code>。</td></tr>
+<tr><td><code>VrActivity.kt</code></td><td>在已有 33ms <code>tick</code> 里驱动 PostureMonitor；<code>onResume/onPause</code> 同步注册与注销；候选事件只置 <code>recenterPending</code>，确认后才缓转并静默手势与凝视。</td></tr>
+<tr><td><code>VrUiState.kt</code> / <code>VrSettings.kt</code></td><td>加 <code>postureMode</code>（ASK / SITTING / LYING）、<code>comfortPitch</code>、<code>recenterPending</code>、<code>pendingSinceMs</code>。<b>V2.4 取消 <code>undoUntilMs</code></b>（不再需要撤销窗口）。</td></tr>
+<tr><td><code>VrCoordinator.kt</code></td><td><code>ResetForward</code> 改为回写 uiState、给反馈、重置手势窗口；新增 <code>PromptRecenter</code>（只置候选）与 <code>ConfirmRecenter</code>（执行缓转）。<b>V2.4 取消 <code>CancelRecenter</code></b>：不确认即无事发生。</td></tr>
+<tr><td><code>VrRenderer.kt</code> / <code>VrUiLayer.kt</code></td><td><code>uiQuad(-0.46f)</code> 与 <code>panelCenterY()</code> 共用随姿态缓动的 <code>comfortPitch</code>（坐姿约 −13°，躺姿改到舒适区）；<b>V2.3.1 纠正：</b>只有<b>世界锁定 UI 平面</b>跟随参考系，屏幕空间的准星层与字幕层<b>保持屏幕中心、不参与重定</b>（照 V2.3 字面「一并跟随」实现会把准星转离真实视线中心）。另前置依赖：当前准星仍画在 UI 纹理 <code>(W/2,H/2)</code>、字幕也在同一 Canvas，需先完成 V2.1 的三层拆分，否则绘制与命中判定必然错位。</td></tr>
+<tr><td><code>VrUiLayer.kt</code> 环境层</td><td>V2.2 换柜层升级为「环境层」，加第 5 个大目标；移除设置浮层里那个 250×46px 的「重置正前方」小按钮。</td></tr>
+<tr><td><code>SetupActivity.kt</code></td><td>配置页加「姿势」三选一，默认自动，与 V2.1 的观影偏好滑杆同屏。</td></tr>
+</tbody>
+</table>
+
+<h4>09.5 验收</h4>
+<div class="grid2">
+<div class="card"><span class="num">坐着躺下</span><h4>1 次凝视、0 次取手机</h4><p>提示浮出时画面不动；确认后 0.8s 转到位，世界锁定 UI 跟着新参考系，准星与字幕不动，不错位、不瞬跳。</p></div>
+<div class="card"><span class="num">低头调纸盒 / 翻身</span><h4>画面不动</h4><p>不误触播放暂停、不把控制台唤出来，迟滞与稳定计时挡住短时姿态扰动。</p></div>
+<div class="card"><span class="num">360 内容里长时间抬头</span><h4>画面不被抢走</h4><p>提示会浮出，但不凝视就什么都不发生；不误触播放暂停、不唤出控制台。已确认后想改，进环境层同一个目标再来一次即可；开启「锁定视角」的用户同样生效。</p></div>
+</div>
+<div class="quote">V2.3 明确作废：把「重置正前方」当作设置浮层里的小按钮；把「锁定视角」与「重定基准」混为一谈；用坐 / 躺二元模式判断姿态。新增：舒适中心、迟滞感知、0.8s 缓转 + 3 秒可撤销、环境层第 5 目标、随姿态变化的控制台俯角。</div>
+<div class="quote"><b>V2.4 定案（用户拍板「按检测到变化 → 凝视一次确认」）：</b>进一步作废 V2.3 的「自动重定参考系」「3 秒窗口内单击触发键撤销」「已跟随你的姿势」提示语，以及 <code>undoUntilMs</code> / <code>CancelRecenter</code>。新增：候选姿态只提问不执行、确认大目标与环境层第 5 目标合二为一、不确认即保持原样、<code>recenterPending</code> 状态。0.8s 缓转、迟滞感知、舒适中心、随姿态变化的控制台俯角全部保留。</div>
+
+<h2>10 / V2.3.1 复核：把四轮设计当成一条链路重走一遍</h2>
+<p>这次不是再补功能，而是从「戴镜前 → 塞进纸盒 → 播放中 → 换姿势 → 退出」整条走一遍，并回到源码逐条验证每一个设计前提。结果是：<b>找到 11 处漏项，其中 3 处会改变 V2.3 的结论、2 处是跨版本的前提错误；而最要紧的一条，是这四轮设计一行代码都没有落地。</b></p>
+
+<svg viewBox="0 0 680 268" width="100%" role="img" xmlns="http://www.w3.org/2000/svg" style="max-width:680px;display:block;margin:22px auto 8px;">
+<title>V2.3.1 复核：四轮设计的覆盖与空白</title>
+<desc>五个使用环节横向排列，标注各自被哪一版设计覆盖，以及仍为空白的部分：2D 内容的形态、360 内容里长时间主动注视、侧躺、躺姿下触发键可达性；底部标出全部四版都未落地到代码。</desc>
+<text x="340" y="24" font-size="14" font-weight="500" text-anchor="middle" fill="#14202E">覆盖与空白 · 把四轮设计当成一条使用链路</text>
+<text x="340" y="43" font-size="12" text-anchor="middle" fill="#6B7787">深色标签＝已有设计结论，红色标签＝本次复核发现的空白</text>
+<rect x="20" y="60" width="112" height="58" rx="9" fill="#F0F2F0" stroke="#E3E6E3" stroke-width="0.5"/>
+<rect x="152" y="60" width="112" height="58" rx="9" fill="#F0F2F0" stroke="#E3E6E3" stroke-width="0.5"/>
+<rect x="284" y="60" width="112" height="58" rx="9" fill="#F0F2F0" stroke="#E3E6E3" stroke-width="0.5"/>
+<rect x="416" y="60" width="112" height="58" rx="9" fill="#F0F2F0" stroke="#E3E6E3" stroke-width="0.5"/>
+<rect x="548" y="60" width="112" height="58" rx="9" fill="#F0F2F0" stroke="#E3E6E3" stroke-width="0.5"/>
+<text x="76" y="84" font-size="12" font-weight="500" text-anchor="middle" fill="#14202E">戴镜前</text>
+<text x="208" y="84" font-size="12" font-weight="500" text-anchor="middle" fill="#14202E">塞进纸盒</text>
+<text x="340" y="84" font-size="12" font-weight="500" text-anchor="middle" fill="#14202E">播放中</text>
+<text x="472" y="84" font-size="12" font-weight="500" text-anchor="middle" fill="#14202E">换姿势</text>
+<text x="604" y="84" font-size="12" font-weight="500" text-anchor="middle" fill="#14202E">退出</text>
+<text x="76" y="104" font-size="11" text-anchor="middle" fill="#0F6E56">V2.0 / V2.1</text>
+<text x="208" y="104" font-size="11" text-anchor="middle" fill="#0F6E56">V2.1</text>
+<text x="340" y="104" font-size="11" text-anchor="middle" fill="#0F6E56">V2.2</text>
+<text x="472" y="104" font-size="11" text-anchor="middle" fill="#0F6E56">V2.3</text>
+<text x="604" y="104" font-size="11" text-anchor="middle" fill="#A32D2D">未专门设计</text>
+<path d="M132 89 L152 89 M264 89 L284 89 M396 89 L416 89 M528 89 L548 89" fill="none" stroke="#9AA3A0" stroke-width="1"/>
+<rect x="278" y="132" width="124" height="24" rx="6" fill="#FBEAEA" stroke="#E8B4B4" stroke-width="0.5"/>
+<text x="340" y="149" font-size="11" text-anchor="middle" fill="#A32D2D">2D 内容的形态未定</text>
+<rect x="404" y="132" width="136" height="24" rx="6" fill="#FBEAEA" stroke="#E8B4B4" stroke-width="0.5"/>
+<text x="472" y="149" font-size="11" text-anchor="middle" fill="#A32D2D">360 主动注视 / 侧躺</text>
+<rect x="542" y="132" width="124" height="24" rx="6" fill="#FBEAEA" stroke="#E8B4B4" stroke-width="0.5"/>
+<text x="604" y="149" font-size="11" text-anchor="middle" fill="#A32D2D">触发键够得着吗</text>
+<rect x="20" y="182" width="640" height="40" rx="8" fill="#FBEAEA" stroke="#E8B4B4" stroke-width="0.5"/>
+<text x="340" y="199" font-size="12" font-weight="500" text-anchor="middle" fill="#A32D2D">贯穿全程：V2.0 → V2.3 全部只改设计文档，工程代码 / 资源 / APK 未改动</text>
+<text x="340" y="215" font-size="11" text-anchor="middle" fill="#A32D2D">用户最初反馈「界面非常粗糙」，到今天 APP 界面仍是原来那一版</text>
+<text x="340" y="248" font-size="11" text-anchor="middle" fill="#6B7787">方向 A 与四轮结论本身没有被推翻，被补上的是前提、边界与落地顺序</text>
+</svg>
+<p class="cap" style="margin-bottom:26px;"><b>链路覆盖图</b> · 每一版都在把设计往前推，但有几处从未进入视野，且整链路尚未连到产品上</p>
+
+<h3>A 类 · 三处会改变 V2.3 结论的硬问题</h3>
+<table>
+<thead><tr><th style="width:52px">编号</th><th style="width:200px">漏了什么</th><th>源码依据与后果</th><th style="width:190px">建议</th></tr></thead>
+<tbody>
+<tr><td><b>A1</b></td><td><b>360 内容里长时间主动抬头，会被当成「躺下了」</b></td><td>V2.3 判据是「重力方向偏离 &gt;40° 且稳定 ≥1.5s」。但 360 视频里用户本来就常常长时间仰头 / 低头看不同方位——这是<b>内容消费，不是姿态变化</b>。系统会自动重定参考系把画面拉回来，直接破坏观看。V2.3 只防了「低头调纸盒 / 咳嗽 / 翻身」这类短时扰动，没防长时主动注视。根因是 3DOF 只有手机姿态，<b>无法区分「整个人换姿势」和「头相对身体转」</b>。</td><td>把「自动重定」降级为「自动检测 + 舒适中心浮出一个大目标『正前方挪到这里？』，一次凝视确认」；或只对球面内容提示。<b>V2.4 已定案：采用乙，检测 → 凝视一次确认。</b></td></tr>
+<tr><td><b>A2</b></td><td><b>「缓转期暂停命中」挡不住误触发</b></td><td><code>GazeDetector.kt:29-34</code> 的 <code>progress / startedAt / lastX / lastY</code> <b>只在目标 id 变化或目标为空时清零</b>（<code>:47-57</code>）。暂停 <code>update()</code> 会保留 <code>startedAt</code>，0.8s 缓转结束后 <code>now - startedAt</code> 已远超 <code>gazeDurationMs</code> 的 1200ms，第一帧 <code>progress ≥ 1f</code> 会<b>立刻误触发刚才盯了一半的按钮</b>；<code>lastX/lastY</code> 坐标跳变还会调 <code>onActivity()</code> → <code>VrCoordinator.touch()</code> 刷新 <code>lastActivityMs</code>（<code>:248-263</code>），把控制台唤出并推迟 8 秒淡出。</td><td>新增 <code>GazeDetector.reset()</code> 显式清空五个字段，<code>GestureRecognizer.reset()</code> 清累积窗口；缓转期挂起 <code>tick()</code> 的 fade 判据。V2.3 只写「静默」不够，必须清状态。</td></tr>
+<tr><td><b>A3</b></td><td><b>「屏幕层一并跟随」自相矛盾，且前提未实现</b></td><td>09.4 原写「V2.1 拆出的字幕与准星屏幕层一并跟随」。但屏幕空间层按定义<b>不参与头追矩阵</b>，不该随世界参考系转；照字面实现会把准星转离真实视线中心。且代码里准星仍画在 UI 纹理 <code>canvas.drawCircle(W/2,H/2,12f)</code>（<code>VrUiLayer.kt:114</code> 注释自承「真机中应作为独立屏幕中心层，此处按面板坐标近似」），字幕也在同一 Canvas（<code>:177-179</code>）——<b>三层拆分本身还只是设计</b>。</td><td>已在 09.4 就地纠正：只有世界锁定 UI 平面跟随 <code>comfortPitch</code>，准星与字幕保持屏幕中心；并把「先完成三层拆分」列为 09.4 前置依赖。</td></tr>
+</tbody>
+</table>
+
+<h3>B 类 · 两处跨版本的前提错误</h3>
+<table>
+<thead><tr><th style="width:52px">编号</th><th style="width:200px">漏了什么</th><th>为什么是前提错</th><th style="width:190px">修订</th></tr></thead>
+<tbody>
+<tr><td><b>B1</b></td><td><b>「亮度默认跟随环境光自动」物理上不成立</b></td><td>手机塞进纸盒后，光线传感器被纸盒与脸完全遮住，读数恒为极暗；躺姿下再叠枕头 / 被子更糟，自动亮度会把画面压到最暗。核对源码：全工程只注册 <code>TYPE_ROTATION_VECTOR</code>（<code>SensorHeadsetProvider.kt:27,42</code>），<b>没有任何 <code>TYPE_LIGHT</code> 监听</b>；<code>brightness</code> 是纯手动整数（默认 70）经 <code>uBrightness</code> 生效。V2.1 把「不用调」建立在一个戴镜后必然失真的传感器上。</td><td>已在第 07 章加修订 note：环境光<b>只在戴镜前读一次</b>作为初始档位，塞进纸盒后冻结；播放中只保留暗 / 标准 / 亮三个大胶囊。</td></tr>
+<tr><td><b>B2</b></td><td><b>2D 平面内容在 VR 里「是什么」，四轮都没定</b></td><td>而这是用户自己视频里<b>占比最大的一类</b>。<code>VrFormat.kt:7</code> 有 <code>PLANE_2D</code> 枚举、<code>label</code> 有「2D 平面」，但 <code>QUICK_CHOICES</code> 四项全是球面（<code>:23-28</code>）。设计文档从没回答：2D 视频是<b>世界锁定虚拟银幕</b>（躺下后随舒适中心转到天花板，正好是「躺着看天花板影院」）还是<b>屏幕空间贴片</b>（永远贴眼前）？这直接决定 V2.3 的三层模型怎么拆、以及「舒适中心」对 2D 内容意味着什么——V2.2 与 V2.3 在这里是一块真空白。</td><td><b>V2.5 已定案：采用世界锁定银幕</b>（用户拍板）。回查发现几何本就存在，本轮补齐「能选到 + 能识别」，详见 10.7；躺姿重定后银幕随参考系转到天花板，与 09 章舒适中心同语义，三层跟随规则不再只对球面内容成立。</td></tr>
+</tbody>
+</table>
+
+<h3>C 类 · V2.3 自身覆盖不全</h3>
+<table>
+<thead><tr><th style="width:52px">编号</th><th style="width:190px">漏项</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>C1</td><td><b>侧躺 / roll 没画、没判据、没验收</b></td><td>09 章三栏图只讲 pitch（坐 → 躺）。侧躺时画面会歪 90°，而躺姿下「水平」本身就模糊（天花板没有地平线），360 内容地平线歪掉会晕。<code>recenter()</code> 取完整逆矩阵数学上含 roll，但 09.2 判据、09.5 验收、两张稿都没提 roll，也没定义「画面水平线怎么定」。</td></tr>
+<tr><td>C2</td><td><b>「3 秒内按触发键撤销」躺姿下未必够得着</b></td><td><code>SensorHeadsetProvider.supportsHardwareTrigger = false</code>，无 AAR 时触发靠 <code>VrActivity.onTouchEvent</code> 屏幕触摸 / <code>KEYCODE_ENTER</code> / 音量键（<code>:164-198</code>）。手机横插纸盒，躺下后手指要从开口够屏幕、音量键可能被卡扣压住或朝下。V2.1「实体音量键调音量」同理。<b>「零成本反悔」依赖一条躺姿下不可靠的输入通道</b>。<b>V2.4 已消解</b>：改为「先凝视确认、不确认就不动」，撤销通道整体取消，全程不需要按触发键。</td></tr>
+<tr><td>C3</td><td><b>传感器与双实现的工程细节</b></td><td><code>TYPE_GRAVITY</code> 是虚拟传感器，需判空回退（已在 09.2 改为优先从现有旋转矩阵反解重力）；<code>CardboardHeadsetProvider</code> 用官方 <code>HeadTracker</code>，坐标系与 <code>getRotationMatrixFromVector</code> 不同，姿态判据必须从统一接口取，否则两条路径表现漂移；<code>VrActivity.onResume/onPause</code> 目前只管 GL（<code>:154-162</code>），来电 / 锁屏时传感器回调仍在跑。</td></tr>
+<tr><td>C4</td><td><b>所有常数都是拍脑袋且不可调</b></td><td>1.5s / 40° / 0.8s / 3s / 8s fade / 1200ms gaze / −13°，没有可调入口，也没有传感器数据录制回放的调参路径。姿态是强体感参数，纯静态推导定不了案；应做成配置常量 + 一次真机录制回放。</td></tr>
+<tr><td>C5</td><td><b>舒适度与个体差异</b></td><td>0.8s 整体缓转本身可能引起视觉前庭冲突；没有「晕动敏感 / 关缓转改淡入淡出」选项。颈部活动受限、戴眼镜、左撇子触发键也都没覆盖。配置页「姿势」三选一只能关自动，管不到缓转本身。</td></tr>
+</tbody>
+</table>
+
+<h3>D 类 · 最该说的一条：设计与产品之间还差一次落地</h3>
+<div class="note"><strong>V2.4 更新：</strong>下列 D 类记录的是 V2.3.1 时刻的事实。用户已在 10.5 ③ 采纳「先做最小可验证切片」，<b>本轮起首次修改工程源码并重新编译 APK</b>；时间戳表保留为历史证据，不再代表当前状态。</div>
+<div class="quote">四轮设计（V2.0 → V2.3）改的都是设计文档。<b>源码全部停在 11:46，APK 停在 11:54，设计稿在 13:42。</b>用户最初那句「APP 的界面非常粗糙」，到今天 APP 界面仍是白底白卡、horizontal 双栏、裸露 <code>EditText</code>、靠 <code>addView(TextView)</code> 拼片源列表的那一版。所有「好用」的结论都还停在纸上。</div>
+<table>
+<thead><tr><th style="width:210px">证据</th><th>事实</th></tr></thead>
+<tbody>
+<tr><td>文件时间戳</td><td><code>app/src/main</code> 下全部 <code>.kt</code> / <code>.xml</code> 均为 11:46；<code>app-debug.apk</code> 11:54；<code>UI_VISUAL_DESIGN.html</code> 13:42、<code>UI_DESIGN_SPEC.html</code> 13:49。<b>V2.0 起的每一轮都只改 HTML 与记忆文件。</b></td></tr>
+<tr><td>待实现清单未收敛</td><td>07.3 若干 + 08.5 八处 + 09.4 八处 + 本次 A2 / A3 / B2 / C1–C5，无优先级、无依赖排序、无「最小可验证切片」。V2.2 的格式清单（鱼眼 / 立方体 / EAC / 平面 SBS 3D、FOV 只存不用、<code>_3dh</code> 误判）、一层扫描、<code>mtime</code> 存扫描时间、三个假 tab、换柜层、看图选格式，<b>全部仍未实现</b>。</td></tr>
+<tr><td>验证闭环缺失</td><td>全程只有静态校验与 Gradle 真编译，<b>未做真机验证</b>。而姿态重定、凝视停留、桶形畸变、纸盒内触发键可达性，恰恰都是必须上手戴一次才能定的东西。</td></tr>
+</tbody>
+</table>
+
+<h3>10.5 拍板结果与实施状态（V2.4）</h3>
+<div class="grid2">
+<div class="card"><span class="num">① 已定案 · 乙</span><h4>检测 → 凝视确认</h4><p>用户拍板「按检测到变化 → 凝视一次确认」。09 章已按此重写：系统只标记候选并浮出确认大目标，画面不动；凝视后才缓转；不新增手势、不占用触发键、不需要撤销窗口。<b>A1（360 主动注视被抢画面）与 C2（躺姿下触发键够不着）由此一并消解。</b></p></div>
+<div class="card"><span class="num">② 已定案 · V2.5</span><h4>2D 用世界锁定银幕</h4><p>用户拍板<b>采用世界锁定银幕</b>，不用屏幕空间贴片。核心差别是<b>画面是否与 UI 共用同一个参考系</b>：银幕有空间感、躺姿重定后变成「天花板影院」、① 的姿态确认对它才有意义；贴片永不脱框、实现最省，但躺姿重定时会出现「界面飘走、电影没动」，头动画面不动也更易晕。代价是转头会看到银幕边缘、躺下需要仰头，交给 09 章舒适中心解决。<b>回查发现几何本已具备，本轮只补齐可达性，详见 10.7。</b></p></div>
+<div class="card"><span class="num">③ 已落地 · 首个切片</span><h4>最小可验证切片</h4><p>用户采纳建议，本轮已改源码并真编译：<code>viewLocked</code> 下 <code>recenter()</code> 失效修复、<code>GazeDetector</code> / <code>GestureRecognizer</code> 的 <code>reset()</code>、配置页竖屏单栏与四态内联反馈、可安装 APK。详见 10.6。三层拆分仍留到下一刀；<b>2D 银幕已在 V2.5 落地（10.7）</b>；<b>真机安装与手感仍需用户上手</b>。</p></div>
+<div class="card"><span class="num">④ 已就地纠正</span><h4>不改方向的修订</h4><p>07 章亮度前提作废（B1）、09.2 重力来源改为从现有矩阵反解（C3）、09.4 屏幕层跟随矛盾纠正（A3）、09.4 补三层拆分前置依赖。四处均为明确的技术错误，不涉及方向变更。</p></div>
+</div>
+
+<div class="note"><strong>V2.4 状态说明（V2.5 补注）：</strong>方向 A 与 V2.1 / V2.2 / V2.3 的结论<b>没有被推翻</b>；V2.3.1 补前提与边界，V2.4 按用户拍板把姿态机制改为「检测 → 凝视确认」，并<b>首次改到工程源码</b>（头追锁定态修复、输入状态重置、配置页竖屏单栏与四态内联反馈），随后 <code>clean :app:assembleDebug</code> 真编译通过（14:36 · 13.5 MB 可安装 APK），逐项结果见 10.6。<b>② 已在 V2.5 定案为世界锁定银幕并落地，见 10.7。</b>08.5、09.4 与各章实现清单中未落地的部分仍不是已实现声明；<b>本轮仍未做真机安装与手感验证</b>。<code>UI_DESIGN_SPEC.html</code> 尺寸与安全区结论有效，数据模型以第 08 章、姿态以第 09 章（V2.4 版）、前提修订以第 10 章为准。</div>
+
+<h3>10.6 首个切片落地结果（V2.4 · 14:36 真编译）</h3>
+<p class="sub">四轮设计之后第一次真正改到工程源码。下面只写已经发生、且被 Gradle 与 aapt 验证过的事实；没做的一并列出，不把设计稿当成实现。</p>
+<table>
+<thead><tr><th style="width:230px">改动</th><th>落地内容</th></tr></thead>
+<tbody>
+<tr><td><code>SensorHeadsetProvider.kt</code><br><code>CardboardHeadsetProvider.kt</code></td><td><b>修掉「锁定视角下重置正前方无效」</b>：两个 Provider 的 <code>recenter()</code> 现在同步更新 <code>frozen</code>（新基准下当前姿态即正前方，设为单位矩阵），SDK 路径另抽 <code>refreshRotation()</code>，锁定态不再采样头追时也能取到当前姿态再反解基准；矩阵读写统一进 <code>synchronized(lock)</code>。这是 ①「确认后才缓转」能真正生效的前置条件。</td></tr>
+<tr><td><code>GazeDetector.kt</code><br><code>GestureRecognizer.kt</code></td><td>各补 <code>reset()</code>：清空停留进度、上一帧准星落点、yaw / pitch 窗口，并留一个手势冷却。对应 A2——参考系跳变后首帧不再误触发，姿态缓转期间可以安全静默。</td></tr>
+<tr><td><code>VrCoordinator.kt</code><br><code>VrUiState.kt</code><br><code>VrActivity.kt</code></td><td><code>ResetForward</code> 现在回写状态、调 <code>onRecenter</code> 清窗口、给一条 <b>2.4 秒后自动消失</b>的「正前方已重置」反馈（<code>messageUntilMs</code>）。顺带修掉播放状态高频回调会把短提示抹成 null 的问题；播放错误仍常驻。</td></tr>
+<tr><td><code>activity_setup.xml</code><br><code>item_source.xml</code><br><code>SetupActivity.kt</code><br><code>colors.xml</code> / <code>themes.xml</code> / 4 个 drawable / <code>strings.xml</code></td><td><b>配置页从「竖屏里塞双栏白底」改成方向 A 单栏深色</b>：品牌行 + 大标题 + 深色卡片 + 底部常驻主 CTA；控件统一 46dp 高、10dp 圆角、深色文字与 hint；片源列表改为 <code>item_source.xml</code> inflate 的卡片行，不再 <code>addView(TextView)</code>；<b>空闲 / 扫描中 / 已就绪 / 需检查四态在页面内联反馈</b>，圆点与 chip 随状态变色，Toast 全部移除；「跳过」按钮（与「进入 VR」行为重复）删除。</td></tr>
+<tr><td><code>tools/check_structure.py</code></td><td>ViewBinding 白名单改为从 <code>res/layout/*.xml</code> 动态推导，新增布局不再误报「引用了不存在的类」。</td></tr>
+</tbody>
+</table>
+<div class="grid2">
+<div class="card"><span class="num">编译</span><h4>BUILD SUCCESSFUL</h4><p><code>./gradlew clean :app:assembleDebug</code>，2m18s，40 个 task 全量执行；<code>compileDebugKotlin</code> / <code>processDebugResources</code> / <code>packageDebug</code> 全通过。静态校验：0 XML 解析错误、0 重复资源、0 未解析引用。</p></div>
+<div class="card"><span class="num">产物</span><h4>可安装 APK</h4><p><code>app/build/outputs/apk/debug/app-debug.apk</code>，13,514,415 字节，14:36。aapt 核验：<code>com.gazereel.vr</code> / <code>0.1.0-mvp</code> / 标签「凝影」/ minSdk 26 / targetSdk 35。</p></div>
+</div>
+<div class="note"><strong>这一刀（V2.4）明确没做：</strong>姿态检测与「姿势变了 · 把正前方挪到这里？」确认大目标、0.8s 缓转、舒适俯角、UI 三层拆分、2D 银幕 / 贴片（<b>V2.5 已定案为世界锁定银幕并落地，见 10.7</b>）、鱼眼 / 立方体（其中平面 SBS 3D 已在 10.7 落地）、换柜子、看图选格式、扫描中「停止扫描」的真取消，以及<b>真机安装与戴镜手感验证</b>。它们仍是设计结论，不是已实现声明。下一刀建议先做「姿态检测 → 确认大目标 → 缓转」闭环，再上真机验证手感。</div>
+
+<h3>10.7 V2.5 定案与落地结果（2D 世界锁定银幕 · 15:21 真编译）</h3>
+<p class="sub">用户拍板「采用世界锁定银幕」。这一刀<b>没有改渲染管线</b>——回查源码后确认几何本来就是世界锁定的；真正补的是「让用户能选到、让识别别把它判成 360」。</p>
+
+<h4>先把差别说清：银幕 与 贴片</h4>
+<table>
+<thead><tr><th style="width:150px">同一部 2D 视频</th><th>世界锁定银幕（采纳）</th><th>屏幕空间贴片（未采纳）</th></tr></thead>
+<tbody>
+<tr><td>坐着正看</td><td>2 米外一块 2.4×1.35m 银幕，有画框、有距离</td><td>画面钉在视野中央，看不到边缘</td></tr>
+<tr><td>转头 30°</td><td>银幕偏出视野，能看见边缘外的暗场</td><td>画面跟着头走，永远满视野</td></tr>
+<tr><td>躺下并重定正前方</td><td>银幕随参考系转到天花板，成了「躺着看天花板影院」</td><td>画面不动而 UI 转走，出现「界面飘走、电影没动」</td></tr>
+<tr><td>与 UI 的关系</td><td>共用同一套头追 MVP，09 章姿态确认对内容有意义</td><td>两套参考系，姿态机制只对 UI 有效，头动画面不动也更易晕</td></tr>
+</tbody>
+</table>
+<p>选它的理由：产品本体是用户自己的视频（08 章），而躺下是这类内容的高频姿势；贴片会把整章姿态工作降级成「只挪界面」。代价也如实记下——<b>转头会出框、躺下需要仰头</b>，靠 09 章舒适中心与 +13° 左右的重定俯角解决，那部分仍未实现。</p>
+
+<h4>回查到的源码事实（决定了这一刀改什么）</h4>
+<table>
+<thead><tr><th style="width:200px">事实</th><th>依据</th></tr></thead>
+<tbody>
+<tr><td>2D 几何本就世界锁定</td><td><code>ProjectionMesh.build(PLANE_2D)</code> 返回 <code>plane(distance=2f, width=2.4f, height=1.35f, centerY=0f)</code>；<code>VrRenderer:107</code> 用 <code>projectionMatrix × viewMatrix</code> 组 MVP，而 <code>viewMatrix</code> 来自 <code>headset.eyeParams()</code> 并含头追旋转。</td></tr>
+<tr><td>与 UI 同参考系</td><td><code>uiQuad()</code> 同样调 <code>plane(distance=2f, …)</code>，两者共面 <code>z=-2</code>；视频先画、UI 后画，未启用 <code>GL_DEPTH_TEST</code>，按预乘 alpha 混合。因此银幕边缘露在 1.8×0.9m 的 UI 平面之外，世界锁定感真实可见。</td></tr>
+<tr><td>原本「选不到」</td><td><code>QUICK_CHOICES</code> 四项全球面；<code>aspectHeuristic()</code> 对 16:9 返回 null 后落 <code>DEFAULT(360)</code>；更隐蔽的是扫描期 <code>detector.detect(entry.title)</code> 不传宽高，把 360 写进 <code>detected_format</code>，而 <code>resolveFormat()</code> 又优先读它——<b>只改启发式不会生效</b>。</td></tr>
+<tr><td>平面 SBS 3D 可直接复用</td><td><code>uEyeRegion</code> 每眼取半幅纹理，网格不变；half-SBS 每眼本身 16:9，正好贴合 16:9 银幕，无需新增几何。</td></tr>
+</tbody>
+</table>
+
+<h4>本轮改了什么</h4>
+<table>
+<thead><tr><th style="width:230px">文件</th><th>改动</th></tr></thead>
+<tbody>
+<tr><td><code>VrFormat.kt</code></td><td><code>QUICK_CHOICES</code> 由四项扩到六项，新增 <code>PLANE_2D+MONO+FLAT</code> 与 <code>PLANE_2D+SBS+FLAT</code>；<code>label</code> 文案从「2D 平面」改为「2D 银幕」。</td></tr>
+<tr><td><code>FormatDetector.kt</code></td><td>显式平面标记（<code>_2d / _flat / _plane / _screen</code>）直接给银幕；常见非 VR 画幅与宽高未知兜底给低置信度银幕建议并强制确认；<code>_3dh / _3dv</code> 因语义歧义降置信度并强制确认；明确 360 / 180 / VR 标记仍优先球面。</td></tr>
+<tr><td><code>MediaIndexer.kt</code></td><td>扫描期只把高置信度、无需确认的显式标记写进 <code>detected_format</code>，低置信度猜测留空，不再污染数据库。</td></tr>
+<tr><td><code>LibraryRepository.kt</code></td><td>无覆盖时一律按当前规则现场重判，<code>detected_format</code> 降为兼容字段；注释「四选一」改「六选一」。</td></tr>
+<tr><td><code>VrUiLayer.kt</code></td><td>格式确认屏由两列四行改 <b>三列两行</b>，六项各 248×128px ≈ 11.8°×6.1°，加「返回」共 7 个目标（守单屏 ≤9）；标题下补一句人话「2D 银幕会像真实银幕一样固定在世界里，转头能看到边缘」；按钮文字按可用宽度自动缩字并复位 Paint。</td></tr>
+<tr><td><b>刻意未改</b></td><td><code>ProjectionMesh.kt</code> / <code>VrRenderer.kt</code> / 着色器 —— 几何与每眼采样本就正确，改动只会引入回归风险。</td></tr>
+</tbody>
+</table>
+
+<div class="grid2">
+<div class="card"><span class="num">静态校验</span><h4>全通过</h4><p>39 个 Kotlin 文件 / 4708 行、14 个 XML、59 values / 5 drawables；包路径、跨模块引用、括号、资源引用、Gradle alias 全部一致，0 错误。</p></div>
+<div class="card"><span class="num">真实编译</span><h4>BUILD SUCCESSFUL</h4><p><code>./gradlew clean :app:assembleDebug</code>，2m16s，40 个 task 全量执行；产物 <code>app-debug.apk</code> 13,514,415 字节（15:21），aapt 核验包名 <code>com.gazereel.vr</code>。</p></div>
+</div>
+<div class="note"><strong>这一刀明确没做：</strong>真机安装与戴镜手感验证、09 章姿态检测与确认大目标闭环、0.8s 缓转与舒适俯角、UI 三层拆分、看图选格式、鱼眼 / 立方体 / EAC 投影、平面半宽自动还原、<code>group_key</code> 继承与换柜子。另外 <code>FieldOfView.FLAT</code> <b>仍是只存不用的标记</b>：几何由 <code>PLANE_2D</code> 决定，不声称已实现 FOV 参与渲染。下一刀仍建议「姿态闭环 + 上真机」。</div>
+
+<h2>11 / 真机实测：第一关不是戴镜，是加片库</h2>
+<h3>11.1 用户原话（V2.6 的起点）</h3>
+<div class="note">
+「看起来有用心做，实际上却很难用，就单说 APP 添加片库来说：<br>
+1. SMB 用的是 \，WebDAV/HTTP 用的是 /，这是必须要用户输入的吗？<br>
+2. 路径为什么一定要输入文件夹，万一用户记不住文件夹名称呢，为什么不有只输 IP 地址，连接之后让用户选文件夹？<br>
+3. 已经添加的片库既不能编辑，也不能删除，万一用户想换一个文件夹呢，万一用户不需要这个片库了呢？」
+</div>
+<p>这三句把前面十章的视角纠正了回来：V2.0–V2.5 一直在设计「戴镜之后」，而用户上手的第一关是「戴镜之前」。<b>戴镜前的路走不通，后面的所有沉浸设计都到不了。</b>所以这一版不补 VR 内的新功能，先把入口重做。</p>
+
+<h3>11.2 三条不是三个 bug，是同一个判断</h3>
+<p><b>界面在让用户替程序做格式化、替程序记路径、替程序管生命周期。</b></p>
+<table>
+<thead><tr><th style="width:170px">用户遇到的</th><th>表层现象</th><th>真正该由谁做</th></tr></thead>
+<tbody>
+<tr><td>要敲 \ 还是 /</td><td>SMB 要写 <code>\\192.168.1.10\VR</code>，WebDAV 要写 <code>http://…:8080/dav/</code></td><td>协议头、分隔符、默认端口是 <code>SourceType</code> 的内部约定，程序补</td></tr>
+<tr><td>要背文件夹名</td><td>地址栏必须一次写对完整目录，写错就扫描 0 个视频，还不知道错在哪一段</td><td>目录是可浏览对象，程序连上后列出来让人点</td></tr>
+<tr><td>加错改不了删不掉</td><td><code>SourceDao</code> 只有 <code>upsert</code>，<code>observeEnabled()</code> 只增不减</td><td>片库是有生命周期的对象，界面要给「改 / 重扫 / 删」</td></tr>
+</tbody>
+</table>
+
+<h3>11.3 改前 / 改后：从填空题到点选</h3>
+<svg viewBox="0 0 680 316" width="100%" role="img" xmlns="http://www.w3.org/2000/svg" style="max-width:680px;display:block;margin:24px auto 8px;">
+<title>添加片库三步：只填 IP、连上点选文件夹、片库卡可改可删</title>
+<desc>三块手机界面：旧版要求填写完整路径；新版只填设备地址；连接后弹出可见文件夹列表；已添加片库卡片带改、重扫、删。</desc>
+<rect x="0" y="0" width="680" height="316" fill="#F6F6F3"/>
+<text x="20" y="24" font-size="12" fill="#6B7787">改前 · 填空题</text>
+<rect x="20" y="34" width="180" height="254" rx="20" fill="#0B1422" stroke="#22344D" stroke-width="1"/>
+<text x="38" y="62" font-size="12" font-weight="500" fill="#F2F6FB">添加一个片库</text>
+<text x="38" y="88" font-size="11" fill="#8FA3BC">共享地址</text>
+<rect x="38" y="96" width="144" height="28" rx="7" fill="#0E1A2B" stroke="#22344D" stroke-width="0.5"/>
+<text x="46" y="114" font-size="11" fill="#8FA3BC">\\192.168.1.10\VR\…</text>
+<text x="38" y="144" font-size="11" fill="#F0A29B">要记住反斜杠、共享名、文件夹名</text>
+<rect x="38" y="160" width="144" height="28" rx="7" fill="none" stroke="#22344D" stroke-width="0.5"/>
+<text x="110" y="178" font-size="11" text-anchor="middle" fill="#67E8F9">扫描并添加</text>
+<rect x="38" y="204" width="144" height="58" rx="10" fill="#122036" stroke="#22344D" stroke-width="0.5"/>
+<text x="48" y="226" font-size="11" fill="#F2F6FB">VR · Movies</text>
+<text x="48" y="244" font-size="11" fill="#8FA3BC">加进去之后，没有改，没有删</text>
+<text x="230" y="24" font-size="12" fill="#6B7787">改后 · 点选</text>
+<rect x="230" y="34" width="180" height="254" rx="20" fill="#0B1422" stroke="#22344D" stroke-width="1"/>
+<text x="248" y="62" font-size="12" font-weight="500" fill="#F2F6FB">添加一个片库</text>
+<text x="248" y="88" font-size="11" fill="#8FA3BC">设备地址</text>
+<rect x="248" y="96" width="144" height="28" rx="7" fill="#0E1A2B" stroke="#67E8F9" stroke-width="1"/>
+<text x="256" y="114" font-size="12" fill="#F2F6FB">192.168.1.10</text>
+<text x="248" y="142" font-size="11" fill="#8FA3BC">不用写协议头、斜杠、文件夹名</text>
+<rect x="248" y="158" width="144" height="28" rx="7" fill="#67E8F9"/>
+<text x="320" y="176" font-size="11" font-weight="500" text-anchor="middle" fill="#0B1422">连接并选文件夹</text>
+<rect x="248" y="200" width="144" height="62" rx="10" fill="#122036" stroke="#22344D" stroke-width="0.5"/>
+<text x="258" y="222" font-size="11" fill="#F2F6FB">NAS · VR</text>
+<text x="258" y="240" font-size="11" fill="#8FA3BC">12 个视频</text>
+<rect x="258" y="246" width="24" height="12" rx="6" fill="none" stroke="#67E8F9" stroke-width="0.5"/>
+<rect x="288" y="246" width="34" height="12" rx="6" fill="none" stroke="#67E8F9" stroke-width="0.5"/>
+<rect x="328" y="246" width="24" height="12" rx="6" fill="none" stroke="#F0A29B" stroke-width="0.5"/>
+<text x="440" y="24" font-size="12" fill="#6B7787">连上之后 · 看得见的目录</text>
+<rect x="440" y="34" width="220" height="254" rx="20" fill="#0B1422" stroke="#22344D" stroke-width="1"/>
+<text x="458" y="62" font-size="12" font-weight="500" fill="#F2F6FB">选择文件夹</text>
+<text x="458" y="82" font-size="11" fill="#8FA3BC">当前位置 · 192.168.1.10 · VR</text>
+<text x="458" y="102" font-size="11" fill="#8FA3BC">这一层有 3 个视频、4 个文件夹</text>
+<rect x="458" y="112" width="184" height="30" rx="7" fill="#0E1A2B" stroke="#22344D" stroke-width="0.5"/>
+<text x="468" y="131" font-size="12" fill="#F2F6FB">2024 旅行</text><text x="630" y="131" font-size="11" text-anchor="end" fill="#8FA3BC">文件夹</text>
+<rect x="458" y="148" width="184" height="30" rx="7" fill="#0E1A2B" stroke="#22344D" stroke-width="0.5"/>
+<text x="468" y="167" font-size="12" fill="#F2F6FB">相机导出</text><text x="630" y="167" font-size="11" text-anchor="end" fill="#8FA3BC">文件夹</text>
+<rect x="458" y="184" width="184" height="30" rx="7" fill="#0E1A2B" stroke="#22344D" stroke-width="0.5"/>
+<text x="468" y="203" font-size="12" fill="#F2F6FB">VR 短片</text><text x="630" y="203" font-size="11" text-anchor="end" fill="#8FA3BC">文件夹</text>
+<rect x="458" y="226" width="72" height="30" rx="7" fill="none" stroke="#22344D" stroke-width="0.5"/>
+<text x="494" y="245" font-size="11" text-anchor="middle" fill="#F2F6FB">取消</text>
+<rect x="536" y="226" width="106" height="30" rx="7" fill="#67E8F9"/>
+<text x="589" y="245" font-size="11" font-weight="500" text-anchor="middle" fill="#0B1422">就用这一层</text>
+<text x="458" y="276" font-size="11" fill="#8FA3BC">返回上一层可退到共享 / 设备列表</text>
+</svg>
+<p class="cap"><b>图：</b>同一个动作，用户从「回忆并手敲一个字符串」变成「认得出就点得中」。<b>地址全程由程序维护</b>，界面里出现的永远是设备名和文件夹名。</p>
+
+<h3>11.4 六个「顺手」的决定（按真实使用顺序）</h3>
+<div class="grid2">
+<div class="card"><span class="num">01</span><h4>只问一个东西：设备在哪</h4><p>输入框标签从「共享地址」改为「设备地址」，hint 是 <code>192.168.1.10</code>。协议头、<code>\\</code>、<code>/</code>、默认端口由 <code>SourceAddress.normalize()</code> 按类型补齐；粘贴完整 UNC / URL 也照收，不给高级用户添堵。</p></div>
+<div class="card"><span class="num">02</span><h4>能不问就不问</h4><p>DLNA 自动发现、本地存储点选，这两种类型直接把地址输入框整块隐藏。一个空着的输入框本身就是「你还欠我一步」的压力。</p></div>
+<div class="card"><span class="num">03</span><h4>连上再选，别让用户先猜</h4><p>按钮文案改为「连接并选文件夹」。WebDAV / HTTP 只填 IP 时程序依次试 <code>/</code>、<code>/dav/</code>、<code>/webdav/</code>、<code>/videos/</code> 等常见挂载点，第一个列得出目录的作为起点；全失败才提示粘贴完整地址。</p></div>
+<div class="card"><span class="num">04</span><h4>每一层都说清「选了会得到什么」</h4><p>浏览对话框固定显示「这一层有 N 个视频、M 个文件夹」，并写明<b>只收这一层、下层不自动展开</b>。0 个视频也允许选，但不当成成功骗用户。</p></div>
+<div class="card"><span class="num">05</span><h4>片库是对象，不是日志</h4><p>每张卡片自带「改 / 重扫 / 删」三个可见动作，不用长按、不进二级菜单。改：可改名、换账号、换文件夹；账号密码留空表示保持原样，不为了换个目录重敲密码。</p></div>
+<div class="card"><span class="num">06</span><h4>删除要让人放心</h4><p>确认框明确「只删本机索引、断点、格式记忆和凭证，设备里的视频文件不会被动到」；换目录时先清旧索引，避免留下一批打不开的幽灵条目。</p></div>
+</div>
+
+<h3>11.5 回查源码：能力本来就在，只是没接到界面</h3>
+<table>
+<thead><tr><th style="width:230px">已有能力</th><th>之前为什么没帮上忙</th></tr></thead>
+<tbody>
+<tr><td><code>SmbSessionPool.list()</code></td><td>能列目录且已带 <code>isDirectory</code>，但 <code>MediaIndexer.entriesFor()</code> 把 SMB 写死为 <code>pool.list(…, "")</code>，只扫共享根；<code>parseUnc()</code> 还丢掉了 share 之后的层级。</td></tr>
+<tr><td><code>WebDavScanner.list()</code> / <code>HttpDirectoryScanner.list()</code></td><td>解析时直接把目录 <code>return@mapNotNull null</code> / 只留视频扩展名，界面根本拿不到可点的文件夹。</td></tr>
+<tr><td><code>DlnaScanner.discover() / browse()</code></td><td>每次扫描都重新发现整个局域网，用户选中的那台没有存下来。</td></tr>
+<tr><td><code>CredentialStore.remove()</code> / <code>MediaDao.deleteBySource()</code></td><td>底层清理能力齐备，但 <code>SourceDao</code> 只有 <code>upsert</code>，没有 <code>update</code> / <code>deleteById</code>，也没有任何界面入口调用它们。</td></tr>
+<tr><td><code>decodeCredentials(null)</code></td><td>旧版返回 <code>SmbCredentials("guest","")</code>，让匿名 SMB 走 NTLM、让 HTTP 凭空带 Basic 头——一个连「只填 IP」都会连不上的隐藏坑，本轮一并改成空身份。</td></tr>
+</tbody>
+</table>
+
+<h3>11.6 V2.6 实际改了什么（已落地，不是设计稿）</h3>
+<table>
+<thead><tr><th style="width:250px">文件</th><th>改动</th></tr></thead>
+<tbody>
+<tr><td><b>新增</b> <code>SourceAddress.kt</code></td><td>地址归一化、常见挂载点候选、按类型生成 hint / help / 显示名。用户只填 IP，机器补语法。</td></tr>
+<tr><td><b>新增</b> <code>FolderBrowser.kt</code></td><td>与协议无关的逐层浏览：SMB 设备→共享→文件夹、WebDAV/HTTP URL 层级、DLNA 设备列表、本地目录；提供 <code>root / at / enter / up</code>，地址与 cursor 分离，只允许在起点之下移动。</td></tr>
+<tr><td><code>SmbSessionPool.kt</code></td><td><code>parseUncFull()</code> 保留子目录层级；会话与树连接拆开缓存；新增 <code>probeShares()</code>，用同一会话试连常见共享名，把连得上的列给用户点。</td></tr>
+<tr><td><code>NetworkSources.kt</code></td><td>WebDAV <code>207</code> 与 HTTP autoindex 现在都返回目录条目（过滤自身 / 父级 / 站外链接）；<code>DlnaScanner.browseUrl()</code> 允许只扫选中的那台。</td></tr>
+<tr><td><code>MediaIndexer.kt</code></td><td><code>entriesFor</code> 提升为公开 <code>list()</code>，供浏览与扫描共用；SMB 按选中子目录扫描且 path 保留 share 内完整相对路径；DLNA 支持 controlURL。</td></tr>
+<tr><td><code>Daos.kt</code> / <code>PosterRepository.kt</code></td><td>补 <code>SourceDao.update/deleteById</code>、按 source 清理断点与格式记忆、清理文字封面；删除顺序保证先删依赖行。</td></tr>
+<tr><td><code>SetupActivity.kt</code> + 4 个布局</td><td>表单按类型显隐；连接后弹深色文件夹浏览对话框；片库卡加「改 / 重扫 / 删」；编辑对话框支持改名、换账号、换文件夹；四态内联反馈与常驻 CTA 保留。</td></tr>
+<tr><td><code>DataSourceFactory.kt</code></td><td>修掉「无凭证 → guest 身份」的隐藏坑。</td></tr>
+</tbody>
+</table>
+
+<h3>11.7 验证</h3>
+<div class="grid2">
+<div class="card"><span class="num">静态校验</span><h4>全通过</h4><p>41 个 Kotlin 文件 / 5497 行、17 个 XML、75 values / 5 drawables；包路径、跨模块引用、括号、资源引用、Gradle alias 一致，0 错误。</p></div>
+<div class="card"><span class="num">真实编译</span><h4>BUILD SUCCESSFUL</h4><p><code>./gradlew clean :app:assembleDebug</code>，2m19s，40 个 task 全量执行；<code>app-debug.apk</code> 13,557,372 字节（16:08），aapt 核验包名 <code>com.gazereel.vr</code>。</p></div>
+</div>
+
+<div class="note"><strong>这一刀明确没做，也不假装做了：</strong>① <b>SMB 共享名是启发式探测</b>——smbj 0.13 没有公开的 SRVSVC NetShareEnum 高层 API，当前用同一会话试连常见共享名；非常规命名可能探测不到，失败时界面允许粘贴完整 UNC，完整枚举留作专项。② <b>仍是单层扫描</b>：选中的那一层里下层文件夹不会自动展开，界面已如实写明。③ DLNA 只做到「选设备」，服务器内部容器层级未展开。④ 08 章的 <code>group_key</code> / 换柜子、09 章姿态闭环、UI 三层拆分、看图选格式、鱼眼 / 立方体 / EAC 依旧未实现。⑤ <b>真机安装与戴镜手感验证仍需用户上手</b>——这一轮修的正是上一版真机反馈，下一轮仍应以真机为准。</div>
+
+<footer>
+GazeReel 凝影 · 视觉设计 V2.6 · 熄灯后的放映室 / 私人影带柜 · 标语：目光所及，皆是片库
+</footer>
+
+</div>
+<script>
+document.querySelectorAll('[data-mirror]').forEach(function(el){
+  var src=document.getElementById(el.getAttribute('data-mirror'));
+  if(src) el.innerHTML=src.innerHTML;
+});
+</script>
+</body>
+</html>

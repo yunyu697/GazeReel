@@ -1,0 +1,606 @@
+package com.gazereel.vr.render
+
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PointF
+import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.Typeface
+import com.gazereel.vr.core.GazeTarget
+import com.gazereel.vr.core.VrAction
+import com.gazereel.vr.core.VrFormat
+import com.gazereel.vr.data.db.MediaItemEntity
+import com.gazereel.vr.player.SubtitleParser
+import com.gazereel.vr.ui.VrOverlay
+import com.gazereel.vr.ui.VrScreen
+import com.gazereel.vr.ui.VrUiState
+import kotlin.math.asin
+import kotlin.math.atan2
+import kotlin.math.max
+
+/**
+ * PRD 4.4 / 4.3：把世界锁定 UI 用 Canvas 画到一张纹理，再由 VrRenderer
+ * 分别贴到左右眼的 2 米平面上。凝视进度环画在同一张纹理里，
+ * 因此左右眼必然同时出现、位置一致，双眼融合不会冲突。
+ *
+ * 阶段二：片库海报位图、断点进度提示、字幕行与新增设置开关全部在这张纹理上合成。
+ */
+class VrUiLayer(
+    private val posterLoader: (String) -> Bitmap? = { null }
+) {
+
+    companion object {
+        const val W = 1024
+        const val H = 512
+        private val C_PANEL = 0xFF0E1B2C.toInt()
+        private val C_PANEL_HI = 0xFF12283F.toInt()
+        private val C_BORDER = 0xFF22364F.toInt()
+        // 设计文档 08.5：把残留的旧绿色 C_ACCENT 统一到品牌青蓝 #67E8F9。
+        // 第 143 行的规矩没变——这个颜色只给「现在该点的那个」，不做装饰。
+        private val C_ACCENT = 0xFF67E8F9.toInt()
+        private val C_TEXT = 0xFFEAF2FA.toInt()
+        private val C_MUTED = 0xFFB9C6DA.toInt()
+        private val C_POSTER = 0xFF173A5E.toInt()
+
+        // 片库格子：4 列 × 2 行。每格 212×106px ≈ 10.0°×5.3°，仍守住单目标 ≥6°×4°。
+        private const val CELL_W = 212f
+        private const val CELL_H = 106f
+        private val CELL_LEFT = floatArrayOf(60f, 286f, 526f, 752f)
+        private val CELL_TOP = floatArrayOf(138f, 268f)
+    }
+
+    private val bitmap = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
+    private val canvas = Canvas(bitmap)
+    private val targets = mutableListOf<GazeTarget>()
+
+    // render() 在 GL 线程写 targets，GazeDetector / TriggerDispatcher 在主线程读；
+    // 每帧结束后发布不可变快照，避免跨线程并发修改。
+    @Volatile
+    private var published: List<GazeTarget> = emptyList()
+
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = C_TEXT; textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD
+    }
+    private val small = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = C_MUTED; textAlign = Paint.Align.CENTER
+    }
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = C_ACCENT; style = Paint.Style.STROKE; strokeWidth = 8f
+    }
+    private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+
+    fun currentTargets(): List<GazeTarget> = published
+
+    /** 准星射线与 UI 平面的交点命中哪个目标；凝视与触发键共用此判定。 */
+    fun targetAt(rotation: FloatArray, state: VrUiState): GazeTarget? {
+        val point = gazePoint(rotation, panelCenterY(state))
+        return currentTargets().firstOrNull { it.rect.contains(point.x, point.y) }
+    }
+
+    /** 播放控制台置于视野下方约 13°，其余界面居中（PRD 3.5）。 */
+    fun panelCenterY(state: VrUiState): Float =
+        if (state.screen == VrScreen.PLAYER && state.overlay == VrOverlay.NONE) -0.46f else 0f
+
+    /** 头部姿态 → 准星在 UI 画布上的落点。面板俯角会抵消「低头」。 */
+    fun gazePoint(rotation: FloatArray, panelCenterY: Float): PointF {
+        val fx = -rotation[8]
+        val fy = -rotation[9]
+        val fz = -rotation[10]
+        val yaw = atan2(fx.toDouble(), -fz.toDouble())
+        val pitch = asin(fy.coerceIn(-1f, 1f).toDouble())
+        val panelPitch = atan2(panelCenterY.toDouble(), 2.0)
+        val halfWidth = atan2(0.9, 2.0)
+        val halfHeight = atan2(0.45, 2.0)
+        val x = W / 2.0 + yaw / halfWidth * (W / 2.0)
+        val y = H / 2.0 - (pitch - panelPitch) / halfHeight * (H / 2.0)
+        return PointF(x.toFloat(), y.toFloat())
+    }
+
+    fun render(
+        state: VrUiState,
+        gazeTargetId: String?,
+        gazeProgress: Float
+    ): Bitmap {
+        bitmap.eraseColor(Color.TRANSPARENT)
+        targets.clear()
+
+        when (state.overlay) {
+            VrOverlay.FORMAT -> drawFormat(state)
+            VrOverlay.SETTINGS -> drawSettings(state)
+            VrOverlay.NONE -> when (state.screen) {
+                VrScreen.LIBRARY -> drawLibrary(state)
+                VrScreen.PLAYER -> drawPlayer(state)
+            }
+        }
+
+        // V2.9：还没上膛就盖一层提示。这里不注册任何目标，凝视此时也不生效。
+        if (!state.gazeArmed) drawArmPrompt()
+
+        published = targets.toList()
+
+        // 准星（真机中应作为独立屏幕中心层，此处按面板坐标近似）
+        // V2.9：没上膛就不画准星。凝视此时不生效，画出来只会让人以为「准星坏了」。
+        if (state.gazeArmed) {
+            ring.strokeWidth = 3f
+            ring.color = C_TEXT
+            canvas.drawCircle(W / 2f, H / 2f, 12f, ring)
+        }
+
+        if (gazeTargetId != null && gazeProgress > 0f) {
+            val target = targets.firstOrNull { it.id == gazeTargetId }
+            if (target != null) {
+                val r = target.rect
+                val radius = 30f
+                val oval = RectF(
+                    r.centerX() - radius, r.centerY() - radius,
+                    r.centerX() + radius, r.centerY() + radius
+                )
+                ring.strokeWidth = 8f
+                ring.color = C_ACCENT
+                canvas.drawArc(oval, -90f, 360f * gazeProgress.coerceIn(0f, 1f), false, ring)
+            }
+        }
+        return bitmap
+    }
+
+    /**
+     * V2.9：「戴稳了按一下触发键」这一屏。
+     *
+     * 它存在的理由不是礼貌，是安全：塞手机进纸盒、拉头带、对焦的整个过程里
+     * 手机一直在动，准星会扫过整个片库。只要凝视还在工作，就会有卡片被「停留」确认掉。
+     * 所以进 VR 后凝视默认关闭，这一屏是唯一还亮着的东西，而它只接受物理按键。
+     */
+    private fun drawArmPrompt() {
+        fill.color = 0xB308111E.toInt()
+        canvas.drawRect(RectF(0f, 0f, W.toFloat(), H.toFloat()), fill)
+
+        val card = RectF(212f, 140f, 812f, 380f)
+        fill.color = 0xF00E1B2C.toInt()
+        canvas.drawRoundRect(card, 26f, 26f, fill)
+        stroke.color = C_ACCENT
+        stroke.strokeWidth = 3f
+        canvas.drawRoundRect(card, 26f, 26f, stroke)
+
+        heading("戴稳了？", 212f)
+        label(
+            "按一下纸盒上的触发键开始",
+            W / 2f, 274f, 30f, C_ACCENT, Paint.Align.CENTER
+        )
+        label(
+            "开始之前凝视不生效 · 塞手机、调头带时不会误开视频",
+            W / 2f, 316f, 19f, C_MUTED, Paint.Align.CENTER
+        )
+        label(
+            "开始之后：凝视 1.2 秒确认 · 长按返回 · 摇头翻页",
+            W / 2f, 346f, 19f, C_MUTED, Paint.Align.CENTER
+        )
+    }
+
+    // ── 片库浏览（PRD 4.4 / FR-10 海报与断点） ─────────────────────────
+    /**
+     * V2.8：片库从「三张卡」改成「一页 8 格」。
+     *
+     * 设计文档第 408 行把「一次只露三张卡、摇头翻 1 部」列为必须解决的问题，
+     * 第 528 行给出答案「摇头翻页从 1 部改为 10 部一页」，第 471 行要求顶部常驻位置感。
+     *
+     * 三处结构性改动：
+     * 1. 2×4 的格子排布让画布正中落在十字缝里，准星静止时压不到任何卡片——
+     *    这是「进入 VR 后自动打开正对着的那个视频」的根治办法，不是靠加长静默期。
+     * 2. 顶部那三个假 tab（点下去只说「V1 接入」）换成真能用的上一页 / 下一页，
+     *    目标数不变，假功能变真功能（08.2 第 06 条同一思路）。
+     * 3. 每格直接就是「播放这一部」的目标，不再需要先选中、再凝视中间的「打开」。
+     */
+    private fun drawLibrary(state: VrUiState) {
+        panel(RectF(40f, 20f, 984f, 492f))
+
+        val items = state.items
+        val pageCount = state.pageCount
+        val page = state.page.coerceIn(0, pageCount - 1)
+
+        label("片库 · ${items.size} 部", 66f, 62f, 26f, C_TEXT)
+        label("第 ${page + 1} / $pageCount 页", 958f, 62f, 20f, C_MUTED, Paint.Align.RIGHT)
+
+        // 翻页条：把假 tab 的位置直接征用，目标数与原来一致。
+        button("pagePrev", "上一页", RectF(60f, 84f, 260f, 126f), VrAction.PageFlip(-1))
+        button("pageNext", "下一页", RectF(764f, 84f, 964f, 126f), VrAction.PageFlip(1))
+        val from = page * VrUiState.PAGE_SIZE + 1
+        val to = minOf(items.size, (page + 1) * VrUiState.PAGE_SIZE)
+        centerText(
+            if (items.isEmpty()) "还没有片源" else "第 $from–$to 部 · 摇头翻页",
+            112f, 19f, C_MUTED
+        )
+
+        if (items.isEmpty()) {
+            centerText("还没有片源 · 请回到戴镜前配置添加共享", 250f, 20f, C_MUTED)
+        } else {
+            val start = page * VrUiState.PAGE_SIZE
+            for (slot in 0 until VrUiState.PAGE_SIZE) {
+                val index = start + slot
+                val item = items.getOrNull(index) ?: break
+                // 2 行 × 4 列，正中那道十字缝留得比别处宽（横向 28px、纵向 24px）。
+                // 这只是在「已经上膛」之后多一道保险，不是防误开的主力——
+                // 配戴过程中手机一直在动，准星照样会扫到卡片上，主力是 V2.9 的触发键上膛。
+                val left = CELL_LEFT[slot % 4]
+                val top = CELL_TOP[slot / 4]
+                val resume = state.progress[item.id]
+                    ?.takeIf { !it.finished && it.positionMs > 0L }
+                cell(
+                    id = "cell$index",
+                    title = item.title,
+                    rect = RectF(left, top, left + CELL_W, top + CELL_H),
+                    action = VrAction.OpenMedia(item.id),
+                    posterPath = item.posterPath,
+                    meta = metaOf(item),
+                    badge = resume?.let { "续 ${formatTime(it.positionMs)}" },
+                    current = item.id == state.currentMediaId
+                )
+            }
+        }
+
+        button("settingsLib", "设置", RectF(60f, 388f, 300f, 442f), VrAction.OpenSettings)
+        button("exitLib", "退出", RectF(724f, 388f, 964f, 442f), VrAction.Exit)
+        val message = state.message
+        if (message != null) {
+            centerText(message, 470f, 18f, C_ACCENT)
+        } else {
+            centerText("凝视一格即播放 · 摇头翻页", 415f, 19f, C_MUTED)
+        }
+    }
+
+    // ── 播放控制台（PRD 4.4：8 秒无操作淡出，控件位于视野下方） ────────
+    private fun drawPlayer(state: VrUiState) {
+        // 字幕独立于控制台淡出：戴镜时控制台消失，字幕仍需可读。
+        if (state.settings.subtitlesEnabled) {
+            SubtitleParser.cueAt(state.subtitles, state.positionMs)?.let { drawSubtitle(it) }
+        }
+        if (!state.consoleVisible) {
+            centerText("低头或按触发键唤出控制台", 470f, 20f, C_MUTED)
+            return
+        }
+        panel(RectF(40f, 300f, 984f, 500f))
+        small.textSize = 20f
+        small.color = C_ACCENT
+        canvas.drawText("自动识别 · " + state.format.label, W / 2f, 288f, small)
+        small.color = C_MUTED
+
+        val left = 80f
+        val segmentW = 86.4f
+        fill.color = C_BORDER
+        canvas.drawRoundRect(RectF(left, 322f, left + segmentW * 10, 344f), 8f, 8f, fill)
+        val played = if (state.durationMs > 0) {
+            state.positionMs.toFloat() / state.durationMs
+        } else 0f
+        fill.color = C_ACCENT
+        canvas.drawRoundRect(RectF(left, 322f, left + segmentW * 10 * played.coerceIn(0f, 1f), 344f), 8f, 8f, fill)
+        // 10 个可凝视跳转区（PRD 4.4）
+        for (i in 0 until 10) {
+            val r = RectF(left + i * segmentW, 314f, left + (i + 1) * segmentW, 352f)
+            targets += GazeTarget("seek$i", "跳到 ${i * 10}%", r, VrAction.SeekTo((i + 0.5f) / 10f))
+        }
+
+        val labels = listOf("上一部", "-60s", if (state.playing) "暂停" else "播放", "+60s", "下一部")
+        val actions = listOf<VrAction>(
+            VrAction.Previous, VrAction.SeekBy(-60), VrAction.TogglePlay,
+            VrAction.SeekBy(60), VrAction.Next
+        )
+        labels.forEachIndexed { i, caption ->
+            val cx = 150f + i * 180f
+            button("transport$i", caption, RectF(cx - 70f, 368f, cx + 70f, 436f), actions[i], highlighted = i == 2)
+        }
+
+        // V2.8：设计文档第 394 行「任意界面一个动作回到片库」。
+        // 之前播放页只有「退出」，想回片库只能长按触发键——戴镜后看不见键盘提示，
+        // 等于没有出口。这里补一个明摆着的「片库」，语义就是已有的 VrAction.Back
+        // （存断点 → 暂停 → 回片库，并落回正在看的这一部所在的页）。
+        val quick = listOf(
+            "片库" to VrAction.Back,
+            "格式" to VrAction.OpenFormat,
+            "亮度" to VrAction.Adjust("brightness", 10),
+            "音量" to VrAction.Adjust("volume", 10),
+            "设置" to VrAction.OpenSettings,
+            "退出" to VrAction.Exit
+        )
+        quick.forEachIndexed { i, (caption, action) ->
+            val qx = 60f + i * 153f
+            button("quick$i", caption, RectF(qx, 448f, qx + 140f, 490f), action)
+        }
+    }
+
+    /** 字幕画在控制台上方，不与 300px 起的面板重叠；半透明底保证亮画面下可读。 */
+    private fun drawSubtitle(value: String) {
+        val lines = value.split('\n').take(2)
+        small.textSize = 26f
+        val widest = lines.maxOf { small.measureText(it) } + 56f
+        val top = 196f
+        val bottom = top + 20f + lines.size * 34f
+        fill.color = 0xDD08111E.toInt()
+        canvas.drawRoundRect(
+            RectF(W / 2f - widest / 2f, top, W / 2f + widest / 2f, bottom), 12f, 12f, fill
+        )
+        text.textSize = 26f
+        text.color = C_TEXT
+        lines.forEachIndexed { i, line ->
+            canvas.drawText(line, W / 2f, top + 34f + i * 34f, text)
+        }
+    }
+
+    // ── 格式确认（V2.5：六项三列两行，2D 世界锁定银幕正式可选） ──────────
+    private fun drawFormat(state: VrUiState) {
+        panel(RectF(100f, 30f, 924f, 496f))
+        heading("确认视频格式 · 自动识别已高亮", 72f)
+        centerText(
+            "2D 银幕会像真实银幕一样固定在世界里，转头能看到边缘",
+            100f, 19f
+        )
+        VrFormat.QUICK_CHOICES.forEachIndexed { i, format ->
+            val col = i % 3
+            val row = i / 3
+            // 248×128px ≈ 11.8°×6.1°，仍满足单目标 ≥6°×4°；
+            // 六项 + 返回 = 7 个目标，守单屏 ≤9。
+            val left = 120f + col * 268f
+            val top = 120f + row * 148f
+            val r = RectF(left, top, left + 248f, top + 128f)
+            button(
+                "fmt$i", format.label, r, VrAction.SetFormat(format),
+                highlighted = sameFormat(format, state.suggestedFormat),
+                sub = if (sameFormat(format, state.suggestedFormat)) "自动识别 · 建议" else "凝视或点击选择"
+            )
+        }
+        button("fmtBack", "返回", RectF(380f, 424f, 644f, 478f), VrAction.CloseOverlay)
+    }
+
+    // ── 设置（PRD 4.4 / FR-12：全部可在戴镜状态完成，不出现键盘） ──────
+    private fun drawSettings(state: VrUiState) {
+        panel(RectF(100f, 20f, 924f, 500f))
+        heading("设置", 62f)
+        val s = state.settings
+        val rows = listOf(
+            Triple("亮度", "${s.brightness}%", "brightness"),
+            Triple("音量", "${s.volume}%", "volume"),
+            Triple("瞳距 IPD", "${s.ipdMm} mm", "ipd"),
+            Triple("凝视时长", "${s.gazeDurationMs} ms", "gaze")
+        )
+        rows.forEachIndexed { i, (label, value, key) ->
+            val y = 88f + i * 54f
+            centerText("$label   $value", y + 30f, 22f, C_TEXT)
+            button("dec$i", "−", RectF(160f, y, 240f, y + 44f), VrAction.Adjust(key, -1))
+            button("inc$i", "+", RectF(784f, y, 864f, y + 44f), VrAction.Adjust(key, 1))
+        }
+        // 两行三列，5 个开关；锁定视角与字幕是阶段二新增。
+        val toggles = listOf(
+            Triple("自动连播", s.autoNext, "autoNext"),
+            Triple("自动淡出", s.autoFade, "autoFade"),
+            Triple("头部手势", s.gesturesEnabled, "gestures"),
+            Triple("锁定视角", s.lockView, "lockView"),
+            Triple("字幕", s.subtitlesEnabled, "subtitles"),
+            Triple("重置正前方", false, "recenter")
+        )
+        toggles.forEachIndexed { i, (label, enabled, key) ->
+            val col = i % 3
+            val row = i / 3
+            val x = 110f + col * 270f
+            val y = 306f + row * 54f
+            val action: VrAction = if (key == "recenter") {
+                VrAction.ResetForward
+            } else {
+                VrAction.ToggleOption(key)
+            }
+            button(
+                "toggle$i", label + if (key == "recenter") "" else if (enabled) " · 开" else " · 关",
+                RectF(x, y, x + 250f, y + 46f), action,
+                highlighted = enabled && key != "recenter"
+            )
+        }
+        button("clearMem", "清除格式记忆", RectF(140f, 430f, 430f, 482f), VrAction.ClearFormatMemory)
+        button("setBack", "返回", RectF(594f, 430f, 884f, 482f), VrAction.CloseOverlay)
+    }
+
+    // ── 绘制辅助 ───────────────────────────────────────────────────────
+    private fun panel(rect: RectF) {
+        fill.color = 0xEE0B1626.toInt()
+        canvas.drawRoundRect(rect, 24f, 24f, fill)
+        stroke.color = C_BORDER
+        stroke.strokeWidth = 2f
+        canvas.drawRoundRect(rect, 24f, 24f, stroke)
+    }
+
+    private fun button(
+        id: String,
+        label: String,
+        rect: RectF,
+        action: VrAction,
+        highlighted: Boolean = false,
+        sub: String? = null
+    ) {
+        targets += GazeTarget(id, label, RectF(rect), action)
+        fill.color = if (highlighted) C_PANEL_HI else C_PANEL
+        canvas.drawRoundRect(rect, 14f, 14f, fill)
+        stroke.color = if (highlighted) C_ACCENT else C_BORDER
+        stroke.strokeWidth = if (highlighted) 3f else 2f
+        canvas.drawRoundRect(rect, 14f, 14f, stroke)
+        // V2.5：格式确认屏改三列后按钮只有 248px 宽，长标签按可用宽度等比缩字，
+        // 绘制完立刻复位，避免共用 Paint 影响后续按钮与标题。
+        text.textSize = 25f
+        text.color = C_TEXT
+        val labelLimit = rect.width() - 20f
+        val labelWidth = text.measureText(label)
+        if (labelWidth > labelLimit) {
+            text.textSize = (25f * labelLimit / labelWidth).coerceAtLeast(17f)
+        }
+        // V2.7.4：缩到 17px 还放不下就截断，宁可少显示几个字也不能越过卡片边界。
+        canvas.drawText(
+            ellipsize(label, rect.width() - 24f, text),
+            rect.centerX(), rect.centerY() + if (sub == null) 9f else -4f, text
+        )
+        text.textSize = 25f
+        if (sub != null) {
+            small.textSize = 18f
+            small.color = if (highlighted) C_ACCENT else C_MUTED
+            val subLimit = rect.width() - 20f
+            val subWidth = small.measureText(sub)
+            if (subWidth > subLimit) {
+                small.textSize = (18f * subLimit / subWidth).coerceAtLeast(13f)
+            }
+            canvas.drawText(sub, rect.centerX(), rect.centerY() + 28f, small)
+            small.textSize = 18f
+            small.color = C_MUTED
+        }
+    }
+
+    /**
+     * V2.8：片库的一格。214×108px ≈ 10.1°×5.4°，仍守住「单目标 ≥6°×4°」。
+     *
+     * 格子本身就是播放目标，所以标题必须压在格内底条上——108px 的高度不够
+     * 再单独留一行文字。断点做成一枚角标，不占标题位置。
+     */
+    private fun cell(
+        id: String,
+        title: String,
+        rect: RectF,
+        action: VrAction,
+        posterPath: String,
+        meta: String?,
+        badge: String?,
+        current: Boolean
+    ) {
+        targets += GazeTarget(id, prettyName(title), RectF(rect), action)
+        fill.color = C_POSTER
+        canvas.drawRoundRect(rect, 12f, 12f, fill)
+
+        val poster = posterPath.takeIf { it.isNotBlank() }?.let { posterLoader(it) }
+        if (poster != null && poster.width > 0 && poster.height > 0) {
+            canvas.save()
+            val clip = Path()
+            clip.addRoundRect(rect, 12f, 12f, Path.Direction.CW)
+            canvas.clipPath(clip)
+            val scale = max(rect.width() / poster.width, rect.height() / poster.height)
+            val dw = poster.width * scale
+            val dh = poster.height * scale
+            val dst = RectF(
+                rect.centerX() - dw / 2f, rect.centerY() - dh / 2f,
+                rect.centerX() + dw / 2f, rect.centerY() + dh / 2f
+            )
+            canvas.drawBitmap(poster, Rect(0, 0, poster.width, poster.height), dst, bitmapPaint)
+            canvas.restore()
+        } else if (meta != null) {
+            // V2.9：没有海报时不要留一块空蓝。
+            // 832 部用户自己的片子几乎没有海报，空卡等于让 8 个格子长得一模一样，
+            // 时长 + 分辨率是戴镜时最快能区分「这一段是不是我要找的」的线索。
+            label(
+                meta, rect.centerX(), rect.centerY() - 2f, 17f, C_MUTED, Paint.Align.CENTER
+            )
+        }
+
+        // 底部标题条：半透明压底，亮画面下也能读清。
+        fill.color = 0xCC0B1626.toInt()
+        canvas.drawRect(RectF(rect.left, rect.bottom - 30f, rect.right, rect.bottom), fill)
+        small.textSize = 17f
+        label(
+            ellipsize(prettyName(title), rect.width() - 20f, small),
+            rect.left + 10f, rect.bottom - 9f, 17f, C_TEXT
+        )
+
+        if (badge != null) {
+            small.textSize = 15f
+            val width = small.measureText(badge) + 16f
+            fill.color = 0xE612283F.toInt()
+            canvas.drawRoundRect(
+                RectF(rect.left + 8f, rect.top + 8f, rect.left + 8f + width, rect.top + 30f),
+                11f, 11f, fill
+            )
+            label(badge, rect.left + 16f, rect.top + 24f, 15f, C_ACCENT)
+        }
+
+        stroke.color = if (current) C_ACCENT else C_BORDER
+        stroke.strokeWidth = if (current) 2.5f else 1.5f
+        canvas.drawRoundRect(rect, 12f, 12f, stroke)
+    }
+
+    private fun sameFormat(a: VrFormat, b: VrFormat): Boolean =
+        a.projection == b.projection && a.layout == b.layout && a.fov == b.fov
+
+    /**
+     * V2.9：没海报时格子中间显示什么。
+     *
+     * 时长能区分「这一段是不是我要找的」，分辨率能区分「这是相机拍的大片还是手机随手拍」。
+     * 两条都没有就返回 null，让格子保持干净，不塞占位符。
+     */
+    private fun metaOf(item: MediaItemEntity): String? {
+        val parts = ArrayList<String>(2)
+        if (item.durationMs > 0L) parts += formatTime(item.durationMs)
+        if (item.width > 0 && item.height > 0) parts += "${item.width}×${item.height}"
+        return if (parts.isEmpty()) null else parts.joinToString(" · ")
+    }
+
+    /**
+     * V2.7.4：把文件名变成人能读的东西。
+     *
+     * 真机反馈「片库的文件名非常杂乱」。用户自己的视频本来就长这样：
+     * `VID_20260712_143022.mp4`、`PXL_20260712_143022123.mp4`、`GOPR0231.MP4`。
+     * 把日期时间抽出来显示成 `2026-07-12 14:30`，比原样堆在卡片上清楚得多；
+     * 认不出的名字才退回「下划线换空格」。
+     */
+    private fun prettyName(raw: String): String {
+        val base = raw.substringBeforeLast('.').ifBlank { raw }
+        val stamp = Regex("(\\d{4})(\\d{2})(\\d{2})[_-](\\d{2})(\\d{2})").find(base)
+        if (stamp != null) {
+            val (y, mo, d, h, mi) = stamp.destructured
+            return "$y-$mo-$d $h:$mi"
+        }
+        return base.replace('_', ' ').replace(Regex("\\s+"), " ").trim()
+    }
+
+    /** 超宽就截断加省略号，绝不让文字越过卡片边界。 */
+    private fun ellipsize(value: String, maxWidth: Float, paint: Paint): String {
+        if (maxWidth <= 0f || paint.measureText(value) <= maxWidth) return value
+        val dots = "…"
+        val dotsWidth = paint.measureText(dots)
+        var end = value.length
+        while (end > 1 && paint.measureText(value, 0, end) + dotsWidth > maxWidth) end--
+        return value.substring(0, end).trimEnd() + dots
+    }
+
+    private fun heading(value: String, y: Float) {
+        text.textSize = 30f
+        text.color = C_TEXT
+        canvas.drawText(value, W / 2f, y, text)
+    }
+
+    /**
+     * V2.8：左对齐 / 右对齐的文本。
+     * 片库顶栏要「左标题 + 右页码」，居中排会互相压在一起。
+     * 画完立刻把 Paint 的对齐方式复位，避免污染后面共用的 centerText / button。
+     */
+    private fun label(
+        value: String,
+        x: Float,
+        y: Float,
+        size: Float,
+        color: Int,
+        align: Paint.Align = Paint.Align.LEFT
+    ) {
+        small.textSize = size
+        small.color = color
+        small.textAlign = align
+        canvas.drawText(value, x, y, small)
+        small.textAlign = Paint.Align.CENTER
+        small.color = C_MUTED
+    }
+
+    private fun centerText(value: String, y: Float, size: Float, color: Int = C_MUTED) {
+        small.textSize = size
+        small.color = color
+        canvas.drawText(value, W / 2f, y, small)
+        small.color = C_MUTED
+    }
+
+    private fun formatTime(ms: Long): String {
+        val seconds = ms / 1_000L
+        return "%02d:%02d".format(seconds / 60L, seconds % 60L)
+    }
+}

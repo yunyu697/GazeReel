@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- V2.6：片库不再「加进去就锁死」。每张卡片自带 改 / 重扫 / 删 三个可见动作，
+     不用长按、不用进二级菜单，也不让用户为了换文件夹而重新添加一遍。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    android:minHeight="58dp"
+    android:orientation="vertical"
+    android:background="@drawable/bg_setup_box">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <View
+            android:id="@+id/sourceDot"
+            android:layout_width="9dp"
+            android:layout_height="9dp"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/bg_setup_dot" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/sourceTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="middle"
+                android:textColor="@color/setup_text" />
+
+            <TextView
+                android:id="@+id/sourceSubtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:ellipsize="middle"
+                android:textColor="@color/setup_muted" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/sourceChip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/bg_setup_chip"
+            android:textSize="11sp"
+            android:textColor="@color/setup_muted" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal"
+        android:gravity="end">
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/sourceEdit"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="48dp"
+            android:minHeight="32dp"
+            android:gravity="center"
+            android:background="@drawable/bg_setup_chip"
+            android:text="@string/setup_edit"
+            android:textSize="12sp"
+            android:textColor="@color/setup_cyan" />
+
+        <TextView
+            android:id="@+id/sourceRescan"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:minWidth="56dp"
+            android:minHeight="32dp"
+            android:gravity="center"
+            android:background="@drawable/bg_setup_chip"
+            android:text="@string/setup_rescan"
+            android:textSize="12sp"
+            android:textColor="@color/setup_cyan" />
+
+        <TextView
+            android:id="@+id/sourceDelete"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:minWidth="48dp"
+            android:minHeight="32dp"
+            android:gravity="center"
+            android:background="@drawable/bg_setup_chip"
+            android:text="@string/setup_delete"
+            android:textSize="12sp"
+            android:textColor="@color/setup_err" />
+    </LinearLayout>
+
+</LinearLayout>

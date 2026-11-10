@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GazeReel 凝影 · Android 工程导览</title>
+<style>
+  :root{
+    --bg:#F6F8FB; --surface:#FFFFFF; --ink:#1E2A38; --muted:#65758A;
+    --line:#E2E8F0; --brand:#2563EB; --brand-soft:#E9F1FF; --accent:#B26A00;
+    --code:#0E1B2C; --code-ink:#D7E5F5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+       line-height:1.65;font-size:15px}
+  .wrap{max-width:1080px;margin:0 auto;padding:36px 28px 72px}
+  header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap;
+         border-bottom:1px solid var(--line);padding-bottom:26px;margin-bottom:28px}
+  h1{font-size:28px;margin:0 0 8px;letter-spacing:-.4px}
+  .headline{display:flex;align-items:center;gap:16px;max-width:780px}
+  .logo{width:64px;height:64px;flex:none;border-radius:14px}
+  .sub{color:var(--muted);font-size:14px;margin:0}
+  .badge{display:inline-block;background:var(--brand-soft);color:var(--brand);
+         border:1px solid #C7D9FB;border-radius:99px;padding:5px 14px;font-size:12px;font-weight:600}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:32px}
+  .stat{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .stat b{display:block;font-size:24px;color:var(--brand);line-height:1.2}
+  .stat span{font-size:12px;color:var(--muted)}
+  h2{font-size:19px;margin:34px 0 14px;padding-left:11px;border-left:4px solid var(--brand)}
+  h3{font-size:15px;margin:0 0 8px}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .card p{margin:0;color:var(--muted);font-size:13.5px}
+  .tag{display:inline-block;font-size:11px;background:#EFF3F8;color:#4A5D75;
+       border-radius:5px;padding:2px 7px;margin:3px 4px 0 0;font-family:ui-monospace,Consolas,monospace}
+  pre{background:var(--code);color:var(--code-ink);border-radius:12px;padding:20px 22px;
+      overflow:auto;font-size:12.5px;line-height:1.6;font-family:ui-monospace,Consolas,"Courier New",monospace}
+  pre .d{color:#7FC8A9} pre .f{color:#F0C674} pre .c{color:#6E8199}
+  ol{padding-left:20px} ol li{margin-bottom:9px}
+  table{width:100%;border-collapse:collapse;background:var(--surface);
+        border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:13.5px}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#F0F4F8;font-weight:600;color:#3B4C60}
+  tr:last-child td{border-bottom:none}
+  .note{background:#FFF8E8;border:1px solid #F0D9A8;border-radius:12px;padding:16px 20px;
+        color:#6B4E12;font-size:13.5px}
+  .ok{color:var(--brand);font-weight:600}
+  footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);
+         color:var(--muted);font-size:12px}
+  @media(max-width:760px){.stats,.grid{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="headline">
+    <svg class="logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="stereo 电光青"><defs>
+<linearGradient id="vr25-lg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#67E8F9"/><stop offset="100%" stop-color="#2563EB"/></linearGradient>
+<linearGradient id="vr25-btn" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#38BDF8"/><stop offset="100%" stop-color="#2563EB"/></linearGradient>
+<radialGradient id="vr25-halo" cx="50%" cy="44%" r="62%"><stop offset="0%" stop-color="#67E8F9" stop-opacity="0.20"/><stop offset="100%" stop-color="#67E8F9" stop-opacity="0"/></radialGradient>
+<radialGradient id="vr25-sphere" cx="38%" cy="30%" r="72%"><stop offset="0%" stop-color="#67E8F9" stop-opacity="0.32"/><stop offset="100%" stop-color="#2563EB" stop-opacity="0.05"/></radialGradient>
+</defs><rect width="96" height="96" rx="22" fill="#0D1526"/><rect width="96" height="96" rx="22" fill="url(#vr25-halo)"/><rect x="0.5" y="0.5" width="95" height="95" rx="21.5" fill="none" stroke="#1C2942" stroke-width="1"/><rect x="12" y="28" width="32" height="40" rx="11" fill="#67E8F9" fill-opacity=".17" stroke="url(#vr25-lg)" stroke-width="3.2"/>
+<rect x="52" y="28" width="32" height="40" rx="11" fill="#67E8F9" fill-opacity=".17" stroke="url(#vr25-lg)" stroke-width="3.2"/>
+<path d="M25 38 v20 M71 38 v20" stroke="#67E8F9" stroke-width="2.4" stroke-linecap="round" opacity=".34"/>
+<circle cx="48" cy="48" r="14.5" fill="#0D1526"/>
+<circle cx="48" cy="48" r="12.5" fill="url(#vr25-btn)"/>
+<path d="M44 42 L56 48 L44 54 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.8" stroke-linejoin="round"/></svg>
+    <div>
+      <h1>GazeReel 凝影 · Android 工程</h1>
+      <p class="sub">目光所及，皆是片库 · PRD 第 10 章「阶段一 MVP + 阶段二 V1」的代码落地 · Kotlin / AGP 8.7.3 / Gradle 8.9 / minSdk 26 · 已用真实 Android SDK 编译出 APK</p>
+    </div>
+  </div>
+  <span class="badge">阶段二 V1 · BUILD SUCCESSFUL</span>
+  <span class="badge">V2.4 首个切片 · 14:36</span>
+  <span class="badge">V2.5 2D 世界锁定银幕 · 15:21 复编</span>
+  <span class="badge">V2.6 添加片库重做 · 16:08 复编</span>
+</header>
+
+<div class="stats">
+  <div class="stat"><b>41</b><span>Kotlin 源文件</span></div>
+  <div class="stat"><b>5,497</b><span>代码行数</span></div>
+  <div class="stat"><b>5</b><span>已接入片源协议</span></div>
+  <div class="stat"><b>SUCCESS</b><span>clean + assembleDebug</span></div>
+</div>
+
+<h2>品牌与图标</h2>
+<div class="grid">
+  <div class="card">
+    <h3>GazeReel · 凝影</h3>
+    <p>Gaze（凝视交互）+ Reel（胶片盘）；中文「凝影」取目光凝住影像之意。桌面标签用两字「凝影」避免被 launcher 截断，全称在 <span class="tag">app_name_full</span>，标语「目光所及，皆是片库」在 <span class="tag">app_tagline</span>。</p>
+  </div>
+  <div class="card">
+    <h3>正式包名</h3>
+    <p><span class="tag">com.gazereel.vr</span> 已整体替换示例包名 <span class="tag">com.example.cardboardvr</span>；Gradle 工程名 GazeReel，主题 Theme.GazeReel。「Cardboard」作为 Google 纸盒的技术名词在正文保留。</p>
+  </div>
+  <div class="card">
+    <h3>启动图标</h3>
+    <p>源图 <span class="tag">branding/gazereel-icon.svg</span>（stereo-cyan-dark）：左右青蓝渐变镜片 + 中央播放键。由 <span class="tag">tools/build_launcher_icon.py</span> 生成 5 档 mipmap PNG、圆形版、自适应前景与 512 商店图。</p>
+  </div>
+  <div class="card">
+    <h3>品牌配色</h3>
+    <p><span class="tag">#2563EB</span> 品牌蓝 · <span class="tag">#67E8F9</span> 电光青 · <span class="tag">#0D1526</span> 图标底板。已同步到 colors.xml 的 brand / brand_cyan / vr_accent / ic_launcher_background。</p>
+  </div>
+</div>
+
+<h2>工程结构</h2>
+<pre><span class="d">cardboard-vr-player/</span> <span class="c">// 磁盘目录沿用历史名，应用与包名已改为 GazeReel</span>
+├── <span class="d">branding/</span>gazereel-icon.svg · ic_launcher-playstore.png
+├── settings.gradle.kts · build.gradle.kts · gradle/libs.versions.toml
+├── gradlew · gradlew.bat · gradle/wrapper/gradle-wrapper.jar
+├── <span class="d">app/</span>
+│   ├── build.gradle.kts <span class="c">// 按 AAR 是否存在动态加入 src/cardboard/java</span>
+│   ├── libs/cardboard-sdk.aar <span class="c">// 已接入：官方 v1.36.0 debug 构建，565 KB</span>
+│   ├── <span class="d">src/main/</span>
+│   │   ├── AndroidManifest.xml <span class="c">// 权限 / 前台服务 / 陀螺仪 / GLES3 / SSDP 组播</span>
+│   │   ├── res/ <span class="c">// 配置页 + 五类片源下拉 + mipmap 启动图标 + 自适应图标</span>
+│   │   └── <span class="d">java/com/gazereel/vr/</span>
+│   │       ├── <span class="f">core/</span>      VrHeadsetProvider · MediaDataSource · FormatDetector · VrAction · ActionDispatcher
+│   │       ├── <span class="f">data/</span>      SmbSessionPool · SmbDataSource(预读) · UnifiedDataSource(Media3 桥接)
+│   │       │             <span class="c">阶段二 ↓</span>
+│   │       │             LanHttp(HTTP/1.1 客户端) · NetworkSources(WebDAV/HTTP/DLNA + Range 随机读)
+│   │       │             PosterRepository(海报缓存) · MediaIndexer(五协议分发) · db/(5 表)
+│   │       │             <span class="c">V2.6 ↓</span> SourceAddress(地址归一化) · FolderBrowser(统一目录浏览)
+│   │       ├── <span class="f">player/</span>    PlayerController(Media3) · PlaybackService(唤醒锁) · PlaybackState
+│   │       │             SubtitleTrack(SRT/VTT 解析 + 同名字幕读取)
+│   │       ├── <span class="f">render/</span>    VrRenderer(uBrightness) · ProjectionMesh · Shaders
+│   │       │             VrUiLayer(海报 / 断点 / 字幕 / 设置) · SensorHeadsetProvider(视角锁定)
+│   │       ├── <span class="f">input/</span>     GazeDetector · TriggerDispatcher · GestureRecognizer · SettingsRepository
+│   │       └── <span class="f">ui/</span>        SetupActivity(戴镜前) · VrActivity(戴镜后) · VrCoordinator(状态机)
+│   └── <span class="d">src/cardboard/java/</span>  CardboardHeadsetProvider.kt <span class="c">// 官方头追 + 光学矩阵 + IPD 微调 + 视角锁定</span>
+└── <span class="d">tools/</span>check_structure.py <span class="c">// 无需 Android SDK 的静态校验</span>
+    build_launcher_icon.py <span class="c">// 由源 SVG 生成全密度启动图标</span>
+    install_cardboard_sdk.sh <span class="c">// 一键装 SDK / 构建 AAR（含代理处理）</span></pre>
+
+<h2>五层架构 → 代码映射</h2>
+<table>
+  <tr><th>层</th><th>关键类</th><th>已实现</th></tr>
+  <tr><td>交互与 UI</td><td><span class="tag">VrUiLayer</span><span class="tag">VrCoordinator</span><span class="tag">GazeDetector</span></td><td>世界锁定 Canvas 纹理、凝视进度环、状态机、自动淡出/连播；海报位图、断点提示、字幕行、6 格设置开关</td></tr>
+  <tr><td>渲染与光学</td><td><span class="tag">VrRenderer</span><span class="tag">ProjectionMesh</span><span class="tag">CardboardHeadsetProvider</span></td><td>ES 3.0 外部纹理、球面/半球/平面、每眼 SBS/TAB 采样区、视频层亮度；官方 SDK 头追与每眼光学矩阵 + 用户 IPD 微调 + 锁定视角，异常时回落 <span class="tag">SensorHeadsetProvider</span></td></tr>
+  <tr><td>解码与缓冲</td><td><span class="tag">PlayerController</span><span class="tag">UnifiedDataSource</span></td><td>Media3 ProgressiveMediaSource、SurfaceTexture 绑定、seek、错误分类</td></tr>
+  <tr><td>数据源</td><td><span class="tag">SmbDataSource</span><span class="tag">HttpRandomAccessSource</span><span class="tag">LanHttpClient</span></td><td>SMB2 随机读 + 12MB 预读 + 退避重连；WebDAV / HTTP / DLNA 共用 1MB Range 窗口；PROPFIND 目录列举、SSDP 发现、SOAP Browse；本地/OTG 直读</td></tr>
+  <tr><td>片库与识别</td><td><span class="tag">MediaIndexer</span><span class="tag">FormatDetector</span><span class="tag">PosterRepository</span><span class="tag">SubtitleRepository</span><span class="tag">CredentialStore</span></td><td>五协议增量扫描、文件名/宽高比识别、格式覆盖记忆、同名图片海报 + 文字封面回退、断点续播、SRT/VTT 字幕、Keystore 加密凭证；V2.6 起 <span class="tag">MediaIndexer.list()</span> 由浏览与扫描共用</td></tr>
+</table>
+
+<h2>阶段二 V1 新增能力（PRD 第 10 章）</h2>
+<table>
+  <tr><th>PRD 条目</th><th>落地方式</th></tr>
+  <tr><td>DLNA 与 WebDAV（FR-09）</td><td><span class="tag">LanHttpClient</span> 自实现 HTTP/1.1（Android 的 HttpURLConnection 不接受 PROPFIND 非标准方法），支持 Basic 认证、chunked、重定向；<span class="tag">WebDavScanner</span> 解析 207 Multi-Status，<span class="tag">HttpDirectoryScanner</span> 解析 autoindex，<span class="tag">DlnaScanner</span> 做 SSDP M-SEARCH + ContentDirectory SOAP Browse，DLNA 的 res URL 直接复用 HTTP Range 播放链路</td></tr>
+  <tr><td>海报与进度（FR-10）</td><td>优先同名 jpg/png/webp，失败生成带标题的文字封面；结果写应用私有缓存（上限 200 张）并用 LruCache 供 GL 线程读；片库主卡片显示「上次看到 mm:ss」，进度由 Room Flow 实时推送</td></tr>
+  <tr><td>IPD / 亮度 / 字幕 / 锁定视角（FR-12）</td><td>亮度经 <span class="tag">uBrightness</span> 只调视频层；SDK 的 eyeFromHeadMatrix 之上叠加用户相对 62mm 的 IPD 微调；两个 HeadsetProvider 都实现 <span class="tag">setViewLocked</span> 冻结头追；SRT/VTT 经同一 DataSource 读取并画在控制台上方，控制台淡出后字幕仍可读</td></tr>
+  <tr><td>格式识别与记忆、头部手势（TC-03 / TC-05）</td><td>阶段一已具备，本阶段补齐设置浮层的「重置正前方」「锁定视角」「字幕」入口，并将设置面板重排为两行三列</td></tr>
+  <tr><td>戴镜前配置</td><td>下拉从 5 项扩为 6 项：SMB / WebDAV / FTP(阶段三) / DLNA / 本地 / HTTP；按类型给出不同地址示例，扫描失败保留配置并提示。<b>V2.6 已重写为「只填设备地址 → 连接并选文件夹 → 可改 / 重扫 / 删」</b>，原先手填协议头与文件夹名的口径作废，见下方 V2.6 章节</td></tr>
+</table>
+<div class="note">
+  <b>刻意没做桶形畸变</b>：PRD 第 10 章的阶段二 V1 清单里没有这一项。正确实现需要把每眼先渲染到离屏 FBO、再用 Cardboard SDK 的 <span class="tag">getDistortionMesh</span> / <span class="tag">DistortionRenderer</span> 做后处理，并且必须按纸盒参数真机校准。在没有真机的情况下改动已验证的直出渲染管线，风险是黑屏且无法自证，因此本阶段只保留 <span class="tag">EyeParams.distortion</span> 预留字段，把它列为独立专项。
+</div>
+
+<h2>三条输入通道（全部来自手机本身）</h2>
+<div class="grid">
+  <div class="card"><h3>凝视停留</h3><p>准星射线与 2 米 UI 平面求交，1.2 秒进度环走完确认（0.6–2.4 秒可调），触发后 900ms 冷却。进度环画在同一张纹理上，左右眼必然一致。</p></div>
+  <div class="card"><h3>触发键</h3><p>单击执行准星目标、无目标时播放/暂停；长按 600ms 返回；双击唤出设置。无硬件盒子时由屏幕触摸/线控注入，接 SDK 后由 viewer button 驱动。</p></div>
+  <div class="card"><h3>头部手势</h3><p>旋转矢量低通后检测「快速往返 + 方向反转」：摇头 15° 切片、点头 10° 播放暂停或确认格式，800ms 冷却，可单独关闭。</p></div>
+  <div class="card"><h3>零交互兜底</h3><p>目录内自动连播、格式按文件记住、8 秒无操作控制台淡出、任意通道活动自动恢复；戴镜后不出现键盘与多级菜单。</p></div>
+</div>
+
+<h2>SDK 安装结果（本机已就绪）</h2>
+<table>
+  <tr><th>组件</th><th>版本 / 路径</th><th>用途</th></tr>
+  <tr><td>Android SDK</td><td><span class="tag">C:\Users\Tyler Zhang\AppData\Local\Android\Sdk</span></td><td>从只读的 Program Files 复制到用户可写目录，<span class="tag">local.properties</span> 已指向此处</td></tr>
+  <tr><td>SDK Platform</td><td>android-35（compileSdk 35）· android-36</td><td>编译目标</td></tr>
+  <tr><td>Build-Tools</td><td>34.0.0 · 36.0.0</td><td>AGP 8.7.3 默认要求 34.0.0，缺失时构建会直接失败</td></tr>
+  <tr><td>Platform-Tools</td><td>36.0.0</td><td>adb 安装与调试</td></tr>
+  <tr><td>NDK</td><td>29.0.14206865</td><td>构建 Cardboard SDK native 库</td></tr>
+  <tr><td>CMake</td><td>3.31.6 · 3.22.1</td><td>SDK 的 C++ 侧构建</td></tr>
+  <tr><td>Licenses</td><td>已接受</td><td>sdkmanager 静默安装前提</td></tr>
+</table>
+
+<h2>Cardboard SDK 是怎么装上的</h2>
+<div class="note">
+官方 <b>不发布预编译 AAR</b>：<span class="tag">googlevr/cardboard</span> 的 GitHub Release 只有源码包，Google Maven 里没有对应制品。因此流程是——拉 v1.36.0 源码 → 用 NDK + CMake 构建 <span class="tag">:sdk:assembleDebug</span> → 取未混淆的 <span class="tag">sdk-debug.aar</span> 放进 <span class="tag">app/libs/</span>。
+</div>
+<table>
+  <tr><th>检查项</th><th>结果</th></tr>
+  <tr><td>release AAR（R8 开启）</td><td>只剩 10 个类，<span class="tag">HeadTracker</span> / <span class="tag">LensDistortion</span> 被裁掉，<b>不可用</b></td></tr>
+  <tr><td>debug AAR（未混淆）</td><td class="ok">78 个 Java 类，含 HeadTracker / LensDistortion / HeadTransform / QrCode / Initialize</td></tr>
+  <tr><td>native 库</td><td class="ok">arm64-v8a + armeabi-v7a 的 libGfxPluginCardboard.so</td></tr>
+  <tr><td>APK 内实际产物</td><td class="ok">两个 .so 均已打包；dex 中存在 CardboardHeadsetProvider 与 HeadTracker/LensDistortion 引用</td></tr>
+</table>
+<p style="color:var(--muted);font-size:13px">构建脚本 <span class="tag">tools/install_cardboard_sdk.sh</span> 已把整套流程固化（含代理参数），换机器可一条命令重来。</p>
+
+<h2>编译与运行</h2>
+<ol>
+  <li><b>命令行直接构建</b>（已实测可用）：<span class="tag">./gradlew clean :app:assembleDebug</span> → 产物 <span class="tag">app/build/outputs/apk/debug/app-debug.apk</span>（13 MB）。</li>
+  <li><b>或用 Android Studio 打开</b> <span class="tag">cardboard-vr-player/</span>（JDK 17）。SDK 路径已在 <span class="tag">local.properties</span> 中，无需额外配置。</li>
+  <li><b>安装到手机</b>：<span class="tag">adb install -r app/build/outputs/apk/debug/app-debug.apk</span>，需 arm64/armv7 真机（x86 模拟器无 native 库，会自动回落传感器实现）。</li>
+  <li>戴镜前配置页（V2.6）选片源类型后<b>只填设备地址</b>，例如 <span class="tag">192.168.1.10</span> 或 <span class="tag">192.168.1.10:8080</span>；协议头与 <span class="tag">\</span> / <span class="tag">/</span> 由程序补齐 → 点「连接并选文件夹」→ 逐级点选看得见的文件夹 → 「就用这一层」→ 自动扫描 → 「进入 VR」。DLNA / 本地无需填地址。已添加的片库可<b>改 / 重扫 / 删</b>。</li>
+  <li>静态校验（无需 SDK）：<span class="tag">python3 tools/check_structure.py</span>。</li>
+</ol>
+
+<h2>真实构建过程中修掉的问题</h2>
+<table>
+  <tr><th>问题</th><th>原因与修法</th></tr>
+  <tr><td>SDK 目录只读 + 授权未接受</td><td>Program Files 下不可写 → 复制到用户目录，<span class="tag">sdkmanager --licenses</span> 接受授权</td></tr>
+  <tr><td>Gradle 无法下载依赖</td><td>本机走 <span class="tag">127.0.0.1:62755</span> 代理，Gradle 没继承 → 写入用户级 <span class="tag">~/.gradle/gradle.properties</span>，不污染工程</td></tr>
+  <tr><td>AAPT 报错 uses-feature</td><td><span class="tag">&lt;uses-feature&gt;</span> 同时写了 name 和 glEsVersion，去掉 name</td></tr>
+  <tr><td>Room SQL 列名不匹配</td><td>DAO 用 snake_case，实体是 camelCase → 给实体补 <span class="tag">@ColumnInfo</span>，与 PRD 第 7 章表结构对齐</td></tr>
+  <tr><td>smbj 无 <span class="tag">File.getLength()</span></td><td>文档推断错误，真实 API 是 <span class="tag">getFileInformation().standardInformation.endOfFile</span>（用 javap 核对 jar 确认）</td></tr>
+  <tr><td>release AAR 被 R8 裁剪</td><td>改用 debug AAR，保留完整 Java API</td></tr>
+  <tr><td>阶段二：URL(String, String) 无对应构造</td><td>UPnP 的 URLBase 解析误写成两个 String 参数 → 先把 location 转成 <span class="tag">URL</span> 对象作为 context 再解析相对路径</td></tr>
+  <tr><td>V2.6：无凭证却带身份请求</td><td><span class="tag">decodeCredentials(null)</span> 旧版伪造 <span class="tag">guest</span>，匿名 SMB 走 NTLM、HTTP 凭空带 Basic 头 → 改为真正的空身份，SMB 空用户名显式走 <span class="tag">AuthenticationContext.guest()</span></td></tr>
+</table>
+
+<h2>校验结果</h2>
+<table>
+  <tr><th>项目</th><th>结果</th></tr>
+  <tr><td>全量构建 <span class="tag">clean :app:assembleDebug --no-daemon</span></td><td class="ok">BUILD SUCCESSFUL in 2m 19s · 40 个任务全部执行（V2.6 复编 · 16:08）</td></tr>
+  <tr><td>Kotlin / Java / KSP(Room) / 资源 / dex / 打包</td><td class="ok">compileDebugKotlin、kspDebugKotlin、processDebugResources、packageDebug 全通过</td></tr>
+  <tr><td>APK 产物</td><td class="ok">13,557,372 字节（16:08）· 含 arm64-v8a / armeabi-v7a 的 Cardboard native 库 · aapt 核验 com.gazereel.vr / 标签「凝影」/ versionName 0.1.0-mvp / minSdk 26 / targetSdk 35</td></tr>
+  <tr><td>包路径、跨模块引用、括号、XML 资源、alias</td><td class="ok">tools/check_structure.py 全部通过（41 个 Kotlin 文件 / 5,497 行 · 17 个 XML · 75 values / 5 drawables）；另加 0 XML 解析错误 / 0 重复资源 / 0 未解析引用</td></tr>
+  <tr><td>三份 HTML 交付物结构校验</td><td class="ok">UI_VISUAL_DESIGN.html / UI_DESIGN_SPEC.html / PROJECT_OVERVIEW.html 标签闭合全部 PASS（V2.6 复检）</td></tr>
+  <tr><td>外部库真实 API</td><td class="ok">smbj、Media3、Cardboard SDK 均已对齐真实签名（后者由编译验证）</td></tr>
+</table>
+
+<h2>V2.4 首个切片（14:36 已落地）</h2>
+<div class="note">四轮视觉设计之后第一次改到工程源码。方向 A 定案为「检测到姿态变化 → 凝视一次确认 → 才缓转」；本轮只做不依赖 2D 形态定案的最小可验证部分，逐项结果与未做清单见 <code>UI_VISUAL_DESIGN.html</code> 10.6。</div>
+<table>
+  <tr><th>文件</th><th>改动</th></tr>
+  <tr><td><span class="tag">SensorHeadsetProvider.kt</span><br><span class="tag">CardboardHeadsetProvider.kt</span></td><td>修复「锁定视角下重置正前方无效」：<span class="tag">recenter()</span> 同步更新 frozen，SDK 路径新增 <span class="tag">refreshRotation()</span>，矩阵读写统一加锁。</td></tr>
+  <tr><td><span class="tag">GazeDetector.kt</span><br><span class="tag">GestureRecognizer.kt</span></td><td>新增 <span class="tag">reset()</span>，清停留进度 / 准星落点 / 手势窗口并留冷却，供参考系跳变后调用。</td></tr>
+  <tr><td><span class="tag">VrCoordinator.kt</span><br><span class="tag">VrUiState.kt</span><br><span class="tag">VrActivity.kt</span></td><td>ResetForward 回写状态、调 onRecenter 清窗口、给 2.4 秒后自动消失的反馈（<span class="tag">messageUntilMs</span>）；修掉播放状态高频回调抹掉短提示的问题。</td></tr>
+  <tr><td><span class="tag">activity_setup.xml</span><br><span class="tag">item_source.xml</span><br><span class="tag">SetupActivity.kt</span></td><td>配置页改竖屏单栏 + 方向 A 深色；片源列表改卡片行；空闲 / 扫描中 / 已就绪 / 需检查四态内联反馈，Toast 与重复「跳过」按钮移除；主 CTA 常驻首屏。</td></tr>
+  <tr><td><span class="tag">colors.xml</span> / <span class="tag">themes.xml</span> / 4 个 drawable / <span class="tag">strings.xml</span></td><td>补齐深色令牌与统一控件底；<span class="tag">tools/check_structure.py</span> 的 ViewBinding 白名单改为按布局动态推导。</td></tr>
+</table>
+<div class="note"><b>下一刀未做（V2.4 当时口径）</b>：姿态检测与确认大目标、0.8s 缓转、舒适俯角、UI 三层拆分、2D 银幕 / 贴片（<b>V2.5 已定案为世界锁定银幕并落地</b>）、鱼眼 / 立方体（其中平面 SBS 3D 已在 V2.5 落地）、换柜子、看图选格式、扫描真取消，以及真机安装与戴镜手感验证。</div>
+
+<h2>V2.5 · 2D 世界锁定银幕（15:21 已落地）</h2>
+<div class="note">用户拍板「采用世界锁定银幕」。回查源码确认 <span class="tag">ProjectionMesh.build(PLANE_2D)</span> 本就是 2 米处 2.4×1.35m 的世界锁定 quad，与 UI quad 共用含头追的 MVP，<b>渲染管线无需改动</b>；真正缺的是「用户选不到」与「自动识别会把它判成 360」。</div>
+<table>
+  <tr><th>文件</th><th>改动</th></tr>
+  <tr><td><span class="tag">VrFormat.kt</span></td><td><span class="tag">QUICK_CHOICES</span> 四项 → 六项，新增 <span class="tag">PLANE_2D+MONO</span> / <span class="tag">PLANE_2D+SBS</span>；label 改「2D 银幕」。</td></tr>
+  <tr><td><span class="tag">FormatDetector.kt</span></td><td>显式平面标记、常见非 VR 画幅、宽高未知兜底均给平面建议；<span class="tag">_3dh / _3dv</span> 降置信度并强制确认；360 / 180 明确标记仍优先球面。</td></tr>
+  <tr><td><span class="tag">MediaIndexer.kt</span><br><span class="tag">LibraryRepository.kt</span></td><td>修掉一条隐藏链路：旧版扫描把「无宽高 → 360」写进 <span class="tag">detected_format</span>，播放时又优先读它，只改启发式不会生效。现在低置信度猜测不写库，播放时按当前规则现场重判。</td></tr>
+  <tr><td><span class="tag">VrUiLayer.kt</span></td><td>格式确认屏两列 → 三列两行，六项各 248×128px，加「返回」共 7 个目标；补一句人话「2D 银幕会像真实银幕一样固定在世界里」；按钮文字按宽自动缩字。</td></tr>
+  <tr><td><b>刻意未改</b></td><td><span class="tag">ProjectionMesh.kt</span> / <span class="tag">VrRenderer.kt</span> / 着色器：几何与每眼采样本就正确，改动只会引入回归风险。</td></tr>
+</table>
+<div class="note"><b>本刀未做</b>：真机安装与戴镜手感验证、姿态检测与确认大目标闭环、舒适俯角、UI 三层拆分、看图选格式、鱼眼 / 立方体 / EAC、平面半宽自动还原、<span class="tag">group_key</span> 继承与换柜子。<span class="tag">FieldOfView.FLAT</span> 仍只存不用，几何由 <span class="tag">PLANE_2D</span> 决定。逐项见 <span class="tag">UI_VISUAL_DESIGN.html</span> 10.7。</div>
+
+<h2>V2.6 · 添加片库重做（16:08 已落地）</h2>
+<div class="note">真机实测反馈：「SMB 用的是 <span class="tag">\</span>、WebDAV/HTTP 用的是 <span class="tag">/</span>，这是必须用户输入的吗？路径为什么一定要输入文件夹？已经添加的片库既不能编辑，也不能删除？」三条指向同一件事——<b>界面在让用户替程序做格式化、替程序记路径、替程序管生命周期</b>。V2.0–V2.5 一直在设计「戴镜之后」，而用户上手的第一关是「戴镜之前」；这一刀不补 VR 内新功能，先把入口重做。完整设计见 <span class="tag">UI_VISUAL_DESIGN.html</span> 第 11 章。</div>
+<table>
+  <tr><th>文件</th><th>改动</th></tr>
+  <tr><td><span class="tag">SourceAddress.kt</span><br><span class="tag">FolderBrowser.kt</span> <b>新增</b></td><td><span class="tag">normalize()</span> 按片源类型自动补 <span class="tag">http://</span> / <span class="tag">\\host\share</span> 与路径分隔符，用户只填 IP 或 域名:端口；<span class="tag">FolderBrowser.root() / enter() / up()</span> 统一 SMB 设备→共享→文件夹、WebDAV/HTTP URL 层级、DLNA 设备与本地目录的浏览；<b>浏览与扫描共用 <span class="tag">MediaIndexer.list()</span></b>，保证「选的时候看得见、扫的时候也扫得到」。</td></tr>
+  <tr><td><span class="tag">SmbSessionPool.kt</span></td><td>会话与共享树连接缓存拆开，新增 <span class="tag">parseUncFull()</span> 保留 host / share / folder、<span class="tag">probeShares()</span> 试连常见共享名列出可选项；空用户名显式走 <span class="tag">AuthenticationContext.guest()</span>。</td></tr>
+  <tr><td><span class="tag">NetworkSources.kt</span><br><span class="tag">MediaIndexer.kt</span></td><td>WebDAV / HTTP 扫描现在返回目录条目（旧版只留视频文件，子目录被过滤）；DLNA 新增 <span class="tag">browseUrl()</span>；<span class="tag">entriesFor()</span> 提升为公开 <span class="tag">list()</span>；SMB 选中子目录后写进 <span class="tag">media_item.path</span> 的是 share 内完整相对路径，不再被丢弃。</td></tr>
+  <tr><td><span class="tag">Daos.kt</span><br><span class="tag">PosterRepository.kt</span></td><td>补 <span class="tag">SourceDao.update() / deleteById()</span>、按 source 清理 <span class="tag">play_progress</span> / <span class="tag">format_override</span> / <span class="tag">media_item</span> / 海报缓存；<span class="tag">SetupActivity.purgeMedia()</span> 保证先删依赖行再删媒体行。</td></tr>
+  <tr><td><span class="tag">DataSourceFactory.kt</span></td><td>修掉隐藏坑：<span class="tag">decodeCredentials(null)</span> 旧版伪造 <span class="tag">guest</span> 身份，导致匿名 SMB 走 NTLM、HTTP 凭空带 Basic 头；现改为真正的空身份。</td></tr>
+  <tr><td><span class="tag">SetupActivity.kt</span> + 3 个新布局 + 文案</td><td>重写为「只填设备地址 → 连接并选文件夹 → 就用这一层 → 自动扫描」；新增 <span class="tag">dialog_folder.xml</span> / <span class="tag">item_folder.xml</span> / <span class="tag">dialog_edit_source.xml</span>；片库卡片固定展示<b>改 / 重扫 / 删</b>三个动作；<span class="tag">SetupDialog</span> 深色主题保证弹窗不突然变白底；<span class="tag">strings.xml</span> / <span class="tag">arrays.xml</span> 全部改成「设备在哪、是什么」的人话。</td></tr>
+</table>
+<div class="note"><b>已知边界（诚实口径）</b>：① SMB 共享名是启发式试连常见名称，不是完整 <span class="tag">NetShareEnum</span>，非常规命名可能探测不到，失败时允许粘贴完整 UNC；② 仍是单层扫描，选中层里的下层文件夹不会自动展开；③ DLNA 只做到「选设备」，服务器内部容器层级未展开；④ 姿态检测与确认大目标闭环、舒适俯角、UI 三层拆分、看图选格式、鱼眼 / 立方体 / EAC、<span class="tag">group_key</span> 继承与换柜子仍未实现；⑤ <b>本轮修的是上一版真机反馈，新 APK 仍需回装真机，再走一遍「加片库 → 戴镜」全流程才算验证</b>。</div>
+
+<h2>当前边界</h2>
+<div class="note">
+  <b>已在代码里跑通的 SDK 能力</b>：<span class="tag">Initialize</span> 初始化、<span class="tag">HeadTracker.getPose</span> 姿态融合（含屏幕旋转补偿）、<span class="tag">LensDistortion.getEyeFromHeadMatrix / getEyeProjectionMatrix</span> 每眼真实 FOV 与 IPD、<span class="tag">QrCode.getSavedDeviceParams</span> 读扫码参数（未扫码回落 Cardboard V1）。<br>
+  <b>尚未接入</b>：SDK 的桶形畸变网格（<span class="tag">getDistortionMesh</span> / <span class="tag">DistortionRenderer</span>）。当前是自绘分屏 + 光学参数驱动，画面几何正确但没有预畸变补偿，边缘会有枕形失真；已列为独立专项，需要离屏 FBO 重构与真机校准。<br>
+  <b>真机验证状态</b>：用户已完成一轮真机实测，反馈「添加片库」难用（V2.6 据此重做，16:08 已复编出修复版 APK）；<b>修复版尚未回装验证</b>。多协议局域网串流、4K 硬解帧率、发热降档、触发键灵敏度、SSDP 组播在真实 Wi-Fi 下的可达性，以及 V2.6 的「只填 IP → 连上选文件夹 → 改 / 删」全流程都需再走一遍真机；x86 模拟器无 native 库，只会走传感器兜底路径。<br>
+  <b>阶段二已实现</b>：WebDAV / HTTP / DLNA、海报与断点进度、字幕、亮度 / IPD / 锁定视角、格式记忆与头部手势闭环。<br>
+  <b>V2.6 已落地</b>：戴镜前入口从「手填协议路径」改为「只填设备地址 + 连上点选文件夹」，已添加片库可改 / 重扫 / 删；地址归一化、共享探测、统一目录浏览与按 source 清理均已在源码中。<br>
+  <b>阶段三及专项未实现</b>：FTP / SFTP 随机读、语音控制、一阶 Ambisonic、8K 分级、局域网网页整理片单、桶形畸变。接口与数据表已预留。
+</div>
+
+<footer>依据《GazeReel 凝影 · PRD 与技术设计文档》第 5–10 章实现 · 阶段一 MVP + 阶段二 V1 + V2.4 首个切片 + V2.5 2D 世界锁定银幕 + V2.6 添加片库重做 · 已用 Android SDK 35 + Build-Tools 34 实编并产出 APK · 2026-11-10</footer>
+</div>
+</body>
+</html>
