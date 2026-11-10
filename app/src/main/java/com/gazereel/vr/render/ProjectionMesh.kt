@@ -88,6 +88,22 @@ class ProjectionMesh {
         return toGeometry(out)
     }
 
+    /**
+     * V2.20：整屏四边形（裁剪空间 −1..1），只给「离屏读回」用。
+     *
+     * 抽帧判立体布局要把同一张视频纹理原样画进一块小 FBO 再读像素，
+     * 这条路径不需要任何投影，单位 MVP + 铺满视口就是我们要的东西。
+     */
+    fun screenQuad(): Geometry {
+        val out = mutableListOf<Float>()
+        fun emit(x: Float, y: Float, u: Float, v: Float) {
+            out.add(x); out.add(y); out.add(0f); out.add(u); out.add(v)
+        }
+        emit(-1f, -1f, 0f, 0f); emit(1f, -1f, 1f, 0f); emit(-1f, 1f, 0f, 1f)
+        emit(-1f, 1f, 0f, 1f); emit(1f, -1f, 1f, 0f); emit(1f, 1f, 1f, 1f)
+        return toGeometry(out)
+    }
+
     private fun curved(fullSphere: Boolean): Geometry {
         val latBands = 32
         val lonBands = if (fullSphere) 64 else 40

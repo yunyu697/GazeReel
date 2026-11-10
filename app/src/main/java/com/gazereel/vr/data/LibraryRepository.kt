@@ -19,8 +19,12 @@ class LibraryRepository(private val db: AppDatabase) {
         /**
          * 格式记忆的规则版本。识别规则换代时 +1，启动时清空旧覆盖表。
          * 覆盖表里存的是「旧规则 + 用户当时那个错误建议」的产物，留着只会一直错下去。
+         *
+         * V2.20 → 3：判据顺序换了（先定布局再算视场），并引入抽帧。
+         * 之前那批「SBS 被记成 Mono」的结论必须清掉，否则新规则一条都用不上——
+         * 这是 A4 那条最贵的教训：**自动记住的结论比 bug 更顽固**。
          */
-        const val MEMORY_VERSION = 2
+        const val MEMORY_VERSION = 3
         const val MEMORY_VERSION_KEY = "format_memory_version"
     }
 
