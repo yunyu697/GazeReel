@@ -28,7 +28,9 @@ data class BrowseState(
     val canChoose: Boolean,
     val canGoUp: Boolean,
     val shareLevel: Boolean = false,
-    val note: String = ""
+    val note: String = "",
+    /** 列表为空时那一行该写什么；空串表示用通用文案。 */
+    val emptyHint: String = ""
 )
 
 /**
@@ -222,8 +224,21 @@ class FolderBrowser(
     private fun atShares(address: String, credentials: SmbCredentials): BrowseState {
         val host = parseUncFull(address).first
         if (host.isBlank()) throw IOException("设备地址不能为空")
-        val shares = runCatching { pool.probeShares(host, credentials) }
-            .getOrElse { throw IOException("连不上 $host：检查 IP、Wi-Fi 和账号密码", it) }
+        val listing = runCatching { pool.listShares(host, credentials) }
+            .getOrElse { throw IOException(connectFailure(host, it), it) }
+        val example = "$host\\VR"
+        val note = when {
+            listing.names.isNotEmpty() && listing.authoritative ->
+                "这是设备上的共享，点进去再选文件夹。"
+            listing.names.isNotEmpty() ->
+                "这台设备不支持共享列表，下面是试出来的常见共享名。如果里面没有你要的那个，" +
+                    "直接在地址里写 主机\\共享名（例如 $example）。"
+            listing.authoritative ->
+                "设备连上了，但它没有对外共享任何文件夹，或者当前账号看不到。" +
+                    "换管理员账号再试，或直接在地址里写 主机\\共享名（例如 $example）。"
+            else ->
+                "${listing.reason}。直接在地址里写 主机\\共享名（例如 $example）再连一次。"
+        }
         return BrowseState(
             type = SourceType.SMB,
             address = "\\\\$host\\",
@@ -231,15 +246,32 @@ class FolderBrowser(
             cursor = "",
             crumb = "$host · 选择共享",
             displayName = host,
-            folders = shares.map { FolderChoice(it, it, "共享") },
+            folders = listing.names.map { FolderChoice(it, it, "共享") },
             videoCount = 0,
             canChoose = false,
             canGoUp = false,
             shareLevel = true,
-            note = if (shares.isEmpty()) {
-                "没找到共享名。可以回到地址栏填 主机\\共享名（例如 192.168.1.10\\VR）再连一次。"
-            } else "这是设备上的共享，点进去再选文件夹。"
+            note = note,
+            emptyHint = if (listing.authoritative) {
+                "这台设备没有可选的共享"
+            } else {
+                "设备没返回共享列表"
+            }
         )
+    }
+
+    /** 连不上时先说人话：账号、权限、网络分开讲。 */
+    private fun connectFailure(host: String, error: Throwable): String {
+        val text = error.message.orEmpty()
+        return when {
+            text.contains("LOGON_FAILURE", true) || text.contains("WRONG_PASSWORD", true) ->
+                "连不上 $host：账号或密码不对"
+            text.contains("ACCESS_DENIED", true) ->
+                "连不上 $host：这个账号没有访问权限"
+            text.contains("UnknownHost", true) || text.contains("unreachable", true) ->
+                "连不上 $host：IP 不对，或者手机不在同一个 Wi-Fi"
+            else -> "连不上 $host：检查 IP、Wi-Fi 和账号密码（${text.take(60)}）"
+        }
     }
 
     private fun atDlnaServers(): BrowseState {
@@ -257,7 +289,8 @@ class FolderBrowser(
             canGoUp = false,
             note = if (servers.isEmpty()) {
                 "没发现服务器：确认媒体服务器开着、手机与它在同一 Wi-Fi，再试一次。"
-            } else "选一台设备，就能看到它提供的全部视频。"
+            } else "选一台设备，就能看到它提供的全部视频。",
+            emptyHint = if (servers.isEmpty()) "这个 Wi-Fi 下没有回应的媒体服务器" else ""
         )
     }
 }

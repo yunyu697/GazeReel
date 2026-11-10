@@ -86,7 +86,7 @@ class GazeDetector(
     fun update(now: Long = SystemClock.elapsedRealtime()) {
         val state = stateProvider()
         val rotation = headset.headRotation()
-        val point = uiLayer.gazePoint(rotation, uiLayer.panelCenterY(state))
+        val point = uiLayer.gazePoint(rotation, state)
         if (!lastX.isNaN() && hypot((point.x - lastX).toDouble(), (point.y - lastY).toDouble()) > MOVE_THRESHOLD_PX) {
             onActivity()
         }

@@ -18,6 +18,19 @@ import java.util.concurrent.TimeUnit
 data class SmbCredentials(val user: String, val password: String, val domain: String = "")
 
 /**
+ * 共享层的结论。
+ * - names：能给用户点选的共享名（已滤掉 `IPC$` 与以 `$` 结尾的管理共享）；
+ * - authoritative：true 表示这是设备自己报的完整列表 —— 空就是真的空；
+ * - reason：拿不到完整列表时的原因，界面要照实写出来，不能让用户对着
+ *   「这一层没有可再展开的文件夹」猜。
+ */
+data class ShareListing(
+    val names: List<String>,
+    val authoritative: Boolean,
+    val reason: String = ""
+)
+
+/**
  * V2.6：\\host\share\Movies\a.mp4 → host / share / 相对文件夹。
  * 旧版 parseUnc 丢掉了 share 之后的层级，导致「选了子文件夹」也无法扫描到那一层。
  */
@@ -42,18 +55,27 @@ fun parseUnc(address: String): Pair<String, String> {
  * 断线时由 SmbRandomAccessSource 调用 invalidate() 后按指数退避重建。
  *
  * V2.6：把「会话」与「树连接」拆开缓存。只填 IP 时需要先列出设备上的共享，
- * 而 smbj 0.13 没有公开的 SRVSVC NetShareEnum 高层 API，故用同一会话逐个
- * 试连常见共享名，把连得上的作为可见列表交给用户点选（不是让用户输入）。
+ * 而 smbj 0.13 没有公开的 SRVSVC NetShareEnum 高层 API，当时用同一会话逐个
+ * 试连常见共享名凑出一个列表。
+ *
+ * V2.12：试连名单永远凑不全（用户 NAS 上叫「影片」的共享根本试不到），
+ * 改成先走 IPC$ + srvsvc 的 NetrShareEnum 让设备自己报；只有设备不支持时才
+ * 退回试连，并把「为什么不是完整列表」写进 ShareListing.reason。
  */
 class SmbSessionPool {
     companion object {
-        /** 常见 NAS / Windows / 路由器的共享名；命中即可见，未命中不打扰用户。 */
+        /** 设备不支持枚举时的兜底名单；命中即可见，未命中不打扰用户。 */
         private val COMMON_SHARES = listOf(
             "VR", "vr", "Videos", "videos", "Video", "video", "Movies", "movies",
             "Media", "media", "Share", "share", "Public", "public", "Data", "data",
-            "NAS", "nas", "volume1", "Volume1", "homes", "Download", "Downloads",
-            "Multimedia", "multimedia", "disk1", "share1"
+            "NAS", "nas", "volume1", "Volume1", "volume2", "homes", "home", "Home",
+            "Download", "Downloads", "Multimedia", "multimedia", "disk1", "share1",
+            "video2", "Videos2", "USB", "usbshare1", "usbshare2", "影视", "视频",
+            "影片", "电影", "共享", "家庭", "照片"
         )
+
+        /** Windows 自己也不显示的隐藏共享（IPC$ / C$ / ADMIN$ / print$…）。 */
+        fun isHiddenShare(name: String): Boolean = name.endsWith("$")
     }
 
     private var client: SMBClient? = null
@@ -116,13 +138,31 @@ class SmbSessionPool {
     }
 
     /**
-     * 只填 IP 后的第一层「共享」。逐个 TREE_CONNECT，成功的才出现在列表里。
-     * 已知边界：非常规命名的共享可能探测不到——界面在这种失败情况下允许用户粘贴
-     * 完整 UNC，而不是要求所有用户都去记共享名；完整 NetShareEnum 留待后续专项。
+     * 只填 IP 后的第一层「共享」。
+     *
+     * 先让设备自己报（IPC$ + srvsvc），这一步给出的是完整列表；
+     * 设备不支持或账号没权限时才退回试连常见共享名，并带上原因。
      */
     @Synchronized
-    fun probeShares(host: String, credentials: SmbCredentials): List<String> {
+    fun listShares(host: String, credentials: SmbCredentials): ShareListing {
         val active = session(host, credentials)
+        val viaRpc = runCatching { SrvsvcShareEnum.list(active, host) }
+        val names = viaRpc.getOrNull()
+        if (names != null) {
+            return ShareListing(
+                names = names.filterNot { isHiddenShare(it) }.distinct(),
+                authoritative = true
+            )
+        }
+        return ShareListing(
+            names = probeCommon(active),
+            authoritative = false,
+            reason = describe(viaRpc.exceptionOrNull())
+        )
+    }
+
+    /** 设备不支持枚举时的兜底：逐个 TREE_CONNECT 试连常见共享名。 */
+    private fun probeCommon(active: Session): List<String> {
         val found = LinkedHashSet<String>()
         for (name in COMMON_SHARES) {
             val candidate: Share = runCatching { active.connectShare(name) }.getOrNull() ?: continue
@@ -132,6 +172,26 @@ class SmbSessionPool {
         // 试连失败可能让会话处于半断开状态，清掉缓存让下一次重新建连。
         invalidate()
         return found.toList()
+    }
+
+    /** 把协议栈的异常翻成用户能照着做的一句话。 */
+    private fun describe(error: Throwable?): String {
+        val text = error?.message.orEmpty()
+        return when {
+            text.contains("LOGON_FAILURE", true) || text.contains("WRONG_PASSWORD", true) ->
+                "账号或密码不对，设备不肯列共享"
+            text.contains("ACCOUNT_DISABLED", true) ->
+                "这个账号被停用了"
+            text.contains("ACCESS_DENIED", true) ->
+                "这个账号没有列共享的权限"
+            text.contains("IPC", true) || text.contains("BAD_NETWORK_NAME", true) ->
+                "设备没有开放管理管道"
+            text.contains("OBJECT_NAME_NOT_FOUND", true) ||
+                text.contains("srvsvc", true) ->
+                "设备不支持共享列表查询"
+            error == null -> "设备没有返回共享列表"
+            else -> "设备没有返回共享列表（${text.take(60)}）"
+        }
     }
 
     @Synchronized

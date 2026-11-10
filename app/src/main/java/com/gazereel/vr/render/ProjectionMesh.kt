@@ -21,9 +21,15 @@ class ProjectionMesh {
         Projection.PLANE_2D -> plane(distance = 2f, width = 2.4f, height = 1.35f, centerY = 0f, flipV = true)
     }
 
-    /** 世界锁定 UI：约 2 米虚拟距离；播放控制台下移到视野下方约 13°。 */
-    fun uiQuad(centerY: Float = 0f): Geometry =
-        plane(distance = 2f, width = 1.8f, height = 0.9f, centerY = centerY)
+    /**
+     * 世界锁定 UI：约 2 米虚拟距离；播放控制台下移到视野下方约 13°。
+     *
+     * V2.13：尺寸变成参数。片库要在一屏里放下 8 个能读清的格子，
+     * 1.8×0.9 米（约 48.5°×25.4°）摊不开，片库单独用 2.4×1.2 米（约 62°×33°）。
+     * 尺寸必须与 VrUiLayer.panelSpec() 一致，否则凝视落点会整体偏移。
+     */
+    fun uiQuad(centerY: Float = 0f, width: Float = 1.8f, height: Float = 0.9f): Geometry =
+        plane(distance = 2f, width = width, height = height, centerY = centerY)
 
     private fun curved(fullSphere: Boolean): Geometry {
         val latBands = 32

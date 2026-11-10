@@ -56,6 +56,8 @@ class VrRenderer(
     private var videoGeometry: ProjectionMesh.Geometry? = null
     private var uiCentered: ProjectionMesh.Geometry? = null
     private var uiLowered: ProjectionMesh.Geometry? = null
+    // V2.13：片库用更大的平面（2.4×1.2 米）。尺寸必须与 VrUiLayer.panelSpec() 一致。
+    private var uiLibrary: ProjectionMesh.Geometry? = null
     private var lastProjection: Projection? = null
     private var lastLayout: com.gazereel.vr.core.StereoLayout? = null
     private var loggedStMatrix = false
@@ -81,6 +83,7 @@ class VrRenderer(
             videoSurface = Surface(surfaceTexture)
             uiCentered = mesh.uiQuad(0f)
             uiLowered = mesh.uiQuad(-0.46f)
+            uiLibrary = mesh.uiQuad(0f, width = 2.4f, height = 1.2f)
             onGlReady?.invoke(videoSurface!!)
         } catch (t: Throwable) {
             failGl(t)
@@ -152,7 +155,7 @@ class VrRenderer(
         GlUtils.uploadBitmap(uiTextureId, uiLayer.render(state, gazeId, gazeProgress))
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
-        val lowered = uiLayer.panelCenterY(state) < 0f
+        val panel = uiLayer.panelSpec(state)
 
         for (eye in listOf(Eye.LEFT, Eye.RIGHT)) {
             val viewportX = if (eye == Eye.LEFT) 0 else width / 2
@@ -182,7 +185,11 @@ class VrRenderer(
                 )
             }
 
-            val uiGeometry = if (lowered) uiLowered else uiCentered
+            val uiGeometry = when {
+                panel.width > 2f -> uiLibrary
+                panel.centerY < 0f -> uiLowered
+                else -> uiCentered
+            }
             uiGeometry?.let { geometry ->
                 drawGeometry(
                     program = uiProgram ?: return@let,

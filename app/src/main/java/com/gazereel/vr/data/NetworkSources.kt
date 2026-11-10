@@ -10,7 +10,11 @@ import java.io.IOException
 import java.io.StringReader
 import java.net.DatagramPacket
 import java.net.DatagramSocket
+import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.MulticastSocket
+import java.net.NetworkInterface
 import java.net.SocketTimeoutException
 import java.net.URL
 import java.net.URLDecoder
@@ -273,41 +277,85 @@ class HttpDirectoryScanner(private val credentials: SmbCredentials) {
 class DlnaScanner(private val context: Context) {
     data class Server(val label: String, val controlUrl: String)
 
+    /**
+     * 一次发现的完整结果。
+     * - responders：这个 Wi-Fi 下有多少台设备回了 SSDP；
+     * - withoutService：回了 SSDP、但没开媒体共享的台数。
+     * 两者分开，界面才能说清「没找到设备」到底是网络不通，还是 NAS 只开了 SMB。
+     */
+    data class Discovery(
+        val servers: List<Server>,
+        val responders: Int,
+        val withoutService: Int
+    )
+
     private val http = LanHttpClient()
 
-    fun discover(timeoutMs: Int = 2_500): List<Server> {
+    companion object {
+        private const val SSDP_GROUP = "239.255.255.250"
+        private const val SSDP_PORT = 1900
+        private val LOCATION = Regex(
+            """LOCATION:\s*(.+)""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE)
+        )
+        /** ContentDirectory:1 / :2 / :3 都认；只认 1 会把只广播 v2 的新 NAS 漏掉。 */
+        private val CONTENT_DIRECTORY = Regex(
+            """urn:schemas-upnp-org:service:ContentDirectory:\d+""",
+            RegexOption.IGNORE_CASE
+        )
+        private val FRIENDLY_NAME = Regex(
+            """<friendlyName>\s*(.*?)\s*</friendlyName>""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        )
+    }
+
+    fun discover(timeoutMs: Int = 4_000): List<Server> = discoverDetailed(timeoutMs).servers
+
+    /**
+     * V2.12：原来的实现只发一次 M-SEARCH、只认 ContentDirectory:1、只等 2.5 秒，
+     * UDP 丢一个包就整轮白跑。现在同时发 ContentDirectory:1 与 ssdp:all、
+     * 每 900ms 重发一次、窗口拉到 4 秒，并尽量把组播从 Wi-Fi 网卡发出去。
+     */
+    fun discoverDetailed(timeoutMs: Int = 4_000): Discovery {
         val wifi = context.applicationContext
             .getSystemService(Context.WIFI_SERVICE) as? WifiManager
         val multicastLock = wifi?.createMulticastLock("cardboardvr-ssdp")
         runCatching { multicastLock?.acquire() }
 
         val locations = LinkedHashSet<String>()
+        val responders = LinkedHashSet<String>()
         try {
-            DatagramSocket().use { socket ->
-                socket.soTimeout = 700
-                socket.broadcast = true
-                val probe = (
-                    "M-SEARCH * HTTP/1.1\r\n" +
-                        "HOST: 239.255.255.250:1900\r\n" +
-                        "MAN: \"ssdp:discover\"\r\n" +
-                        "MX: 2\r\n" +
-                        "ST: urn:schemas-upnp-org:service:ContentDirectory:1\r\n\r\n"
-                    ).toByteArray(Charsets.US_ASCII)
-                val group = InetAddress.getByName("239.255.255.250")
-                socket.send(DatagramPacket(probe, probe.size, group, 1900))
-
+            openSocket().use { socket ->
+                socket.soTimeout = 400
+                val group = InetAddress.getByName(SSDP_GROUP)
+                val searches = listOf(
+                    "urn:schemas-upnp-org:service:ContentDirectory:1",
+                    "ssdp:all"
+                )
                 val deadline = System.currentTimeMillis() + timeoutMs
-                val buffer = ByteArray(2048)
+                var nextProbeAt = 0L
+                val buffer = ByteArray(4096)
                 while (System.currentTimeMillis() < deadline) {
+                    val now = System.currentTimeMillis()
+                    if (now >= nextProbeAt) {
+                        for (search in searches) {
+                            val probe = searchPacket(search).toByteArray(Charsets.US_ASCII)
+                            runCatching {
+                                socket.send(DatagramPacket(probe, probe.size, group, SSDP_PORT))
+                            }
+                        }
+                        nextProbeAt = now + 900
+                    }
                     try {
                         val packet = DatagramPacket(buffer, buffer.size)
                         socket.receive(packet)
                         val text = String(packet.data, 0, packet.length, Charsets.US_ASCII)
-                        val location = Regex(
-                            """LOCATION:\s*(.+)""",
-                            setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE)
-                        ).find(text)?.groupValues?.get(1)?.trim()
-                        if (!location.isNullOrEmpty()) locations += location
+                        if (!text.startsWith("HTTP/1.1", ignoreCase = true)) continue
+                        val location = LOCATION.find(text)?.groupValues?.get(1)?.trim()
+                        if (!location.isNullOrEmpty()) {
+                            locations += location
+                            packet.address?.hostAddress?.let { responders += it }
+                        }
                     } catch (ignored: SocketTimeoutException) {
                         // 单次等待超时不代表发现结束，继续等到总时限。
                     }
@@ -316,12 +364,71 @@ class DlnaScanner(private val context: Context) {
         } finally {
             runCatching { multicastLock?.release() }
         }
-        return locations.mapIndexedNotNull { index, location ->
-            runCatching { contentDirectoryUrl(location, index) }.getOrNull()
+
+        val found = mutableListOf<Server>()
+        val seenHosts = HashSet<String>()
+        for (location in locations) {
+            val server = runCatching { contentDirectory(location) }.getOrNull() ?: continue
+            if (seenHosts.add(hostOf(server.controlUrl))) found += server
         }
+        // 两台 NAS 都叫「NAS」时，光看名字分不出是哪一台。
+        val duplicated = found.groupingBy { it.label }.eachCount()
+        val servers = found.map { server ->
+            if ((duplicated[server.label] ?: 0) > 1) {
+                server.copy(label = "${server.label} · ${hostOf(server.controlUrl)}")
+            } else server
+        }
+        return Discovery(
+            servers = servers,
+            responders = responders.size,
+            withoutService = responders.count { it !in seenHosts }
+        )
     }
 
-    private fun contentDirectoryUrl(location: String, index: Int): Server {
+    /**
+     * 尽量把组播从 Wi-Fi 网卡发出去。
+     * 手机同时开着移动数据时，默认路由可能落在蜂窝上，M-SEARCH 就发不进局域网。
+     * 指定出口网卡是 MulticastSocket 的能力，普通 DatagramSocket 没有。
+     */
+    private fun openSocket(): DatagramSocket {
+        val wifi = wifiInterface()
+        if (wifi != null) {
+            val bound = runCatching {
+                MulticastSocket().apply {
+                    reuseAddress = true
+                    bind(InetSocketAddress(wifi.second, 0))
+                    networkInterface = wifi.first
+                }
+            }.getOrNull()
+            if (bound != null) return bound
+        }
+        return DatagramSocket()
+    }
+
+    private fun wifiInterface(): Pair<NetworkInterface, Inet4Address>? = runCatching {
+        val candidates = NetworkInterface.getNetworkInterfaces().toList()
+            .filter { it.isUp && !it.isLoopback && !it.isVirtual }
+        // wlan / wifi 优先，避免选到热点或 VPN。
+        val ordered = candidates.sortedBy { if (it.name.startsWith("wlan", true)) 0 else 1 }
+        ordered.firstNotNullOfOrNull { nif ->
+            nif.inetAddresses.toList()
+                .filterIsInstance<Inet4Address>()
+                .firstOrNull { it.isSiteLocalAddress }
+                ?.let { nif to it }
+        }
+    }.getOrNull()
+
+    private fun searchPacket(searchTarget: String): String =
+        "M-SEARCH * HTTP/1.1\r\n" +
+            "HOST: $SSDP_GROUP:$SSDP_PORT\r\n" +
+            "MAN: \"ssdp:discover\"\r\n" +
+            "MX: 2\r\n" +
+            "ST: $searchTarget\r\n\r\n"
+
+    private fun hostOf(url: String): String =
+        runCatching { URL(url).host }.getOrDefault(url)
+
+    private fun contentDirectory(location: String): Server {
         val response = http.request("GET", location)
         if (response.code !in 200..299) throw IOException("设备描述不可达：$location")
         val xml = String(response.body, Charsets.UTF_8)
@@ -332,14 +439,26 @@ class DlnaScanner(private val context: Context) {
         val services = Regex("""<service>([\s\S]*?)</service>""", RegexOption.IGNORE_CASE)
         for (match in services.findAll(xml)) {
             val block = match.groupValues[1]
-            if (!block.contains("ContentDirectory:1", ignoreCase = true)) continue
+            if (!CONTENT_DIRECTORY.containsMatchIn(block)) continue
             val control = Regex("""<controlURL>\s*(.*?)\s*</controlURL>""", RegexOption.IGNORE_CASE)
                 .find(block)?.groupValues?.get(1)?.trim()
             if (!control.isNullOrEmpty()) {
-                return Server("DLNA 服务器 ${index + 1}", URL(base, control).toString())
+                return Server(friendlyName(xml, locationUrl), URL(base, control).toString())
             }
         }
         throw IOException("设备未提供 ContentDirectory 服务：$location")
+    }
+
+    /** 有 friendlyName 就用它——「客厅的群晖」比「DLNA 服务器 1」有用得多。 */
+    private fun friendlyName(xml: String, location: URL): String {
+        val raw = FRIENDLY_NAME.find(xml)?.groupValues?.get(1)?.trim().orEmpty()
+        val clean = raw
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+        return clean.ifEmpty { "DLNA 服务器（${location.host}）" }
     }
 
     fun browse(server: Server): List<IndexEntry> = browseUrl(server.controlUrl)

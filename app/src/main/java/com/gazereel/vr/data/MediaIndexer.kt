@@ -37,6 +37,9 @@ class MediaIndexer(
     /** V2.6：DLNA 的第一层浏览对象是「设备」，不是路径。 */
     fun dlnaServers(): List<DlnaScanner.Server> = dlna.discover()
 
+    /** V2.12：带应答统计的发现，界面要能分清「没设备」和「设备没开媒体共享」。 */
+    fun dlnaDiscovery(): DlnaScanner.Discovery = dlna.discoverDetailed()
+
     /** V2.6：删除片库时连同生成的文字封面一起清掉。 */
     fun deletePosters(sourceId: Long) = posters.deleteBySource(sourceId)
 

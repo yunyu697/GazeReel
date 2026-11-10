@@ -266,28 +266,44 @@ class SetupActivity : AppCompatActivity() {
     // -------------------------------------------------- 一键：局域网设备
 
     private fun discoverLan() {
-        setBusy(true, "正在找同一 Wi-Fi 下的设备…")
+        setBusy(true, "正在找同一 Wi-Fi 下的设备…（约 4 秒）")
         binding.lanChip.text = "找…"
         lifecycleScope.launch {
-            val servers = withContext(Dispatchers.IO) {
-                runCatching { indexer.dlnaServers() }.getOrDefault(emptyList())
+            val discovery = withContext(Dispatchers.IO) {
+                runCatching { indexer.dlnaDiscovery() }
+                    .getOrElse { DlnaScanner.Discovery(emptyList(), 0, 0) }
             }
             setBusy(false)
+            val servers = discovery.servers
             if (servers.isEmpty()) {
                 binding.lanChip.text = getString(R.string.setup_lan_chip)
-                renderStatus(
-                    Status.ERR,
-                    "这个 Wi-Fi 下没找到设备",
-                    getString(R.string.setup_lan_none),
-                    "0 台"
-                )
+                // V2.12：「找不到设备」和「设备没开媒体共享」是两件事，
+                // 混成一句话会让用户以为网络坏了，其实 NAS 只开了 SMB。
+                when {
+                    discovery.responders > 0 -> renderStatus(
+                        Status.ERR,
+                        "这个 Wi-Fi 下有 ${discovery.responders} 台设备，但都没开媒体共享",
+                        "它们可能只开了 SMB。在下面的手动添加里选 SMB，地址只填 IP 就行，" +
+                            "连上之后会列出共享让你点选。",
+                        "0 台可用"
+                    )
+                    else -> renderStatus(
+                        Status.ERR,
+                        "这个 Wi-Fi 下没找到设备",
+                        getString(R.string.setup_lan_none),
+                        "0 台"
+                    )
+                }
                 expandManual()
                 return@launch
             }
             binding.lanChip.text = "${servers.size} 台"
+            val extra = if (discovery.withoutService > 0) {
+                "，另有 ${discovery.withoutService} 台设备没开媒体共享"
+            } else ""
             renderStatus(
                 Status.OK,
-                "找到 ${servers.size} 台设备",
+                "找到 ${servers.size} 台设备$extra",
                 "点一台就能加入，不用填 IP。",
                 "${servers.size} 台"
             )
@@ -509,7 +525,10 @@ class SetupActivity : AppCompatActivity() {
 
             if (state.folders.isEmpty()) {
                 val empty = ItemFolderBinding.inflate(layoutInflater, view.folderList, false)
-                empty.folderName.text = "这一层没有可再展开的文件夹"
+                // V2.12：这行原来是写死的「这一层没有可再展开的文件夹」，
+                // 共享层为空时用户看不出是设备没共享、账号没权限，还是枚举没成功。
+                empty.folderName.text =
+                    state.emptyHint.ifBlank { "这一层没有可再展开的文件夹" }
                 empty.folderDetail.text = ""
                 view.folderList.addView(empty.root)
             }

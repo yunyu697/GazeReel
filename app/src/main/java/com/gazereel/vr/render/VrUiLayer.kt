@@ -20,9 +20,12 @@ import com.gazereel.vr.ui.VrScreen
 import com.gazereel.vr.ui.VrSettings
 import com.gazereel.vr.ui.VrUiState
 import com.gazereel.vr.ui.AdjustFeedback
+import kotlin.math.PI
 import kotlin.math.asin
 import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.sin
 
 /**
  * PRD 4.4 / 4.3：把世界锁定 UI 用 Canvas 画到一张纹理，再由 VrRenderer
@@ -48,11 +51,38 @@ class VrUiLayer(
         private val C_MUTED = 0xFFB9C6DA.toInt()
         private val C_POSTER = 0xFF173A5E.toInt()
 
-        // 片库格子：4 列 × 2 行。每格 212×106px ≈ 10.0°×5.3°，仍守住单目标 ≥6°×4°。
-        private const val CELL_W = 212f
-        private const val CELL_H = 106f
-        private val CELL_LEFT = floatArrayOf(60f, 286f, 526f, 752f)
-        private val CELL_TOP = floatArrayOf(138f, 268f)
+        // 片库格子：4 列 × 2 行，每格 232×165px。
+        // V2.13：格子在画布里变高（原来 106px），配合片库专用的大平面，
+        // 每格从约 10.0°×5.3° 变成约 14.0°×10.8°，标题从 17px 提到 26px。
+        private const val CELL_W = 232f
+        private const val CELL_H = 165f
+        private val CELL_LEFT = floatArrayOf(24f, 272f, 520f, 768f)
+        private val CELL_TOP = floatArrayOf(116f, 297f)
+
+        /** 20260712_143022 这类相机 / 手机命名。 */
+        private val STAMP_COMPACT =
+            Regex("(\\d{4})(\\d{2})(\\d{2})[_-](\\d{2})(\\d{2})(\\d{2})")
+
+        /** 2026-07-12 14.30.22 / 2026-07-12 14:30 这类导出后改名。 */
+        private val STAMP_LOOSE =
+            Regex("(\\d{4})-(\\d{2})-(\\d{2})[ _T](\\d{2})[:.](\\d{2})(?:[:.](\\d{2}))?")
+    }
+
+    /**
+     * UI 平面的物理尺寸与俯角。
+     *
+     * V2.13：片库单独用一块更大的平面。原因不是「想大一点」，是分辨率账：
+     * 1.8×0.9 米在 2 米外只占约 48.5°×25.4°，1024×512 的画布摊到这个角度上，
+     * 17px 的标题落到屏幕里只剩不到 9 个像素——真机上就是「看不清、认不出是哪一部」。
+     */
+    data class PanelSpec(val width: Float, val height: Float, val centerY: Float)
+
+    fun panelSpec(state: VrUiState): PanelSpec = when {
+        state.screen == VrScreen.PLAYER && state.overlay == VrOverlay.NONE ->
+            PanelSpec(1.8f, 0.9f, -0.46f)
+        state.screen == VrScreen.LIBRARY && state.overlay == VrOverlay.NONE ->
+            PanelSpec(2.4f, 1.2f, 0f)
+        else -> PanelSpec(1.8f, 0.9f, 0f)
     }
 
     private val bitmap = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
@@ -72,6 +102,10 @@ class VrUiLayer(
     private val small = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = C_MUTED; textAlign = Paint.Align.CENTER
     }
+    /** 片库里「日期 + 时刻」用的粗体；与 text 分开是为了互不污染字号。 */
+    private val strong = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = C_TEXT; textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD
+    }
     private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = C_ACCENT; style = Paint.Style.STROKE; strokeWidth = 8f
     }
@@ -81,24 +115,24 @@ class VrUiLayer(
 
     /** 准星射线与 UI 平面的交点命中哪个目标；凝视与触发键共用此判定。 */
     fun targetAt(rotation: FloatArray, state: VrUiState): GazeTarget? {
-        val point = gazePoint(rotation, panelCenterY(state))
+        val point = gazePoint(rotation, state)
         return currentTargets().firstOrNull { it.rect.contains(point.x, point.y) }
     }
 
     /** 播放控制台置于视野下方约 13°，其余界面居中（PRD 3.5）。 */
-    fun panelCenterY(state: VrUiState): Float =
-        if (state.screen == VrScreen.PLAYER && state.overlay == VrOverlay.NONE) -0.46f else 0f
+    fun panelCenterY(state: VrUiState): Float = panelSpec(state).centerY
 
-    /** 头部姿态 → 准星在 UI 画布上的落点。面板俯角会抵消「低头」。 */
-    fun gazePoint(rotation: FloatArray, panelCenterY: Float): PointF {
+    /** 头部姿态 → 准星在 UI 画布上的落点。面板尺寸与俯角都会影响映射。 */
+    fun gazePoint(rotation: FloatArray, state: VrUiState): PointF {
+        val spec = panelSpec(state)
         val fx = -rotation[8]
         val fy = -rotation[9]
         val fz = -rotation[10]
         val yaw = atan2(fx.toDouble(), -fz.toDouble())
         val pitch = asin(fy.coerceIn(-1f, 1f).toDouble())
-        val panelPitch = atan2(panelCenterY.toDouble(), 2.0)
-        val halfWidth = atan2(0.9, 2.0)
-        val halfHeight = atan2(0.45, 2.0)
+        val panelPitch = atan2(spec.centerY.toDouble(), 2.0)
+        val halfWidth = atan2((spec.width / 2f).toDouble(), 2.0)
+        val halfHeight = atan2((spec.height / 2f).toDouble(), 2.0)
         val x = W / 2.0 + yaw / halfWidth * (W / 2.0)
         val y = H / 2.0 - (pitch - panelPitch) / halfHeight * (H / 2.0)
         return PointF(x.toFloat(), y.toFloat())
@@ -250,33 +284,48 @@ class VrUiLayer(
      * 3. 每格直接就是「播放这一部」的目标，不再需要先选中、再凝视中间的「打开」。
      */
     private fun drawLibrary(state: VrUiState) {
-        panel(RectF(40f, 20f, 984f, 492f))
+        panel(RectF(20f, 14f, 1004f, 498f))
 
         val items = state.items
         val pageCount = state.pageCount
         val page = state.page.coerceIn(0, pageCount - 1)
 
-        label("片库 · ${items.size} 部", 66f, 62f, 26f, C_TEXT)
-        label("第 ${page + 1} / $pageCount 页", 958f, 62f, 20f, C_MUTED, Paint.Align.RIGHT)
+        label("片库 · ${items.size} 部", 44f, 76f, 30f, C_TEXT)
+        if (pageCount > 1) {
+            // 两侧箭头之间只有 116px，「第 x / y 页」会压到箭头框上，只留数字。
+            label("${page + 1} / $pageCount", 636f, 74f, 22f, C_MUTED, Paint.Align.CENTER)
+        }
 
-        // 翻页条：把假 tab 的位置直接征用，目标数与原来一致。
-        button("pagePrev", "上一页", RectF(60f, 84f, 260f, 126f), VrAction.PageFlip(-1))
-        button("pageNext", "下一页", RectF(764f, 84f, 964f, 126f), VrAction.PageFlip(1))
-        val from = page * VrUiState.PAGE_SIZE + 1
-        val to = minOf(items.size, (page + 1) * VrUiState.PAGE_SIZE)
-        centerText(
-            if (items.isEmpty()) "还没有片源" else "第 $from–$to 部 · 摇头翻页",
-            112f, 19f, C_MUTED
+        // V2.13：原来底部并排四个文字按钮（上一页 / 下一页 / 设置 / 退出）占了近 1/5 的画布。
+        // 现在换成图标，且全部收进顶栏与底栏两条窄带，中间整块留给片子。
+        // 图标本身画得小，但命中区仍然 ≥ 96×66px（约 5.8°×4.3°），没有牺牲好点。
+        iconButton(
+            "pagePrev", "上一页", RectF(482f, 28f, 578f, 94f),
+            VrAction.PageFlip(-1), Glyph.CHEVRON_LEFT,
+            dimmed = page <= 0
+        )
+        iconButton(
+            "pageNext", "下一页", RectF(694f, 28f, 790f, 94f),
+            VrAction.PageFlip(1), Glyph.CHEVRON_RIGHT,
+            dimmed = page >= pageCount - 1
+        )
+        iconButton(
+            "settingsLib", "设置", RectF(806f, 28f, 902f, 94f),
+            VrAction.OpenSettings, Glyph.GEAR
+        )
+        iconButton(
+            "exitLib", "退出", RectF(912f, 28f, 1008f, 94f),
+            VrAction.Exit, Glyph.POWER
         )
 
         if (items.isEmpty()) {
-            centerText("还没有片源 · 请回到戴镜前配置添加共享", 250f, 20f, C_MUTED)
+            centerText("还没有片源 · 请回到戴镜前配置添加共享", 250f, 22f, C_MUTED)
         } else {
             val start = page * VrUiState.PAGE_SIZE
             for (slot in 0 until VrUiState.PAGE_SIZE) {
                 val index = start + slot
                 val item = items.getOrNull(index) ?: break
-                // 2 行 × 4 列，正中那道十字缝留得比别处宽（横向 28px、纵向 24px）。
+                // 2 行 × 4 列，正中那道十字缝留得比别处宽（横向 16px、纵向 16px）。
                 // 这只是在「已经上膛」之后多一道保险，不是防误开的主力——
                 // 配戴过程中手机一直在动，准星照样会扫到卡片上，主力是 V2.9 的触发键上膛。
                 val left = CELL_LEFT[slot % 4]
@@ -285,24 +334,20 @@ class VrUiLayer(
                     ?.takeIf { !it.finished && it.positionMs > 0L }
                 cell(
                     id = "cell$index",
-                    title = item.title,
+                    item = item,
                     rect = RectF(left, top, left + CELL_W, top + CELL_H),
                     action = VrAction.OpenMedia(item.id),
-                    posterPath = item.posterPath,
-                    meta = metaOf(item),
                     badge = resume?.let { "续 ${formatTime(it.positionMs)}" },
                     current = item.id == state.currentMediaId
                 )
             }
         }
 
-        button("settingsLib", "设置", RectF(60f, 388f, 300f, 442f), VrAction.OpenSettings)
-        button("exitLib", "退出", RectF(724f, 388f, 964f, 442f), VrAction.Exit)
         val message = state.message
         if (message != null) {
-            centerText(message, 470f, 18f, C_ACCENT)
+            centerText(message, 490f, 20f, C_ACCENT)
         } else {
-            centerText("凝视一格即播放 · 摇头翻页", 415f, 19f, C_MUTED)
+            centerText("凝视一格即播放 · 摇头或左右箭头翻页", 490f, 20f, C_MUTED)
         }
     }
 
@@ -512,30 +557,30 @@ class VrUiLayer(
     }
 
     /**
-     * V2.8：片库的一格。214×108px ≈ 10.1°×5.4°，仍守住「单目标 ≥6°×4°」。
+     * 片库的一格：232×165px，在片库那块 2.4×1.2 米的平面上约 14.0°×10.8°。
      *
-     * 格子本身就是播放目标，所以标题必须压在格内底条上——108px 的高度不够
-     * 再单独留一行文字。断点做成一枚角标，不占标题位置。
+     * V2.13：原来只有 106px 高，标题被压在 30px 的底条里、字号 17px——
+     * 真机反馈「看不清、完全无法识别是哪一个文件」。现在格子中央放的是
+     * **拍摄日期 + 时刻**：用户自己的片子就是 `VID_20260712_143022.mp4`，
+     * 名字本身没有含义，时刻才是他记得住的东西。有海报就直接铺满，日期退到角标。
      */
     private fun cell(
         id: String,
-        title: String,
+        item: MediaItemEntity,
         rect: RectF,
         action: VrAction,
-        posterPath: String,
-        meta: String?,
         badge: String?,
         current: Boolean
     ) {
-        targets += GazeTarget(id, prettyName(title), RectF(rect), action)
+        targets += GazeTarget(id, prettyName(item.title), RectF(rect), action)
         fill.color = C_POSTER
-        canvas.drawRoundRect(rect, 12f, 12f, fill)
+        canvas.drawRoundRect(rect, 14f, 14f, fill)
 
-        val poster = posterPath.takeIf { it.isNotBlank() }?.let { posterLoader(it) }
+        val poster = item.posterPath.takeIf { it.isNotBlank() }?.let { posterLoader(it) }
         if (poster != null && poster.width > 0 && poster.height > 0) {
             canvas.save()
             val clip = Path()
-            clip.addRoundRect(rect, 12f, 12f, Path.Direction.CW)
+            clip.addRoundRect(rect, 14f, 14f, Path.Direction.CW)
             canvas.clipPath(clip)
             val scale = max(rect.width() / poster.width, rect.height() / poster.height)
             val dw = poster.width * scale
@@ -546,38 +591,64 @@ class VrUiLayer(
             )
             canvas.drawBitmap(poster, Rect(0, 0, poster.width, poster.height), dst, bitmapPaint)
             canvas.restore()
-        } else if (meta != null) {
-            // V2.9：没有海报时不要留一块空蓝。
-            // 832 部用户自己的片子几乎没有海报，空卡等于让 8 个格子长得一模一样，
-            // 时长 + 分辨率是戴镜时最快能区分「这一段是不是我要找的」的线索。
-            label(
-                meta, rect.centerX(), rect.centerY() - 2f, 17f, C_MUTED, Paint.Align.CENTER
-            )
+        } else {
+            drawIdentity(item, rect)
         }
 
-        // 底部标题条：半透明压底，亮画面下也能读清。
-        fill.color = 0xCC0B1626.toInt()
-        canvas.drawRect(RectF(rect.left, rect.bottom - 30f, rect.right, rect.bottom), fill)
-        small.textSize = 17f
-        label(
-            ellipsize(prettyName(title), rect.width() - 20f, small),
-            rect.left + 10f, rect.bottom - 9f, 17f, C_TEXT
-        )
-
         if (badge != null) {
-            small.textSize = 15f
-            val width = small.measureText(badge) + 16f
+            // 角标放右上角：日期在格子中央，左上角会和它挤在一起。
+            small.textSize = 17f
+            val width = small.measureText(badge) + 18f
             fill.color = 0xE612283F.toInt()
             canvas.drawRoundRect(
-                RectF(rect.left + 8f, rect.top + 8f, rect.left + 8f + width, rect.top + 30f),
-                11f, 11f, fill
+                RectF(
+                    rect.right - 10f - width, rect.top + 10f,
+                    rect.right - 10f, rect.top + 36f
+                ),
+                13f, 13f, fill
             )
-            label(badge, rect.left + 16f, rect.top + 24f, 15f, C_ACCENT)
+            label(badge, rect.right - 19f, rect.top + 29f, 17f, C_ACCENT, Paint.Align.RIGHT)
         }
 
         stroke.color = if (current) C_ACCENT else C_BORDER
-        stroke.strokeWidth = if (current) 2.5f else 1.5f
-        canvas.drawRoundRect(rect, 12f, 12f, stroke)
+        stroke.strokeWidth = if (current) 3f else 1.5f
+        canvas.drawRoundRect(rect, 14f, 14f, stroke)
+    }
+
+    /** 没有海报时，格子里放「什么时候拍的」——这才是用户认得出这一部的东西。 */
+    private fun drawIdentity(item: MediaItemEntity, rect: RectF) {
+        val stamp = timestampOf(item.title)
+        val meta = metaOf(item)
+        if (stamp != null) {
+            label(
+                stamp.date, rect.centerX(), rect.top + 54f, 22f, C_MUTED, Paint.Align.CENTER
+            )
+            strongLabel(
+                stamp.time, rect.centerX(), rect.top + 112f, 44f, C_TEXT, Paint.Align.CENTER
+            )
+            if (meta != null) {
+                label(
+                    meta, rect.centerX(), rect.top + 148f, 19f, C_MUTED, Paint.Align.CENTER
+                )
+            }
+        } else {
+            // 名字本身就是线索（GOPR0231、导出后的中文名），放大到能读清。
+            val name = prettyName(item.title)
+            strong.textSize = 30f
+            val lines = wrapTwoLines(name, rect.width() - 36f)
+            val baseY = if (meta == null) rect.centerY() + 10f else rect.centerY() - 6f
+            lines.forEachIndexed { index, line ->
+                strongLabel(
+                    line, rect.centerX(), baseY + index * 36f, 30f, C_TEXT, Paint.Align.CENTER
+                )
+            }
+            if (meta != null) {
+                label(
+                    meta, rect.centerX(), baseY + lines.size * 36f + 6f, 19f,
+                    C_MUTED, Paint.Align.CENTER
+                )
+            }
+        }
     }
 
     private fun sameFormat(a: VrFormat, b: VrFormat): Boolean =
@@ -656,6 +727,156 @@ class VrUiLayer(
         small.color = color
         canvas.drawText(value, W / 2f, y, small)
         small.color = C_MUTED
+    }
+
+    /** 粗体版的 label：日期时刻这种「一眼要读到」的字用它。 */
+    private fun strongLabel(
+        value: String,
+        x: Float,
+        y: Float,
+        size: Float,
+        color: Int,
+        align: Paint.Align = Paint.Align.LEFT
+    ) {
+        strong.textSize = size
+        strong.color = color
+        strong.textAlign = align
+        canvas.drawText(value, x, y, strong)
+        strong.textAlign = Paint.Align.CENTER
+        strong.color = C_TEXT
+    }
+
+    // ── 图标按钮（V2.13） ─────────────────────────────────────────────
+    /**
+     * 片库顶栏的四个按钮。
+     *
+     * 用户的原话是「四个按钮也占了很大一部分面积（建议改成图标按钮）」。
+     * 但纸盒上只有凝视可用，图标不能真的画成 40px 的小东西——那样根本瞄不中。
+     * 所以做法是：**图标画小，命中区不缩小**，按钮框仍是 96×66px（约 5.8°×4.3°）。
+     */
+    private enum class Glyph { CHEVRON_LEFT, CHEVRON_RIGHT, GEAR, POWER }
+
+    private fun iconButton(
+        id: String,
+        name: String,
+        rect: RectF,
+        action: VrAction,
+        glyph: Glyph,
+        dimmed: Boolean = false
+    ) {
+        targets += GazeTarget(id, name, RectF(rect), action)
+        fill.color = C_PANEL
+        canvas.drawRoundRect(rect, 16f, 16f, fill)
+        stroke.color = C_BORDER
+        stroke.strokeWidth = 2f
+        canvas.drawRoundRect(rect, 16f, 16f, stroke)
+
+        val color = if (dimmed) 0x66EAF2FA else C_TEXT
+        val cx = rect.centerX()
+        val cy = rect.centerY()
+        stroke.color = color
+        stroke.strokeWidth = 4f
+        stroke.strokeCap = Paint.Cap.ROUND
+        when (glyph) {
+            Glyph.CHEVRON_LEFT -> canvas.drawPath(
+                Path().apply {
+                    moveTo(cx + 8f, cy - 14f); lineTo(cx - 8f, cy); lineTo(cx + 8f, cy + 14f)
+                },
+                stroke
+            )
+            Glyph.CHEVRON_RIGHT -> canvas.drawPath(
+                Path().apply {
+                    moveTo(cx - 8f, cy - 14f); lineTo(cx + 8f, cy); lineTo(cx - 8f, cy + 14f)
+                },
+                stroke
+            )
+            Glyph.GEAR -> {
+                // 齿轮：粗环 + 8 颗短而粗的齿。齿细长会看成太阳，和「亮度」撞车。
+                canvas.drawCircle(cx, cy, 9f, stroke)
+                stroke.strokeWidth = 7f
+                for (i in 0 until 8) {
+                    val angle = i * PI / 4.0
+                    canvas.drawLine(
+                        cx + (cos(angle) * 12f).toFloat(), cy + (sin(angle) * 12f).toFloat(),
+                        cx + (cos(angle) * 17f).toFloat(), cy + (sin(angle) * 17f).toFloat(),
+                        stroke
+                    )
+                }
+                stroke.strokeWidth = 4f
+            }
+            Glyph.POWER -> {
+                canvas.drawArc(
+                    RectF(cx - 13f, cy - 13f, cx + 13f, cy + 13f), -58f, 296f, false, stroke
+                )
+                canvas.drawLine(cx, cy - 19f, cx, cy - 1f, stroke)
+            }
+        }
+        stroke.strokeCap = Paint.Cap.BUTT
+        stroke.color = C_BORDER
+        stroke.strokeWidth = 2f
+    }
+
+    // ── 文件名 → 人能读的身份（V2.13） ───────────────────────────────
+    private data class Stamp(val date: String, val time: String)
+
+    /**
+     * 从文件名里抽出「什么时候拍的」。
+     *
+     * 覆盖两类真实名字：`VID_20260712_143022` / `PXL_20260712_143022123`
+     * 与 `2026-07-12 14.30.22`。抽不出来就返回 null，由调用方退回显示名字本身。
+     * 年份等于今年时不写年份——片库里绝大多数是今年拍的，写了只是噪音。
+     */
+    private fun timestampOf(raw: String): Stamp? {
+        val base = raw.substringBeforeLast('.').ifBlank { raw }
+        val groups = STAMP_COMPACT.find(base)?.groupValues
+            ?: STAMP_LOOSE.find(base)?.groupValues
+            ?: return null
+        val year = groups[1].toIntOrNull() ?: return null
+        val month = groups[2].toIntOrNull() ?: return null
+        val day = groups[3].toIntOrNull() ?: return null
+        val hour = groups[4].toIntOrNull() ?: return null
+        val minute = groups[5].toIntOrNull() ?: return null
+        if (month !in 1..12 || day !in 1..31 || hour !in 0..23 || minute !in 0..59) return null
+        val second = groups.getOrNull(6)?.toIntOrNull()?.takeIf { it in 0..59 }
+        val thisYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        val date = if (year == thisYear) "${month}月${day}日" else "${year}年${month}月${day}日"
+        val time = if (second == null) {
+            "%02d:%02d".format(hour, minute)
+        } else {
+            "%02d:%02d:%02d".format(hour, minute, second)
+        }
+        return Stamp(date, time)
+    }
+
+    /** 两行以内放下名字；放不下就先找平衡断点，再不行截断加省略号。 */
+    private fun wrapTwoLines(value: String, maxWidth: Float): List<String> {
+        strong.textSize = 30f
+        if (strong.measureText(value) <= maxWidth) return listOf(value)
+        val words = value.split(' ').filter { it.isNotEmpty() }
+        if (words.size >= 2) {
+            var bestCut = 0
+            var bestDiff = Float.MAX_VALUE
+            for (i in 1 until words.size) {
+                val head = words.take(i).joinToString(" ")
+                val tail = words.drop(i).joinToString(" ")
+                val headWidth = strong.measureText(head)
+                val tailWidth = strong.measureText(tail)
+                if (headWidth <= maxWidth && tailWidth <= maxWidth) {
+                    val diff = kotlin.math.abs(headWidth - tailWidth)
+                    if (diff < bestDiff) {
+                        bestDiff = diff
+                        bestCut = i
+                    }
+                }
+            }
+            if (bestCut > 0) {
+                return listOf(
+                    words.take(bestCut).joinToString(" "),
+                    words.drop(bestCut).joinToString(" ")
+                )
+            }
+        }
+        return listOf(ellipsize(value, maxWidth, strong))
     }
 
     private fun formatTime(ms: Long): String {
