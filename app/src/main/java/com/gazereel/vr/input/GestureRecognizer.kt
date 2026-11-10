@@ -37,6 +37,8 @@ class GestureRecognizer(
     private var lastPitch = Float.NaN
     private var yawMin = 0f
     private var yawMax = 0f
+    /** 窗口起点以来的解缠累计偏航（度）。仅用于量幅度，不代表绝对朝向。 */
+    private var yawAccum = 0f
     private var pitchMin = 0f
     private var pitchMax = 0f
     private var lastYawDir = 0
@@ -61,8 +63,15 @@ class GestureRecognizer(
     fun update(now: Long = SystemClock.elapsedRealtime()) {
         if (!settings.current.gesturesEnabled) return
         val rotation = headset.headRotation()
+        // V2.26：分母原来写成 `-rotation[10]`，等于 atan2(fx, fz) 而不是 atan2(fx, -fz)，
+        // 结果 yaw = π − 真实偏航：正前方读成 180°，且**转向相反**（向右转为负）。
+        // 真机日志里那句「摇头 177°（播放中忽略）」就是它在正对画面时的读数。
+        // 更糟的是 ±180° 接缝落在正前方——用户就坐在那儿，微小抖动每跨一次接缝，
+        // 帧间差就是 360°，yawMax-yawMin 立刻超过 15°，于是「摇头 → 下一页」
+        // 按 800ms 冷却周期无限触发（old 日志里 10 秒 6 次）。
+        // 现在与 PostureTracker.yawOf / VrUiLayer.gazePoint 用同一个约定：向右为正。
         val yaw = Math.toDegrees(
-            atan2((-rotation[8]).toDouble(), (-rotation[10]).toDouble())
+            atan2((-rotation[8]).toDouble(), rotation[10].toDouble())
         ).toFloat()
         val pitch = Math.toDegrees(
             asin((-rotation[9]).coerceIn(-1f, 1f).toDouble())
@@ -75,10 +84,13 @@ class GestureRecognizer(
         }
         if (now - windowStart > WINDOW_MS) resetWindow(yaw, pitch, now)
 
-        val dyaw = yaw - lastYaw
+        val dyaw = shortestAngle(yaw - lastYaw)
         val dpitch = pitch - lastPitch
 
-        yawMin = min(yawMin, yaw); yawMax = max(yawMax, yaw)
+        // 幅度按「解缠后的累计偏航」量。直接用绝对值求 min/max 时，
+        // 朝后看（±180° 附近）跨一次接缝跨度就变成 360°，又被判成一次摇头。
+        yawAccum += dyaw
+        yawMin = min(yawMin, yawAccum); yawMax = max(yawMax, yawAccum)
         pitchMin = min(pitchMin, pitch); pitchMax = max(pitchMax, pitch)
 
         val yawDir = sign(dyaw)
@@ -137,10 +149,19 @@ class GestureRecognizer(
 
     private fun resetWindow(yaw: Float, pitch: Float, now: Long) {
         windowStart = now
-        yawMin = yaw; yawMax = yaw
+        yawAccum = 0f
+        yawMin = 0f; yawMax = 0f
         pitchMin = pitch; pitchMax = pitch
         lastYawDir = 0; lastPitchDir = 0
         yawReversed = false; pitchReversed = false
+    }
+
+    /** 把角度差折回 (−180, 180]，跨 ±180° 接缝时不会读出 360° 的假跨度。 */
+    private fun shortestAngle(deg: Float): Float {
+        var d = deg % 360f
+        if (d > 180f) d -= 360f
+        if (d <= -180f) d += 360f
+        return d
     }
 
     private fun sign(value: Float): Int = when {
