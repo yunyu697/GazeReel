@@ -19,7 +19,12 @@
 
 ## 安装
 
-到 [Releases](../../releases) 下载 `GazeReel-<版本>.apk`，允许「安装未知来源应用」后直接安装。
+**正式版之前不发布安装包。** 包里一律在本地生成：
+
+```bash
+./gradlew :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
 alpha 阶段用固定签名（`keystore/gazereel-alpha.jks`），所以**装过旧 alpha 可以直接覆盖，不用卸载**——
 卸载会丢掉片源配置、观看断点和格式记忆。
@@ -57,7 +62,7 @@ python3 tools/bump_version.py major      # 1.10.10-alpha9 → 2.0.0-alpha1
 
 ### 发版
 
-推一个和版本号完全一致的 tag 就会自动构建并发布：
+**正式版之前只打 tag，不发包。** tag 只用来标记「代码走到哪一步了」，安装包始终在本地生成。
 
 ```bash
 python3 tools/bump_version.py alpha
@@ -66,7 +71,8 @@ git tag v1.0.0-alpha2
 git push && git push --tags
 ```
 
-`.github/workflows/release.yml` 会先校验 `tag == v + version.properties`，不一致直接失败。
+tag 会触发 CI：校验 `tag == v + version.properties`（不一致直接失败）、跑结构校验、编译一遍证明能构建。
+**它不上传任何产物**——构建通过 ≠ 有包可装，要装请本地 `assembleDebug`。
 
 ## 本地构建
 

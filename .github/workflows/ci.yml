@@ -1,10 +1,12 @@
 name: CI
 
-# 每次推到 main、每个 PR、以及手动触发，都要过一遍：结构校验 → 版本号校验 → 编译。
-# 这条流水线只负责「能不能构建」，不产出可发布的包（发版走 release.yml）。
+# 这条流水线只做一件事：证明「这个提交能不能构建」。
+# 它不发布任何东西，也不保留可分发的安装包 —— 正式版之前只打 tag 标记版本，
+# APK 一律在本地生成（./gradlew :app:assembleDebug）。
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -23,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: 安装 JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -41,17 +43,43 @@ jobs:
       - name: 版本号校验
         run: python3 tools/bump_version.py --check
 
-      - name: 编译 Debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
-
       - name: 读取版本号
         id: version
         run: echo "name=$(./gradlew -q :app:printVersion)" >> "$GITHUB_OUTPUT"
 
-      - name: 归档 APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: GazeReel-${{ steps.version.outputs.name }}-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 14
+      # 只有推 tag 时才比对：tag 必须是 v + version.properties 里的版本号。
+      # 这条保证「tag 说 alpha3、代码里其实是 alpha2」这种事不会发生。
+      - name: 校验 tag 与版本号一致
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          WANT="v${{ steps.version.outputs.name }}"
+          if [ "${GITHUB_REF_NAME}" != "$WANT" ]; then
+            echo "::error::tag 是 ${GITHUB_REF_NAME}，但 version.properties 是 $WANT。先跑 tools/bump_version.py 再打 tag。"
+            exit 1
+          fi
+          echo "tag 与版本号一致：${GITHUB_REF_NAME}"
+
+      - name: 编译 Debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      # 只核对产物信息，不上传。包要装到手机上请本地构建。
+      - name: 核对产物
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          ls -l "$APK"
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1)
+          BADGING=""
+          if [ -n "$AAPT" ]; then
+            BADGING=$("$AAPT" dump badging "$APK" | head -1)
+            echo "$BADGING"
+          else
+            echo "::warning::没找到 aapt2，跳过 APK 版本复核"
+          fi
+          {
+            echo "### 构建通过"
+            echo
+            echo "- 版本号：\`${{ steps.version.outputs.name }}\`"
+            echo "- 产物：\`$(du -h "$APK" | cut -f1)\`"
+            echo "- 构建成功 ≠ 可以安装：**CI 不发布安装包**，正式版之前只打 tag，APK 在本地 \`./gradlew :app:assembleDebug\` 生成"
+            if [ -n "$BADGING" ]; then echo "- aapt2：\`${BADGING}\`"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
