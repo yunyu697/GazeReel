@@ -17,7 +17,9 @@ class SettingsRepository(context: Context) {
         autoFade = prefs.getBoolean("auto_fade", true),
         gesturesEnabled = prefs.getBoolean("gestures", true),
         brightness = prefs.getInt("brightness", 70),
-        volume = prefs.getInt("volume", 80),
+        // V2.11：默认值落在档位上（音量 5 档里 75 是第 4 档，亮度 70 是「标准」）。
+        // 存一个不在档位上的值，界面显示档位、播放器用另一个值，两边对不上。
+        volume = prefs.getInt("volume", 75),
         ipdMm = prefs.getInt("ipd_mm", 62),
         consoleTimeoutMs = 8_000L,
         lockView = prefs.getBoolean("lock_view", false),

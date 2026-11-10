@@ -157,7 +157,8 @@ def main(argv: list[str]) -> int:
     write_version(nxt)
     print(f"{current}  →  {nxt}")
     print(f"versionCode  {current.version_code()}  →  {nxt.version_code()}")
-    print(f"\n下一步：git add version.properties && git commit，然后 git tag v{nxt} 触发发版")
+    print(f"\n下一步：git add version.properties && git commit，然后 git tag v{nxt} 标记版本")
+    print("（正式版之前只打 tag，不发包；安装包本地 ./gradlew :app:assembleDebug 生成）")
     return 0
 
 

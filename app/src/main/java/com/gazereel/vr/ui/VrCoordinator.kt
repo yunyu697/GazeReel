@@ -45,6 +45,11 @@ class VrCoordinator(
     var uiState: VrUiState = VrUiState()
         private set
 
+    private companion object {
+        /** 设计第 415 行：档位变化 1.2 秒淡出。 */
+        const val FEEDBACK_MS = 1_200L
+    }
+
     var sources: Map<Long, SourceEntity> = emptyMap()
     private var pendingOpen: Triple<MediaItemEntity, MediaRef, com.gazereel.vr.core.VrFormat>? = null
 
@@ -198,6 +203,12 @@ class VrCoordinator(
         )
         scope.launch {
             val resume = withContext(Dispatchers.IO) { library.resumePosition(item.id) }
+            // V2.11：把保存的音量真正应用到播放器上。
+            // 原来只在按调节键时才调 setVolume，于是「设置里存着 4/5」进播放器后
+            // 用的还是 ExoPlayer 默认的 100%——第一次按音量键音量会突然变小。
+            player.setVolume(
+                VrSettings.VOLUME_STEPS[VrSettings.volumeStep(settings.current.volume)]
+            )
             player.open(item, ref, resume)
         }
         // 字幕走独立低优先级任务：同名字幕不存在时的网络超时不能拖慢起播。
@@ -291,20 +302,64 @@ class VrCoordinator(
         }
     }
 
+    /**
+     * V2.11：档位制调节 + 视野中央反馈。
+     *
+     * 设计第 392 / 415 行的口径：音量 5 档（实体侧键一次一档）、亮度 3 档、
+     * 变化时在视野中央浮出大字与段条、1.2 秒淡出。
+     *
+     * 原来是 `±10%` 的连续值：音量要按十一次才从最小到最大，而且**视野里没有任何反馈**——
+     * 戴镜后按音量键，用户看不到任何变化，只能怀疑按键坏了。
+     */
     private fun adjust(key: String, delta: Int) {
-        val next = settings.update { current ->
-            when (key) {
-                "brightness" -> current.copy(brightness = (current.brightness + delta * 10).coerceIn(10, 100))
-                "volume" -> current.copy(volume = (current.volume + delta * 10).coerceIn(0, 100))
-                "ipd" -> current.copy(ipdMm = (current.ipdMm + delta * 2).coerceIn(50, 75))
-                "gaze" -> current.copy(
-                    gazeDurationMs = (current.gazeDurationMs + delta * 200L).coerceIn(600L, 2_400L)
+        when (key) {
+            "volume" -> {
+                val steps = VrSettings.VOLUME_STEPS
+                val level = (VrSettings.volumeStep(settings.current.volume) + delta)
+                    .coerceIn(0, steps.lastIndex)
+                val next = settings.update { it.copy(volume = steps[level]) }
+                player.setVolume(next.volume)
+                uiState = uiState.copy(
+                    settings = next,
+                    feedback = AdjustFeedback(
+                        label = "音量",
+                        detail = "${level + 1} / ${steps.size}",
+                        level = level + 1,
+                        steps = steps.size,
+                        untilMs = SystemClock.elapsedRealtime() + FEEDBACK_MS
+                    )
                 )
-                else -> current
+            }
+            "brightness" -> {
+                val steps = VrSettings.BRIGHTNESS_STEPS
+                val level = (VrSettings.brightnessStep(settings.current.brightness) + delta)
+                    .coerceIn(0, steps.lastIndex)
+                val next = settings.update { it.copy(brightness = steps[level]) }
+                uiState = uiState.copy(
+                    settings = next,
+                    feedback = AdjustFeedback(
+                        label = "亮度",
+                        detail = VrSettings.BRIGHTNESS_LABELS[level],
+                        level = level + 1,
+                        steps = steps.size,
+                        untilMs = SystemClock.elapsedRealtime() + FEEDBACK_MS
+                    )
+                )
+            }
+            // IPD 与凝视时长不是「戴镜时频繁调节」的东西，保持连续微调。
+            "ipd" -> {
+                val next = settings.update {
+                    it.copy(ipdMm = (it.ipdMm + delta * 2).coerceIn(50, 75))
+                }
+                uiState = uiState.copy(settings = next)
+            }
+            "gaze" -> {
+                val next = settings.update {
+                    it.copy(gazeDurationMs = (it.gazeDurationMs + delta * 200L).coerceIn(600L, 2_400L))
+                }
+                uiState = uiState.copy(settings = next)
             }
         }
-        if (key == "volume") player.setVolume(next.volume)
-        uiState = uiState.copy(settings = next)
     }
 
     private fun toggleViewLock() {
@@ -360,6 +415,12 @@ class VrCoordinator(
         val state = uiState
         if (state.message != null && state.messageUntilMs > 0L && now >= state.messageUntilMs) {
             uiState = state.copy(message = null, messageUntilMs = 0L)
+        }
+        // V2.11：档位反馈自己到期，不常驻。绘制层只在它存在时多画一层。
+        val withFeedback = uiState
+        val feedback = withFeedback.feedback
+        if (feedback != null && now >= feedback.untilMs) {
+            uiState = withFeedback.copy(feedback = null)
         }
         val current = uiState
         if (current.screen == VrScreen.PLAYER && current.overlay == VrOverlay.NONE &&

@@ -17,11 +17,62 @@ data class VrSettings(
     val autoFade: Boolean = true,
     val gesturesEnabled: Boolean = true,
     val brightness: Int = 70,
-    val volume: Int = 80,
+    val volume: Int = 75,
     val ipdMm: Int = 62,
     val consoleTimeoutMs: Long = 8_000L,
     val lockView: Boolean = false,
     val subtitlesEnabled: Boolean = true
+) {
+    companion object {
+        /**
+         * V2.11：音量 5 档、亮度 3 档。
+         *
+         * 设计第 392 行：「音量交给手机实体侧键，一次一档、零瞄准；亮度手动只有三档大胶囊。
+         * 任何档位变化在视野中央浮出大字与 5 段条，1.2 秒淡出。不做凝视滑杆、不做要反复瞄准的 ± 按钮。」
+         *
+         * 存的是 0–100 的百分比，但**只允许落在档位上**——连续值意味着用户要按十几次才到头，
+         * 而那正是设计说的「把连续、高频、要求精度的动作交给了脖子」。
+         */
+        val VOLUME_STEPS = intArrayOf(0, 25, 50, 75, 100)
+        val BRIGHTNESS_STEPS = intArrayOf(35, 70, 100)
+        val BRIGHTNESS_LABELS = arrayOf("暗", "标准", "亮")
+
+        /** 找到当前值最接近的档位序号；越界的旧值也能落到最近的档上。 */
+        fun stepOf(steps: IntArray, value: Int): Int {
+            var best = 0
+            var bestGap = Int.MAX_VALUE
+            for (i in steps.indices) {
+                val gap = kotlin.math.abs(steps[i] - value)
+                if (gap < bestGap) {
+                    bestGap = gap
+                    best = i
+                }
+            }
+            return best
+        }
+
+        fun volumeStep(volume: Int): Int = stepOf(VOLUME_STEPS, volume)
+        fun brightnessStep(brightness: Int): Int = stepOf(BRIGHTNESS_STEPS, brightness)
+    }
+}
+
+/**
+ * V2.11：档位变化反馈。
+ *
+ * 设计第 415 行：「值的变化自己浮出来——视野中央大字档位 + 5 段条，1.2 秒淡出；
+ * 不必低头进控制台确认，也不占用常驻画面。」
+ *
+ * 之前 `adjust()` 只改写设置值，戴镜后按音量键**视野里什么都不发生**，
+ * 用户只会以为按键坏了或者软件卡住了。
+ */
+data class AdjustFeedback(
+    val label: String,
+    val detail: String,
+    /** 当前档位，1 基；段条点亮到第几段。 */
+    val level: Int,
+    val steps: Int,
+    /** 过期时刻（SystemClock.elapsedRealtime）。 */
+    val untilMs: Long
 )
 
 data class VrUiState(
@@ -54,6 +105,8 @@ data class VrUiState(
     val message: String? = null,
     /** V2.4：0 表示常驻；否则为提示自动淡出的时刻（SystemClock.elapsedRealtime）。 */
     val messageUntilMs: Long = 0L,
+    /** V2.11：音量 / 亮度档位变化的浮层反馈，1.2 秒后自行消失。 */
+    val feedback: AdjustFeedback? = null,
     /**
      * V2.9：凝视是否已上膛。
      *

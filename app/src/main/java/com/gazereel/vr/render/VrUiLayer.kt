@@ -9,6 +9,7 @@ import android.graphics.PointF
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.os.SystemClock
 import com.gazereel.vr.core.GazeTarget
 import com.gazereel.vr.core.VrAction
 import com.gazereel.vr.core.VrFormat
@@ -16,7 +17,9 @@ import com.gazereel.vr.data.db.MediaItemEntity
 import com.gazereel.vr.player.SubtitleParser
 import com.gazereel.vr.ui.VrOverlay
 import com.gazereel.vr.ui.VrScreen
+import com.gazereel.vr.ui.VrSettings
 import com.gazereel.vr.ui.VrUiState
+import com.gazereel.vr.ui.AdjustFeedback
 import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.max
@@ -121,6 +124,9 @@ class VrUiLayer(
         // V2.9：还没上膛就盖一层提示。这里不注册任何目标，凝视此时也不生效。
         if (!state.gazeArmed) drawArmPrompt()
 
+        // V2.11：档位变化浮层，压在提示之上——用户按了键就得立刻看见结果。
+        state.feedback?.let { drawAdjustFeedback(it) }
+
         published = targets.toList()
 
         // 准星（真机中应作为独立屏幕中心层，此处按面板坐标近似）
@@ -179,6 +185,54 @@ class VrUiLayer(
             "开始之后：凝视 1.2 秒确认 · 长按返回 · 摇头翻页",
             W / 2f, 346f, 19f, C_MUTED, Paint.Align.CENTER
         )
+    }
+
+    /**
+     * V2.11：音量 / 亮度档位浮层。
+     *
+     * 设计第 415 行：「值的变化自己浮出来——视野中央大字档位 + 5 段条，1.2 秒淡出；
+     * 不必低头进控制台确认，也不占用常驻画面。」
+     *
+     * 位置刻意放在画布中心偏上约 5°：卡片压住准星会让「我正在瞄什么」变得看不清，
+     * 而偏上 5° 仍在舒适区中央，不用转头就能读到。
+     *
+     * 注意：它现在画在世界锁定的 UI 画布上，所以会跟着头动。
+     * 设计要的是屏幕空间层，那属于 CHECKLIST B6（UI 三层拆分），还没做。
+     */
+    private fun drawAdjustFeedback(feedback: AdjustFeedback) {
+        val remain = feedback.untilMs - SystemClock.elapsedRealtime()
+        if (remain <= 0L) return
+        // 最后 300ms 渐隐，避免「啪」一下消失。
+        val alpha = ((remain / 300f).coerceIn(0f, 1f) * 255f).toInt().coerceIn(0, 255)
+
+        val card = RectF(W / 2f - 190f, 96f, W / 2f + 190f, 220f)
+        val layer = canvas.saveLayerAlpha(card, alpha)
+
+        fill.color = 0xEE0E1B2C.toInt()
+        canvas.drawRoundRect(card, 22f, 22f, fill)
+        stroke.color = C_ACCENT
+        stroke.strokeWidth = 2f
+        canvas.drawRoundRect(card, 22f, 22f, stroke)
+
+        label(feedback.label, card.left + 28f, card.top + 44f, 30f, C_TEXT)
+        label(feedback.detail, card.right - 28f, card.top + 44f, 30f, C_ACCENT, Paint.Align.RIGHT)
+
+        // 段条：亮到第 level 段。5 档音量就是 5 段，3 档亮度就是 3 段。
+        val barLeft = card.left + 28f
+        val barRight = card.right - 28f
+        val gap = 8f
+        val segmentWidth = (barRight - barLeft - gap * (feedback.steps - 1)) / feedback.steps
+        val barTop = card.top + 66f
+        val barBottom = barTop + 24f
+        for (i in 0 until feedback.steps) {
+            val left = barLeft + i * (segmentWidth + gap)
+            fill.color = if (i < feedback.level) C_ACCENT else C_BORDER
+            canvas.drawRoundRect(
+                RectF(left, barTop, left + segmentWidth, barBottom), 6f, 6f, fill
+            )
+        }
+
+        canvas.restoreToCount(layer)
     }
 
     // ── 片库浏览（PRD 4.4 / FR-10 海报与断点） ─────────────────────────
@@ -300,8 +354,9 @@ class VrUiLayer(
         val quick = listOf(
             "片库" to VrAction.Back,
             "格式" to VrAction.OpenFormat,
-            "亮度" to VrAction.Adjust("brightness", 10),
-            "音量" to VrAction.Adjust("volume", 10),
+            // V2.11：亮度是 3 档，一次跳一档（原来是 +10% 的连续值）。
+            "亮度" to VrAction.Adjust("brightness", 1),
+            "音量" to VrAction.Adjust("volume", 1),
             "设置" to VrAction.OpenSettings,
             "退出" to VrAction.Exit
         )
@@ -359,9 +414,13 @@ class VrUiLayer(
         panel(RectF(100f, 20f, 924f, 500f))
         heading("设置", 62f)
         val s = state.settings
+        // V2.11：亮度 / 音量显示档位，不再显示百分比——
+        // 百分比会让人以为可以精确调到 43%，而实际只有 5 档 / 3 档。
+        val volumeLevel = VrSettings.volumeStep(s.volume)
+        val brightnessLevel = VrSettings.brightnessStep(s.brightness)
         val rows = listOf(
-            Triple("亮度", "${s.brightness}%", "brightness"),
-            Triple("音量", "${s.volume}%", "volume"),
+            Triple("亮度", VrSettings.BRIGHTNESS_LABELS[brightnessLevel], "brightness"),
+            Triple("音量", "${volumeLevel + 1} / ${VrSettings.VOLUME_STEPS.size}", "volume"),
             Triple("瞳距 IPD", "${s.ipdMm} mm", "ipd"),
             Triple("凝视时长", "${s.gazeDurationMs} ms", "gaze")
         )
