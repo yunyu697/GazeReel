@@ -387,8 +387,12 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
     override fun recenterYaw() {
         refreshRotation()
         synchronized(lock) {
-            val h = FloatArray(16)
-            Matrix.multiplyMM(h, 0, inverseOffset, 0, rotation, 0)
+            // 锁视角时 headRotation() 返回 frozen，参考系必须按 frozen 算。
+            val h = if (viewLocked) {
+                frozen.copyOf()
+            } else {
+                FloatArray(16).also { Matrix.multiplyMM(it, 0, inverseOffset, 0, rotation, 0) }
+            }
             val fx = -h[8]
             val fz = -h[10]
             if (kotlin.math.hypot(fx, fz) < YAW_MIN_HORIZONTAL) return

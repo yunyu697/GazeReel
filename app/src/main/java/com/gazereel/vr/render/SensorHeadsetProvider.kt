@@ -254,8 +254,13 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
      */
     override fun recenterYaw() {
         synchronized(lock) {
-            val h = FloatArray(16)
-            Matrix.multiplyMM(h, 0, inverseOffset, 0, rotation, 0)
+            // 锁视角时 headRotation() 返回 frozen，参考系就必须按 frozen 算，
+            // 否则「看到的方向」和「被对齐的方向」不是同一个，画面会莫名转一下。
+            val h = if (viewLocked) {
+                frozen.copyOf()
+            } else {
+                FloatArray(16).also { Matrix.multiplyMM(it, 0, inverseOffset, 0, rotation, 0) }
+            }
             val fx = -h[8]
             val fz = -h[10]
             if (kotlin.math.hypot(fx, fz) < YAW_MIN_HORIZONTAL) return
