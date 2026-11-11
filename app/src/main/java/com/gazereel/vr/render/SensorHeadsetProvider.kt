@@ -91,6 +91,9 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
 
         /** 最长等待时间；超时就按当前姿态定，不能让用户一直没有正前方。 */
         private const val INITIAL_MAX_WAIT_MS = 4_000L
+
+        /** V2.35：视线水平分量的下限，低于它不做方位角对齐（见 recenterYaw）。 */
+        private const val YAW_MIN_HORIZONTAL = 0.15f
     }
 
     override val supportsHardwareTrigger: Boolean = false
@@ -235,6 +238,41 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         if (Matrix.invertM(inverse, 0, rotation, 0)) {
             System.arraycopy(inverse, 0, inverseOffset, 0, 16)
             if (viewLocked) Matrix.setIdentityM(frozen, 0)
+        }
+    }
+
+    /**
+     * V2.35：只把方位角对齐到现在看的方向，俯仰/横滚不动。
+     *
+     * 数学上就是对参考系偏移**左乘**一个世界 Y 轴旋转：
+     * `O' = R_y(ψ)·O`，于是 `H' = R_y(ψ)·H`，水平分量被转到 0，
+     * 而俯仰与横滚（重力对齐）原样保留 —— 画面回到正中，地平线还是平的。
+     *
+     * 唯一要防的是奇点：视线接近正上/正下时水平投影趋零，方位角没有意义。
+     * 旧实现的「平放抖动 / 画面翻过去」就是在那附近把噪声放大成了 90° 跳变，
+     * 这里直接不动（宁可这次不对齐，也不制造一次翻转）。
+     */
+    override fun recenterYaw() {
+        synchronized(lock) {
+            val h = FloatArray(16)
+            Matrix.multiplyMM(h, 0, inverseOffset, 0, rotation, 0)
+            val fx = -h[8]
+            val fz = -h[10]
+            if (kotlin.math.hypot(fx, fz) < YAW_MIN_HORIZONTAL) return
+            val psi = kotlin.math.atan2(fx.toDouble(), (-fz).toDouble()).toFloat()
+            val c = kotlin.math.cos(psi)
+            val s = kotlin.math.sin(psi)
+            // R_y(ψ) 列主序；作用于世界坐标，所以左乘
+            val rotY = FloatArray(16)
+            Matrix.setIdentityM(rotY, 0)
+            rotY[0] = c; rotY[2] = -s
+            rotY[8] = s; rotY[10] = c
+            val updated = FloatArray(16)
+            Matrix.multiplyMM(updated, 0, rotY, 0, inverseOffset, 0)
+            System.arraycopy(updated, 0, inverseOffset, 0, 16)
+            easing = false
+            // 锁定视角时 frozen 里存的是「参考系里的姿态」，新参考系下它就是 H'
+            if (viewLocked) Matrix.multiplyMM(frozen, 0, rotY, 0, h, 0)
         }
     }
 

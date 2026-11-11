@@ -3,6 +3,7 @@ package com.gazereel.vr
 import android.app.Application
 import com.gazereel.vr.data.CrashLog
 import com.gazereel.vr.data.RunLog
+import com.gazereel.vr.data.SmbRandomAccessSource
 
 /**
  * V2.7.4：测试版必须能「事后看到死因」。
@@ -24,10 +25,17 @@ class App : Application() {
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             runCatching {
                 CrashLog.write(this, throwable, "uncaught:${thread.name}")
+                // V2.35：崩溃那一行带上当时的内存账，OOM 才不用事后猜是谁涨的。
+                val runtime = Runtime.getRuntime()
+                val usedMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024L * 1024L)
+                val maxMb = runtime.maxMemory() / (1024L * 1024L)
+                val smbMb = SmbRandomAccessSource.cachedBytes.get() / (1024L * 1024L)
                 RunLog.append(
                     this,
                     "CRASH",
-                    "${throwable.javaClass.simpleName}: ${throwable.message} @ ${thread.name}"
+                    "${throwable.javaClass.simpleName}: ${throwable.message} @ ${thread.name}" +
+                        " · 堆 ${usedMb}/${maxMb}MB · SMB 缓存 ${smbMb}MB" +
+                        " · 活源 ${SmbRandomAccessSource.liveSources.get()}"
                 )
             }
             previous?.uncaughtException(thread, throwable)

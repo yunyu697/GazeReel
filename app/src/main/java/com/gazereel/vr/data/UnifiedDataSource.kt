@@ -27,6 +27,10 @@ class UnifiedDataSource(
         transferInitializing(dataSpec)
         val ref = MediaRefRegistry.resolve(dataSpec.uri)
             ?: throw IOException("未注册的片源：${dataSpec.uri}")
+        // V2.35：同一个 DataSource 可能被再次 open（读失败重试、换区间）。
+        // 旧版直接覆盖字段，上一个 source 的预读缓存与两份 SMB 句柄就没人关了。
+        source?.let { runCatching { it.close() } }
+        source = null
         val newSource = sourceFactory.create(ref)
         val total = newSource.open(ref)
         if (dataSpec.position > 0) newSource.seekTo(dataSpec.position)

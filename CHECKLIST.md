@@ -11,9 +11,9 @@
 >    `[设计]` 只有设计、代码没动 · `[已实现]` 代码改了、编译过 · `[真机]` 用户在真机上确认过 · `[回归]` 曾经可用、后来坏了
 > 5. **动任何功能前先核查成熟方案**（官方 SDK / 平台 API / 成熟库 / 行业标准），结论写进《附录 · 成熟方案核查》；自研只做成熟方案不覆盖的那部分，并在裁决记录里写清边界。
 >
-> 最后更新：V2.34 / 1.1.0-alpha21（2026-11-11，瞳距补上戴镜前入口：手机配置页「设置」；同时 alpha19/alpha20 已提交并补齐 tag、推送远端）
+> 最后更新：V2.35 / 1.1.0-alpha22（2026-11-11 晚，修 VR 播放 OOM 崩溃 + 「打开不正对画面中心」两件事；两件都没有真机验证）
 >
-> **当前基线**：提交 `128c5da`（V2.34 / 1.1.0-alpha21；`4c13079` 是 V2.32+V2.33 合并提交 = `v1.1.0-alpha20`）；产物 `GazeReel-1.1.0-alpha21.apk`（**未上真机**）。**远端已同步**：`origin/main` = `128c5da`，本地与远端各 **28 个 tag**，最新 `v1.1.0-alpha21`（alpha13–18 的 6 个 tag 本轮补上；alpha19 从未落提交，因此没有 alpha19 tag）。
+> **当前基线**：`V2.35 / 1.1.0-alpha22`（tag `v1.1.0-alpha22`；上一版是 `128c5da` / alpha21）；产物 `GazeReel-1.1.0-alpha22.apk`（**未上真机**）。本轮两处改动都可能改变真机观感，**先看「本轮新增（alpha22）」再上机**。
 
 ---
 
@@ -116,7 +116,24 @@
 
 ## 已知未验证（真机一跑就可能翻案）
 
-**总口径**：当前代码 `V2.34 / 1.1.0-alpha21`。alpha4–alpha21 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+**总口径**：当前代码 `V2.35 / 1.1.0-alpha22`。alpha4–alpha22 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+
+### 本轮新增（alpha22 / V2.35，一次真机都没跑）
+
+**一、VR 播放 OOM 崩溃（`[CRASH] OutOfMemoryError @ Packet Reader`）**
+
+- 现场：`SMB2ReadResponse.readMessage` 里申请 **1048592 字节**（1MB + 16）失败，堆 `268435456 / 268435456`——已经顶到 growth limit。
+- 真正的洞不在 SMB，在**播放器缓冲**：`DefaultLoadControl` 上一版为了治卡顿设成 `min 60s / max 90s` + `setPrioritizeTimeOverSizeThresholds(true)`，等于**取消字节上限**。而 Media3 的采样缓冲是 Java 堆上的 `byte[]`（`androidx.media3.exoplayer.upstream.Allocation.data` 字段，已用 javap 核实），8K 片源几十秒就是几百 MB。堆被吃干之后，SMB 那一次 1MB 的读响应成了最后一根稻草。
+- 已改：① 字节优先，`setTargetBufferBytes(96MB)` + `prioritizeTimeOverSizeThresholds(false)`，`min/max = 15s/30s`、backBuffer 10s；② `android:largeHeap="true"`（256MB → 512MB 上限）；③ SMB 分块 1MB → **256KB**，单源缓存 12MB → 4MB，读缓冲同步降到 256KB；④ `UnifiedDataSource.open()` 重复打开时先关旧 source（旧版直接覆盖字段，旧 source 的缓存与两份 SMB 句柄没人关）。
+- 新增 `[mem]` 日志：每 10 秒一行「堆 x/y MB · SMB 缓存 n MB · 活源 n · 缓冲 n%」，崩溃那一行也带同样的账。**下次再崩，能直接看出是谁在涨，不用再猜。**
+- 真机要验：① 8K（8192×4096）与 7K 连播 10 分钟不崩、`[mem]` 里堆不再单调上升；② 起播是否变慢（字节上限 96MB 会先于 30 秒停加载）；③ 8K 拖动进度条后是否更容易卡（预读从 4MB 降到 2MB）。
+
+**二、「打开视频不正对画面中心」**
+
+- 结论：几何一直是对的（180° SBS 正前方采样恒为左眼 u=0.25 / 右眼 u=0.75，日志可查），**错的是参考系**——基准是在「手机刚塞进纸盒」那一刻定的，日志里是「静止 0 帧」，说明 4 秒到点时手机还在动。那一刻的朝向与戴稳后差 90°，两幅的接缝就正好转到视野正中。
+- 已改：`VrHeadsetProvider` 新增 `recenterYaw()`——只把**方位角**对齐到此刻朝向，俯仰/横滚保持重力对齐（地平线不歪）。调用点在 `VrCoordinator.startPlayback()`：打开新片是唯一「整块画面被换掉」的时刻，用户看不到跳变。数学用 Python 逐例验证：任意偏航/俯仰/横滚输入，对齐后偏航恒为 0、俯仰一字不差；视线接近正上/正下时水平分量 < 0.15 直接不动（避免重复 2026-11-11 那次「换轴 → 90° 翻转」的老坑）。
+- **它不解决什么**：布局判错。像 `KAVR-332-CD1`（4096×2048、无 `st3d/sv3d`、名字里没有 `[LR]`）目前判成「360° 球面 · Mono」，整幅 SBS 铺在球面上，正前方就是两幅的接缝——这不是姿态能修的。`StereoFrameJudge` 的 SBS 门槛是 0.95，而真 VR180 近景的左右相关只有 0.75–0.80（实测 `左右 0.794 / 上下 0.176`），**放宽门槛会把 mono 360 误判成 SBS**（半边画面被拉成两倍宽，更糟），所以本轮**没有动判据**。这类片仍靠手选一次格式 + 记忆（`rememberFormat`）。
+- 真机要验：① 片库任意位置开一部 180 SBS，画面正中是否就是人物/画面中心，不需要再转头找；② 低头看控制台再点「下一部」，地平线是否仍然平；③ 返回片库后控制台是否还在正前方。
 
 ### 本轮新增（alpha21 / V2.34，一次真机都没跑）
 
@@ -264,6 +281,9 @@
 | V2.33 | 「设置中增加瞳距」落在哪一层 | 容易理解成手机配置页加一个戴镜前滑杆 | 回源码：`SetupActivity` / `activity_setup.xml`（含 `layout-land`）**没有设置模块**，现有瞳距只在 VR 内设置浮层。且用户明确要求「观看视频时实时调节」，戴镜前滑杆做不到。落地为 VR 设置浮层新增「瞳距 · 边看边调」入口 + 播放中不遮挡视频的调节态；**手机侧配置页一行未动**。若用户要的是手机侧入口，这是待确认的产品分歧，不是已完成。 |
 | V2.34 | 瞳距要不要戴镜前入口 | V2.33 只做了 VR 内「边看边调」，手机侧 `SetupActivity` 一行未动，记为待确认的产品分歧 | **用户 2026-11-11 19:44 裁决「先做 2 和 3」= 手机侧要落地**。依据是 VR 铁律「精确值前移到戴镜前手机滑杆」：戴镜后摸侧键调瞳距本来就是补救路径，不是第一现场。落地为配置页底部「设置」→ `dialog_settings.xml`（滑杆 50.0–75.0mm / 0.5mm 步进 + `±0.5mm` + 恢复默认）。写盘复用 `SettingsRepository.update()` 与 `ipdHalfMm`，**不新增第二套数值**，VR 内那条入口原样保留 |
 | V2.34 | alpha19 要不要单独一个提交 | 计划里 alpha19、alpha20 各一版各一提交 | **做不到**：alpha19 从未落提交，两版改动叠在同一份工作区、同一批文件上，拆出来的中间态编译不过（`VrCoordinator` / `VrUiState` / `VrActivity` / CHECKLIST 都被两版改过）。合并为 `4c13079` 一次提交，只打 `v1.1.0-alpha20`；**alpha19 没有 tag 是事实，不是漏打** |
+| V2.35 | 「打开不正对画面中心」 | 认定是姿态或球面几何算错，一直在姿态链路上修 | **前提不完整**。几何与正前方采样一直正确（180° SBS 恒为 0.25/0.75）；错的是参考系——基准定在「塞手机那一刻」（日志「静止 0 帧」），与戴稳后差 90°，接缝正好转到正中。改为**打开新片时只对齐方位角**（`recenterYaw`），俯仰/横滚保持重力对齐，避免低头点开下一部时地平线跟着歪。 |
+| V2.35 | VR 播放 OOM | 认为 SMB 1MB 分块太大 | **不是主因**。堆顶到 256MB 上限是 Media3 采样缓冲造成的：`prioritizeTimeOverSizeThresholds(true)` + 90 秒上限 = 取消字节上限，而缓冲是 Java 堆上的 `byte[]`。改为 96MB 字节封顶 + `largeHeap`；SMB 分块降到 256KB 只是把「最后一根稻草」变细。 |
+| V2.35 | 抽帧 SBS 判据 | 相关 ≥0.95 才算 SBS，真 VR180 近景只有 0.79 | **暂不放宽**。改成相对判据（左右比上下高 0.3 就算 SBS）会把 mono 360 误判成 SBS（地平线在两半同样高度），后果比现在更糟。这类片（无 st3d/sv3d、名字无 `[LR]`）继续走手选 + 记忆，与 VRTV 一致。 |
 
 ---
 
@@ -271,6 +291,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| V2.35 | **版本号 1.1.0-alpha22**（`versionCode 101000022`）。① **OOM 崩溃**：`DefaultLoadControl` 改回按字节封顶（96MB + `prioritizeTimeOverSizeThresholds(false)`、15s/30s、backBuffer 10s）——上一版「90 秒 + 时间优先」等于取消字节上限，而 Media3 采样缓冲是 Java 堆上的 `byte[]`，8K 几十秒即几百 MB；清单开 `largeHeap`；SMB 分块 1MB→256KB、单源缓存 12MB→4MB、`withReadBufferSize(256KB)`；`UnifiedDataSource.open()` 补关旧 source；新增 `[mem]` 每 10 秒一行与崩溃行内存账。② **打开不正对中心**：新增 `recenterYaw()`（只转世界 Y 轴，俯仰/横滚保持重力对齐），在 `startPlayback()` 打开新片时对齐方位角，并 `onRecenter()` 清凝视/手势窗口。③ `CardboardHeadsetProvider` 初始化失败时写出异常类型与消息（真机上 SDK 从未启用，此前日志无线索）。验证：`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 62 文件 / 14954 行）、打包清单含 `largeHeap` 与 `versionCode 101000022`、对齐数学 Python 逐例校验。**未上真机**。 |
 | V2.34 | **版本号 1.1.0-alpha21**（`versionCode 101000021`）：B13 瞳距补上戴镜前入口。`SetupActivity` 底部新增「设置」（竖屏与「运行日志」同一行、横屏在顶栏日志左侧，竖横两套 layout 的 view id 一致），点开 `dialog_settings.xml`：当前值（0.5mm 精度）+ 滑杆 50.0–75.0mm（`stepSize=0.5`、`labelBehavior=gone`）+ `−0.5 / +0.5` + 「恢复默认 62.0mm」+ 说明「它不是纸盒的透镜间距」。「设置」用 accent 色、「运行日志」降级为 muted（沿用 V2.19 日志降级）。写入走 `SettingsRepository.update().copy(ipdHalfMm=…)`，`RunLog` 记 `[ipd] 戴镜前调瞳距`；`VrActivity.onCreate` 每次新建 repository，改完直接进 VR 生效。滑杆回写用差值判断（`abs(value-mm) > 0.01f`），避免浮点抖动把监听器打成死循环。**验证**：`assembleDebug` BUILD SUCCESSFUL、`check_structure.py` 通过（Kotlin 62 文件 / 14764 行、XML 21、values 113）、产物 `GazeReel-1.1.0-alpha21.apk`（15MB，`versionCode 101000021`）。回看布局时发现竖屏两个小字并排后「设置」只剩约 38×23dp，低于可点热区下限，已加 `minHeight="32dp"`、左右 padding 12dp（热区约 46×32dp）并重编（同一 alpha21 内不另升版本）。**未上真机**。 |
 | V2.33 | **版本号 1.1.0-alpha20**（本轮，`versionCode 101000020`；alpha19 从未落提交，两版改动在同一工作区上继续，`HEAD` 仍是 `b1ede0a` / alpha18）。**B13 瞳距粗调+微调 + B14 调节条交互契约**，按附录 §6 的成熟方案核查结论落地，`②` 与其它暂不动项一字未改。`VrUiState.VrSettings` 把 `ipdMm: Int` 换成 `ipdHalfMm: Int`（0.5mm 单位，100–150 half = 50.0–75.0mm）+ `val ipdMm: Float get() = ipdHalfMm / 2f` 保持 `VrRenderer` 每帧读取不变，新增 `IPD_COARSE_HALF=4` / `IPD_FINE_HALF=1` / `ipdLabel()`；`VrUiState.ipdTuning`；`AdjustFeedback` 最终删掉 `level`、只留 `steps` + `fraction`。`SettingsRepository` 改存 `ipd_half_mm`、从旧 `ipd_mm` 迁移并 `remove`。`VrAction` 新增 `StartIpdTuning` / `StopIpdTuning` / `ToggleIpdMode` / `DismissAdjust`。`VrCoordinator` 重构 `adjust()` 与 `showAdjust()`、新增 `startIpdTuning()` / `stopIpdTuning()` / `toggleIpdMode()` / `keepsIpdTuning()`（任何非调节动作先归还音量键）、`ipdFraction()`，`tick(hoverId)` 照 AOSP `rescheduleTimeoutH()` 做交互感知重排（`ADJUST_ACTIVE_MS=8_000` / `ADJUST_HOVER_MS=16_000` / 静止 `FEEDBACK_MS=2_600`）。`GazeDetector` 新增原始落点 `hoveredId`，`screenKey` 纳入 `feedback` / `ipdTuning`。`VrActivity` 把 `gaze.hoveredId` 传给 `tick()`、音量键在瞳距态临时借给 `ipd`。`TriggerDispatcher` 瞳距态双击退出 / 单击切粗微 / 长按 Back。`VrUiLayer` 把调节条从纯反馈卡改成注册 `adjDec` / `adjInc` / `adjMode` / `adjClose` 四个凝视目标的可操作控件（目标排到 `targets` 最前）、卡片 `212,48–812,252` 不压画布中线 256、按 `fraction` 画连续轨道、删段条小点；设置浮层新增「瞳距 · 边看边调」入口与三按钮底栏。`tools/preview_player.py` 新增 `draw_adjust()` / `draw_adjust_sheet()` / `draw_settings()` 并把 `button()` 文本锚点 `mm`→`ms`（Canvas `drawText` 的 y 是 baseline），产出 `output/adjust-bars.png` / `output/settings-ipd.png` 复核版式。**验证**：`./gradlew :app:assembleDebug` 多次 BUILD SUCCESSFUL、`tools/check_structure.py` 静态校验通过、产物 `GazeReel-1.1.0-alpha20.apk`；离屏图发现「静音条拥挤」后删段条并复看通过。**一次真机都没跑**：B8 两个真机问题只是代码修复、未复验，B13/B14 由 `[设计]` 改 `[已实现] 待真机`。 |
 | V2.32 | **版本号 1.1.0-alpha19**（本轮，`versionCode 101000019`）。按用户「先完成 1、3、4」裁决落地，**② Media3 `Format.stereoMode` 未动**：① `HttpDirectoryScanner` 的 `href` 正则换 jsoup 1.24.1（保留同源 / 扩展名 / 目录 / `titleOf` 全部规则，新增 charset 自探与同源 `<base>`），开 `coreLibraryDesugaring`；新增 `tools/HttpDirParseCheck.java` 纯 JVM 对照测试（13 项断言）。③ 新增 `JcifsCrossCheck.kt`，在 `SmbSessionPool.listShares()` 与 `LanSmbScanner.smbName()` 两处并排写 `RunLog`，后台单线程 + 60s 节流 + 最多 2 个在途任务 + 每次自建并关闭 `CIFSContext`；不排除 BouncyCastle；播放与目录遍历仍走 smbj，手写 srvsvc fallback 一字未动。④ 新增 `core/DistortionComposer.kt`（main 侧接口）、`cardboard/SdkOptics.kt`（共用开关，默认 false）、`cardboard/SdkDistortionComposer.kt`（全屏离屏纹理 + 左右半区 + `getDistortionMesh` + `renderEyeToDisplay(0,…)`）；`VrHeadsetProvider.distortionComposer()` 默认 null；`VrRenderer.drawFrame` 在 `glClear` 前 `beginFrame`、两眼画完 `endFrame`、失败当帧退回直出；`VrRenderer.releaseGl()` 由 `VrActivity.onDestroy` 经 `queueEvent` 投递到 GL 线程。**编译通过、APK 已产出，一次真机都没跑；C3/C5 开关仍默认关。** 收尾全链路走查又修三处 GL 绑定问题（无条件解绑收窄、`glFailed` 分支离屏 FBO 残留、离屏纹理附着留在 GL_TEXTURE0 绑定上），详见裁决记录「V2.32 收尾」行；并纠正「alpha13–19 共 7 个提交无 tag」为 **alpha13–18 共 6 个提交无 tag + alpha19 尚未提交**；随后查 GitHub 又发现该结论仍只覆盖本地，远端 `main` 其实停在 alpha3、本地领先 15 个提交未 push、9 个本地 tag 从未同步（见工程化后的 tag 待补核段与「V2.32 收尾」裁决）。 |

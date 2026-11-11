@@ -132,6 +132,9 @@ class SmbSessionPool {
         /** 试连整体预算；设备不应答时不让「加片库」无限等。 */
         private const val PROBE_TIMEOUT_MS = 6_000L
 
+        /** V2.35：SMB 读缓冲尺寸，与 [SmbRandomAccessSource.CHUNK_SIZE] 保持一致。 */
+        private const val SMB_READ_BUFFER = 256 * 1024
+
         /** Windows 自己也不显示的隐藏共享（IPC$ / C$ / ADMIN$ / print$…）。 */
         fun isHiddenShare(name: String): Boolean = name.endsWith("$")
     }
@@ -171,6 +174,9 @@ class SmbSessionPool {
             val config = SmbConfig.builder()
                 .withSoTimeout(30, TimeUnit.SECONDS)
                 .withTimeout(30, TimeUnit.SECONDS)
+                // V2.35：读缓冲与片源的分块同宽。smbj 的响应包按这个尺寸申请 byte[]，
+                // 默认会按协商值给到 1MB —— 真机 OOM 卡住的那次分配正是 1MB+16。
+                .withReadBufferSize(SMB_READ_BUFFER)
                 .build()
             val newClient = SMBClient(config)
             val newConnection = newClient.connect(host)

@@ -102,12 +102,13 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
     private val easeScratch = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
 
     init {
+        var initError: Throwable? = null
         ready = runCatching {
             // 必须先初始化 native 层，再调用任何 QrCode / HeadTracker 方法。
             Initialize.initialize(context.applicationContext)
             headTracker = HeadTracker()
             true
-        }.getOrDefault(false)
+        }.onFailure { initError = it }.getOrDefault(false)
         // 光学参数只在开关打开时才解析：QrCode.getSavedDeviceParams() 会读外部存储，
         // 让它成为头追启用的前置条件没有道理。
         if (ready && USE_SDK_OPTICS) {
@@ -122,7 +123,11 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
             if (sdkActive) {
                 "Cardboard SDK 头追已启用 · EKF融合/零偏估计/预测 ${PREDICTION_NS / 1_000_000}ms/显示空间补偿"
             } else {
-                "Cardboard SDK 初始化失败，回退纯传感器"
+                // V2.35：把失败原因写出来。此前只写「初始化失败」，等于把最关键的一条
+                // 证据（UnsatisfiedLinkError？SecurityException？）丢掉了 ——
+                // 真机上 SDK 从未启用过，而日志里看不出一丝线索。
+                "Cardboard SDK 初始化失败，回退纯传感器：" +
+                    "${initError?.javaClass?.simpleName}: ${initError?.message?.take(120)}"
             }
         )
         RunLog.append(
@@ -374,6 +379,34 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
         }
     }
 
+    /**
+     * V2.35：只把方位角对齐到此刻朝向（语义见 [VrHeadsetProvider.recenterYaw]）。
+     * 与传感器实现同一套数学，只是先从 SDK 刷新一次预测姿态 ——
+     * 锁视角时 headRotation() 不再采样 HeadTracker，不刷新就会拿上一帧的旧值算方位角。
+     */
+    override fun recenterYaw() {
+        refreshRotation()
+        synchronized(lock) {
+            val h = FloatArray(16)
+            Matrix.multiplyMM(h, 0, inverseOffset, 0, rotation, 0)
+            val fx = -h[8]
+            val fz = -h[10]
+            if (kotlin.math.hypot(fx, fz) < YAW_MIN_HORIZONTAL) return
+            val psi = kotlin.math.atan2(fx.toDouble(), (-fz).toDouble()).toFloat()
+            val c = kotlin.math.cos(psi)
+            val s = kotlin.math.sin(psi)
+            val rotY = FloatArray(16)
+            Matrix.setIdentityM(rotY, 0)
+            rotY[0] = c; rotY[2] = -s
+            rotY[8] = s; rotY[10] = c
+            val updated = FloatArray(16)
+            Matrix.multiplyMM(updated, 0, rotY, 0, inverseOffset, 0)
+            System.arraycopy(updated, 0, inverseOffset, 0, 16)
+            easing = false
+            if (viewLocked) Matrix.multiplyMM(frozen, 0, rotY, 0, h, 0)
+        }
+    }
+
     private fun startFallback() {
         if (fallbackStarted) return
         fallbackStarted = true
@@ -440,6 +473,9 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
         const val STILL_RAD = 0.01f
         const val STILL_MS = 700L
         const val INITIAL_MAX_WAIT_MS = 4_000L
+
+        /** V2.35：视线水平分量下限，低于它不做方位角对齐（避免正上/正下时放大噪声）。 */
+        const val YAW_MIN_HORIZONTAL = 0.15f
 
         // USE_SDK_OPTICS 已移到同包顶层 SdkOptics.kt，供 CardboardHeadsetProvider
         // 与 SdkDistortionComposer 共用；改那一处即可，别在这里再留一个副本。

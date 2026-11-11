@@ -32,11 +32,33 @@ class SmbRandomAccessSource(
 ) : RandomAccessSource {
 
     companion object {
-        const val CHUNK_SIZE = 1 shl 20            // 1 MB（落在 256KB~1MB 的合理预取区间）
-        const val MAX_CACHED_CHUNKS = 12          // 12 MB 上限
-        const val PREFETCH_CHUNKS = 4
+        /**
+         * V2.35：1MB → 256KB。
+         *
+         * 真机 OOM 的现场是 smbj 的 `SMB2ReadResponse.readMessage` 里一次
+         * **1048592 字节**（1MB + 16 头）的 byte[] 分配失败，堆已到 256MB 上限。
+         * 那次分配的大小就是这块 CHUNK_SIZE 决定的：块多大，smbj 回的包就多大。
+         * 改成 256KB 后，同一个位置最坏只申请 262160 字节，给解码/GL 留出余量；
+         * 顺带把单路源的常驻缓存从 12MB 压到 4MB。
+         * 局域网单次 RTT 不到 1ms，256KB/请求仍够 8K 码率，这不是用吞吐换内存。
+         */
+        const val CHUNK_SIZE = 256 shl 10         // 256 KB
+        /** 16 × 256KB = 4MB 上限（原 12 × 1MB = 12MB）。 */
+        const val MAX_CACHED_CHUNKS = 16
+        /** 预读 8 块 = 2MB 前瞻，和原来 4 × 1MB = 4MB 的「多少秒」接近，但更省。 */
+        const val PREFETCH_CHUNKS = 8
         const val MAX_RETRY = 3
+
+        /** 进程内所有 SMB 源的缓存总量，供 `[mem]` 日志回答「内存在谁手里」。 */
+        val cachedBytes = java.util.concurrent.atomic.AtomicLong()
+        /** 当前活着（未 close）的源数量。每个源自带两把 SMB 句柄，漏一个就是漏两份。 */
+        val liveSources = java.util.concurrent.atomic.AtomicInteger()
     }
+
+    init {
+        liveSources.incrementAndGet()
+    }
+
 
     // 只保护前台句柄（file）及其 SMB read；预取绝不碰这把锁。
     private val ioLock = Any()
@@ -113,10 +135,7 @@ class SmbRandomAccessSource(
 
     override fun seekTo(position: Long) {
         // 拖动进度条：清空预读缓冲并作废在途预取，避免用旧数据喂解码器。
-        synchronized(cacheLock) {
-            cache.clear()
-            lru.clear()
-        }
+        dropAllCached()
         generation++
         this.position = position.coerceAtLeast(0L)
     }
@@ -134,8 +153,21 @@ class SmbRandomAccessSource(
             runCatching { prefetchFile?.close() }
             prefetchFile = null
         }
-        synchronized(cacheLock) { cache.clear(); lru.clear() }
+        dropAllCached()
+        liveSources.decrementAndGet()
     }
+
+    /** 清空缓存并把记账减掉；seek / close 都要走这里，否则 [cachedBytes] 会越漂越大。 */
+    private fun dropAllCached() {
+        synchronized(cacheLock) {
+            var bytes = 0L
+            cache.values.forEach { bytes += it.size }
+            cachedBytes.addAndGet(-bytes)
+            cache.clear()
+            lru.clear()
+        }
+    }
+
 
     private fun getChunkInternal(index: Long): Loaded {
         synchronized(cacheLock) {
@@ -158,8 +190,9 @@ class SmbRandomAccessSource(
         synchronized(cacheLock) {
             if (!cache.containsKey(index)) {
                 cache[index] = data
+                cachedBytes.addAndGet(data.size.toLong())
                 while (lru.size > MAX_CACHED_CHUNKS) {
-                    cache.remove(lru.removeFirst())
+                    cache.remove(lru.removeFirst())?.let { cachedBytes.addAndGet(-it.size.toLong()) }
                 }
             }
             touch(index)

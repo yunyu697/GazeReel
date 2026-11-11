@@ -19,6 +19,7 @@ import com.gazereel.vr.data.CrashLog
 import com.gazereel.vr.data.LibraryRepository
 import com.gazereel.vr.data.MediaRefRegistry
 import com.gazereel.vr.data.RunLog
+import com.gazereel.vr.data.SmbRandomAccessSource
 import com.gazereel.vr.data.UnifiedDataSourceFactory
 import com.gazereel.vr.data.db.MediaItemEntity
 import kotlinx.coroutines.CoroutineScope
@@ -50,9 +51,15 @@ class PlayerController(
                     BUFFER_FOR_PLAYBACK_MS,
                     BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
                 )
-                // 默认 false：高码率片源会被按码率估算的字节上限提前掐断加载，
-                // 时间阈值优先才堆得起 cushion（vrplayer:// 归为 streaming）。
-                .setPrioritizeTimeOverSizeThresholds(true)
+                // V2.35：改成**按字节封顶**。
+                //
+                // 旧版是 prioritizeTimeOverSizeThresholds(true) + 90 秒上限：等于告诉
+                // 播放器「不用管内存，堆满 90 秒再说」。8K 片源 90 秒就是 1GB 数量级，
+                // 真机 OOM 的日志里堆已经顶到 growth limit（256MB），SMB 那次 1MB 的
+                // 读响应成了最后一根稻草。现在字节上限 96MB 优先，时间上限只是兜底；
+                // 4K / 8K 都能垫 5–10 秒，足够吃掉 SMB 的抖动，又不会把内存吃到爆。
+                .setTargetBufferBytes(TARGET_BUFFER_BYTES)
+                .setPrioritizeTimeOverSizeThresholds(false)
                 .setBackBuffer(BACK_BUFFER_MS, true)
                 .build()
         )
@@ -70,9 +77,34 @@ class PlayerController(
                     "开始出帧 pos=${player.currentPosition}ms"
                 )
             }
+            logMemoryIfDue()
             emitState()
             handler.postDelayed(this, 500L)
         }
+    }
+
+    /**
+     * V2.35：每 10 秒记一行内存。
+     *
+     * 上一次 OOM 只能看到「1MB 分配失败、堆顶到 256MB」，却不知道是解码缓冲、
+     * SMB 缓存还是别的东西在长。这一行把三者摆在一起（Java 堆 / SMB 缓存 / 活着的源数），
+     * 下次再崩就能直接看出是谁涨的，不用再靠猜。
+     */
+    private var lastMemLogMs = 0L
+    private fun logMemoryIfDue() {
+        val now = System.currentTimeMillis()
+        if (now - lastMemLogMs < 10_000L) return
+        lastMemLogMs = now
+        val runtime = Runtime.getRuntime()
+        val usedMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024L * 1024L)
+        val maxMb = runtime.maxMemory() / (1024L * 1024L)
+        val smbCacheMb = SmbRandomAccessSource.cachedBytes.get() / (1024L * 1024L)
+        RunLog.append(
+            appContext, "mem",
+            "堆 ${usedMb}/${maxMb}MB · SMB 缓存 ${smbCacheMb}MB · 活源 " +
+                "${SmbRandomAccessSource.liveSources.get()} · 缓冲 " +
+                "${player.bufferedPercentage}%"
+        )
     }
 
     private var loggedFirstFrame = false
@@ -281,11 +313,15 @@ class PlayerController(
     companion object {
         // Media3 1.5.1 对非本地 scheme（本工程是 vrplayer://，按 streaming 处理）的默认值：
         // min/max=50s、起播=1s、rebuffer 后=2s、backBuffer=0、prioritizeTime=false。
-        // 针对 SMB 这种「带宽够但延迟抖动大」的随机读，做如下调整：
-        private const val MIN_BUFFER_MS = 60_000                        // 60s（默认 50s，调大常驻 cushion）
-        private const val MAX_BUFFER_MS = 90_000                        // 90s（默认 50s，调大上限）
-        private const val BUFFER_FOR_PLAYBACK_MS = 1_000                // 1s 低值快速起播（默认已 1s，不再下调以免起播即卡）
-        private const val BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 5_000 // 5s（默认 2s，卡顿后多垫再恢复，避免反复起停）
-        private const val BACK_BUFFER_MS = 20_000                       // 默认 0 → 20s，回退 seek 不重连
+        //
+        // V2.35：**回到按字节封顶**。上一版为了治卡顿把时间阈值拉到 60/90 秒并打开
+        // prioritizeTimeOverSizeThresholds(true)，等于取消字节上限——8K 片源会把
+        // 90 秒的画面往内存里堆，真机直接 OOM。现在 96MB 字节上限优先，时间值只兜底。
+        private const val MIN_BUFFER_MS = 15_000                        // 15s 常驻 cushion
+        private const val MAX_BUFFER_MS = 30_000                        // 30s 上限（字节先到就停）
+        private const val BUFFER_FOR_PLAYBACK_MS = 1_000                // 1s 低值快速起播
+        private const val BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 4_000 // 卡顿后垫 4s 再恢复
+        private const val BACK_BUFFER_MS = 10_000                       // 回退 seek 不重连
+        private const val TARGET_BUFFER_BYTES = 96 * 1024 * 1024        // 96MB 硬顶
     }
 }

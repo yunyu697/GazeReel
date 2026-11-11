@@ -520,6 +520,21 @@ class VrCoordinator(
             subtitles = emptyList(),
             lastActivityMs = SystemClock.elapsedRealtime()
         )
+        // V2.35：把「画面中心」钉在用户此刻看的方向上。
+        //
+        // 球面网格的正前方一直是左眼 u=0.25（180° SBS 左右两幅各自的正中），
+        // 几何从来没算错——会偏的是**参考系**。基准是在「手机刚塞进纸盒」那一刻
+        // 定的（日志里是「静止 0 帧」，说明 4 秒到点时手机还在动），只要那一刻的
+        // 朝向和戴稳后差 90°，两幅的接缝就正好转到视野正中，这就是「打开总对着接缝」。
+        //
+        // 打开一部新片是唯一「整块画面被换掉」的时刻：在这里对齐方位角，
+        // 前一帧还是片库、后一帧已经是视频，用户看不到任何跳变。
+        // 只转 Y 轴，俯仰与横滚不动 —— 低头点开下一部时地平线也不会跟着歪。
+        val yawBefore = degrees(posture.yawOf(headset.headRotation()))
+        headset.recenterYaw()
+        // 参考系一变，凝视停留与手势窗口必须清零，否则会拿旧落点当场再触发一次。
+        onRecenter()
+        RunLog.append("posture", "画面中心对齐 · 打开前偏航 ${yawBefore}°")
         scope.launch {
             val resume = withContext(Dispatchers.IO) { library.resumePosition(mediaKeyOf(item)) }
             // V2.14：播放器自身固定满增益，音量交给系统媒体音量，
