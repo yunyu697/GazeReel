@@ -11,7 +11,6 @@ import android.view.Surface
 import com.gazereel.vr.core.DistortionComposer
 import com.gazereel.vr.core.Eye
 import com.gazereel.vr.core.Projection
-import com.gazereel.vr.core.StereoFrameJudge
 import com.gazereel.vr.core.VrHeadsetProvider
 import com.gazereel.vr.core.eyeTextureRegion
 import com.gazereel.vr.data.RunLog
@@ -50,15 +49,6 @@ class VrRenderer(
     var onGlError: ((Throwable) -> Unit)? = null
     @Volatile private var glFailed = false
 
-    /**
-     * V2.20 / C1：抽帧判立体布局的结论。
-     *
-     * 回调在 **GL 线程**上触发，落地要自己切回主线程。
-     * V2.31：第一个参数是**产生这帧的 mediaId**。结论回到主线程时可能已经切了片，
-     * 带上 id 才能把过期结论丢掉，避免上一部片的像素改掉这一部片的格式。
-     */
-    var onFrameSample: ((Long, StereoFrameJudge.Verdict) -> Unit)? = null
-
     private val mesh = ProjectionMesh()
     private val stMatrix = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
     private val mvp = FloatArray(16)
@@ -85,17 +75,6 @@ class VrRenderer(
     // V2.31：UI 位图的脏标记与上次上传时间，见 [uiSignature]。
     private var lastUiKey = 0
     private var lastUiUploadMs = 0L
-
-    // V2.20 / C1：抽帧判立体布局的离屏靶。
-    private var sampleFbo = 0
-    private var sampleTex = 0
-    private var sampleQuad: ProjectionMesh.Geometry? = null
-    private var judgedMediaId = -1L
-    private var judged = false
-    private var sampleAttempts = 0
-    private var totalSampleAttempts = 0
-    private var framesSinceOpen = 0
-    private val samples = ArrayList<StereoFrameJudge.Verdict>(3)
 
     // V2.32 / C5：默认关时这里是 null，drawFrame 里连一次额外判断都不会做。
     // 惰性解析放在 GL 线程上：Provider 的 distortionComposer() 只是造一个不碰 GL
@@ -172,10 +151,6 @@ class VrRenderer(
                 )
             }
         }
-
-        // V2.20 / C1：画面刚出来时抽一帧判立体布局。放在换眼绘制之前，
-        // 因为它要绑自己的 FBO 与视口，后面的每眼循环会把两者重新设好。
-        maybeJudgeStereo(state)
 
         if (lastProjection != state.format.projection || lastLayout != state.format.layout) {
             videoGeometry = mesh.build(state.format.projection)
@@ -393,145 +368,6 @@ class VrRenderer(
         synchronized(frameLock) { frameAvailable = true }
     }
 
-    // ---- V2.20 / C1：抽帧判立体布局 ----
-
-    /**
-     * 画面开始播之后持续低频抽帧，判这张片到底是 Mono / SBS / TAB。
-     *
-     * 为什么不等用户确认：**证据迟到，结论可以先放**。先按现有判据起播，
-     * 抽帧一到位就当场改成对的——只换 `uEyeRegion`，不动投影，片子照常往下走，
-     * 用户最多觉得画面「对上了」一下。反过来要求用户先回答一个他自己也看不出答案的问题，
-     * 才是这一版最该去掉的东西。
-     *
-     * V2.27：旧版只在开播后 0.17–2 秒里试 12 次，没凑够三个样本就 **永久判死**
-     * （`judged = true`），而很多片子的片头黑场 / Logo 就长达 2–5 秒。这类片永远
-     * 退回 MONO：整幅 SBS 铺满球面，正前方 u=0.5 正好压在两幅的接缝上。
-     * 现在起点约 0.5 秒、之后每 0.33 秒一次、持续观察最多约 60 秒；
-     * 三帧不一致也只是清空本轮样本再观察，不再把「暂时看不出」当成「判死了」。
-     * 判据本身（相关系数、三帧一致）一个字没改，只放宽了放弃条件。
-     */
-    private fun maybeJudgeStereo(state: VrUiState) {
-        val mediaId = state.currentMediaId
-        if (mediaId != judgedMediaId) {
-            judgedMediaId = mediaId
-            judged = false
-            sampleAttempts = 0
-            totalSampleAttempts = 0
-            framesSinceOpen = 0
-            samples.clear()
-        }
-        if (judged || mediaId == 0L) return
-        framesSinceOpen++
-        // 第一帧等久一点避开片头，之后按固定间隔低频重试。
-        val need = if (totalSampleAttempts == 0) FIRST_SAMPLE_FRAMES else SAMPLE_INTERVAL_FRAMES
-        if (framesSinceOpen < need) return
-        framesSinceOpen = 0
-        sampleAttempts++
-        totalSampleAttempts++
-
-        val verdict = runCatching { captureStereoFrame() }.getOrNull()
-        if (verdict != null && verdict.confidence > 0f) samples.add(verdict)
-
-        if (samples.size >= SAMPLE_COUNT) {
-            val combined = StereoFrameJudge.combine(samples)
-            if (combined != null) {
-                judged = true
-                RunLog.append("fmt", combined.describe())
-                onFrameSample?.invoke(mediaId, combined)
-                return
-            }
-            // 三帧说法不一，只是这一轮运气不好（片头渐入 / 切场），不是结论。
-            // 旧版在这里就把 judged 置 true，等于永远放弃。
-            RunLog.append(
-                "fmt",
-                "抽帧三帧不一致，继续观察（" +
-                    samples.joinToString(" | ") { it.layout.name } + "）"
-            )
-            samples.clear()
-        }
-        if (sampleAttempts >= MAX_SAMPLE_ATTEMPTS) {
-            RunLog.append(
-                "fmt",
-                "抽帧本轮只拿到 ${samples.size}/$SAMPLE_COUNT 个有效样本（黑场 / 平坦）· 继续观察"
-            )
-            sampleAttempts = 0
-            samples.clear()
-        }
-        if (totalSampleAttempts >= MAX_TOTAL_ATTEMPTS) {
-            judged = true
-            RunLog.append(
-                "fmt",
-                "抽帧持续 $totalSampleAttempts 次仍无一致结论 · 沿用现有判据"
-            )
-        }
-    }
-
-    /**
-     * 把视频纹理原样画进一块 192×96 的 FBO 再读回像素。
-     *
-     * 走这条路的理由：它**绕开所有片源差异**。本地 content://、SMB、HTTP
-     * 最终都是同一张 external 纹理，抽帧不用为每种片源再写一遍解码逻辑，
-     * 也不会和正在播放的解码器抢文件句柄。
-     */
-    private fun captureStereoFrame(): StereoFrameJudge.Verdict? {
-        val program = videoProgram ?: return null
-        ensureSampleTarget()
-        if (sampleFbo == 0) return null
-        val quad = sampleQuad ?: mesh.screenQuad().also { sampleQuad = it }
-        val identity = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
-
-        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, sampleFbo)
-        GLES20.glViewport(0, 0, SAMPLE_W, SAMPLE_H)
-        // uEyeRegion 取整幅：判布局必须看**完整的一帧**，
-        // 若照当前布局取半幅，SBS 被误判成 Mono 时这里也只会看到一半，永远自洽。
-        drawGeometry(
-            program = program,
-            geometry = quad,
-            samplerUnit = GLES20.GL_TEXTURE0,
-            bindTexture = {
-                GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, videoTextureId)
-            },
-            samplerName = "uVideo",
-            mvpMatrix = identity,
-            beforeDraw = { p ->
-                GLES20.glUniformMatrix4fv(p.uniform("uSTMatrix"), 1, false, stMatrix, 0)
-                GLES20.glUniform4fv(p.uniform("uEyeRegion"), 1, FULL_REGION, 0)
-                GLES20.glUniform1f(p.uniform("uBrightness"), 1f)
-            }
-        )
-        val buffer = ByteBuffer.allocateDirect(SAMPLE_W * SAMPLE_H * 4)
-            .order(ByteOrder.nativeOrder())
-        GLES20.glReadPixels(
-            0, 0, SAMPLE_W, SAMPLE_H,
-            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buffer
-        )
-        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
-        buffer.position(0)
-        val bytes = ByteArray(SAMPLE_W * SAMPLE_H * 4)
-        buffer.get(bytes)
-        return StereoFrameJudge.judge(bytes, SAMPLE_W, SAMPLE_H)
-    }
-
-    private fun ensureSampleTarget() {
-        if (sampleFbo != 0) return
-        sampleTex = GlUtils.createUiTexture(SAMPLE_W, SAMPLE_H)
-        val ids = IntArray(1)
-        GLES20.glGenFramebuffers(1, ids, 0)
-        sampleFbo = ids[0]
-        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, sampleFbo)
-        GLES20.glFramebufferTexture2D(
-            GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
-            GLES20.GL_TEXTURE_2D, sampleTex, 0
-        )
-        val status = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER)
-        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
-        if (status != GLES20.GL_FRAMEBUFFER_COMPLETE) {
-            // 读不回来就退回现有判据，不能因为一个可选能力把播放弄挂。
-            RunLog.append("fmt", "抽帧用的 FBO 不可用（0x${status.toString(16)}）")
-            sampleFbo = 0
-        }
-    }
-
     /** GL 线程上的失败只报一次，之后停止绘制，避免每帧刷同一条错误。 */
     private fun failGl(t: Throwable) {
         if (glFailed) return
@@ -561,40 +397,10 @@ class VrRenderer(
         surfaceTexture?.release()
         videoSurface = null
         surfaceTexture = null
-        if (sampleFbo != 0) {
-            GLES20.glDeleteFramebuffers(1, intArrayOf(sampleFbo), 0)
-            sampleFbo = 0
-        }
-        if (sampleTex != 0) {
-            GLES20.glDeleteTextures(1, intArrayOf(sampleTex), 0)
-            sampleTex = 0
-        }
     }
 
     companion object {
         private const val STRIDE = 5 * 4   // pos(3) + uv(2) floats
-
-        /** 抽帧靶的尺寸：96×48 的判据网格刚好每格 2×2 像素，读回只有 72KB。 */
-        private const val SAMPLE_W = 192
-        private const val SAMPLE_H = 96
-
-        /** 起播后先等约 0.5 秒：躲开解码器吐出的第一帧黑屏，又别让接缝停太久。 */
-        private const val FIRST_SAMPLE_FRAMES = 30
-
-        /** 之后约每 0.33 秒抽一次，不每帧读像素。 */
-        private const val SAMPLE_INTERVAL_FRAMES = 20
-
-        /** 三个样本一致才落地：单帧误判会把对的画面切成两半，代价比慢一秒大得多。 */
-        private const val SAMPLE_COUNT = 3
-
-        /** 一轮最多抽 40 次（约 20 秒）；到点只记一行日志并开新一轮，不判死。 */
-        private const val MAX_SAMPLE_ATTEMPTS = 40
-
-        /** 全程约 60 秒仍拿不到一致结论才真正放弃，避免一直读像素。 */
-        private const val MAX_TOTAL_ATTEMPTS = 120
-
-        /** 整幅纹理区域（不切半幅）。 */
-        private val FULL_REGION = floatArrayOf(1f, 1f, 0f, 0f)
 
         /** UI 位图的兜底刷新间隔：render 内部有淡出 / 超时动画，不能完全停更。 */
         private const val UI_MAX_INTERVAL_MS = 200L

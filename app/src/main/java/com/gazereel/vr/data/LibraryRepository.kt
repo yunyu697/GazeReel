@@ -27,8 +27,13 @@ class LibraryRepository(private val db: AppDatabase) {
          * V2.31 → 4：抽帧曾经可以单方面把 SBS 降级成 MONO 并写回这张表，
          * 于是「打开就正对接缝」被记忆固化、几乎每部片都中招。规则已改成
          * 「抽帧只许升级、不许降级」，但被污染的旧记录不会自己消失，升版清一次。
+         *
+         * V2.40 → 5：抽帧那条链路已整条删除，识别只剩「文件名 > 元数据 > 几何」三条
+         * 确定性判据。表里那些「4096×2048 被判成 360 Mono」的记录全是抽帧时代的产物，
+         * 留着会继续让画面正对接缝；清空后按新规则重判一遍，同一部片在旧规则下
+         * 手选过的 180 SBS，新规则算出来还是 180 SBS，结论一致，不会白清。
          */
-        const val MEMORY_VERSION = 4
+        const val MEMORY_VERSION = 5
         const val MEMORY_VERSION_KEY = "format_memory_version"
     }
 
@@ -62,6 +67,13 @@ class LibraryRepository(private val db: AppDatabase) {
         val width = probe?.width?.takeIf { it > 0 } ?: item.width
         val height = probe?.height?.takeIf { it > 0 } ?: item.height
         val detected = FormatDetector().detect(item.path, width, height, probe)
+        // 一条日志说清「靠什么判的」：真机报格式问题时，先看这一行，
+        // 就知道是文件名、元数据还是几何定的，不用再猜。
+        RunLog.append(
+            "fmt",
+            "${item.title} → ${detected.format.label} · 依据 ${detected.source} · " +
+                "${width}x$height · ${probe?.describe() ?: "无元数据"}"
+        )
         // 高置信度结论直接记住：少弹一次确认，也省掉下次的探测开销。
         if (!detected.needsConfirmation && detected.format.confidence >= 0.85f) {
             rememberFormat(ref, detected.format)

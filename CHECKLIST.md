@@ -11,9 +11,9 @@
 >    `[设计]` 只有设计、代码没动 · `[已实现]` 代码改了、编译过 · `[真机]` 用户在真机上确认过 · `[回归]` 曾经可用、后来坏了
 > 5. **动任何功能前先核查成熟方案**（官方 SDK / 平台 API / 成熟库 / 行业标准），结论写进《附录 · 成熟方案核查》；自研只做成熟方案不覆盖的那部分，并在裁决记录里写清边界。
 >
-> 最后更新：V2.39 / 1.1.0-alpha26（2026-11-11 晚，两件真机问题：α24 的俯仰开关「打开没变化」、瞳距「能拖但画面不动」——都查到了具体原因并给出可验证的修法）
+> 最后更新：V2.40 / 1.1.0-alpha27（2026-11-11 晚，**抽帧判布局整条链路删除**：它时对时错，一错就是「正对接缝被当成 360」。识别只剩文件名 > 元数据 > 几何三条确定性判据）
 >
-> **当前基线**：`V2.39 / 1.1.0-alpha26`（tag `v1.1.0-alpha26`；上一版是 `e3309ef` / alpha25）；产物 `GazeReel-1.1.0-alpha26.apk`（**未上真机**）。本轮只修两件真机报回来的事：俯仰开关无效、瞳距无效果，**先看「本轮新增（alpha26）」再上机**（首次播放会弹一次「抬头看到什么」的自检卡，那是预期的）。
+> **当前基线**：`V2.40 / 1.1.0-alpha27`（上一版 `b881927` / alpha26）；产物 `GazeReel-1.1.0-alpha27.apk`（**未上真机**）。这一版是**减法**：删掉 340 行会「时对时错」的像素判据，换成可断言的确定性规则，**先看「本轮新增（alpha27）」再上机**。
 
 ---
 
@@ -116,7 +116,44 @@
 
 ## 已知未验证（真机一跑就可能翻案）
 
-**总口径**：当前代码 `V2.39 / 1.1.0-alpha26`。alpha4–alpha26 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+**总口径**：当前代码 `V2.40 / 1.1.0-alpha27`。alpha4–alpha27 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+
+### 本轮新增（alpha27 / V2.40，一次真机都没跑）
+
+**一、抽帧判布局：整条链路删除**
+
+- 真机事实（2026-11-11 22:19）：「视频又出现正对接缝的问题了，又被识别成了 360 度……你改的判定方法行不行哪，这么不稳定。」随后明确要求：「把你那个不稳定的识别逻辑给删了，浪费我时间。」
+- 为什么删而不是再调门槛：像素判据本身有噪声——它要三帧一致、视差带成团、峰值独占一堆条件同时成立。室内暗光、镜头运动、大片纯色背景、片头黑场都会让它落空，一落空就退回 MONO。而 MONO 解释下 4096×2048 正好是 2:1 → 判成「360° 球面」，整幅 SBS 铺满球面、u=0.5 正对眼前，**那就是接缝**。结论还会被写进格式记忆，下次直接命中。**一个会时对时错的判据比没有判据更贵。**
+- 删除清单（不留半条死路）：
+  - `core/StereoFrameJudge.kt` 整文件（判据、视差带、连片度、三帧投票）；
+  - `VrRenderer`：`maybeJudgeStereo` / `captureStereoFrame` / `ensureSampleTarget` / 离屏 FBO 与 192×96 读回靶 / `onFrameSample` / 相关常量；
+  - `VrActivity`：`renderer.onFrameSample` 回调；
+  - `VrCoordinator`：`onFrameVerdict`（约 70 行）、`pendingProbe` / `pendingItem` / `pendingProbeMediaId` / `userPickedFormat` 四个只为抽帧存在的字段；
+  - `FormatDetector.detect/resolveLayout` 的 `frame` 参数与「抽帧升级」分支；
+  - `tools/StereoJudgeCheck.kt` + `tools/run-stereo-check.sh`（判据没了，自检也没有对象）。
+
+**二、识别改成三条确定性判据：文件名 > 元数据 > 几何**
+
+- 顺序按用户要求定：**文件名优先级最高**。名字写 180 SBS，就是 180 SBS，任何判据都不许推翻。其次是容器元数据（`st3d` / `sv3d` / XMP 裁剪比），最后才是几何。
+- 新增「宽高比反解」作为底座（`FormatDetector.hypotheses`）：整幅 2:1 有两种自洽解释（MONO 360 / SBS 180），4:1 只有一种（SBS 360），1:1 有两种（MONO 180 / TAB 360）。
+  - **已知视场时布局被唯一定死**：名字说 180 + 2:1 → 只能是 SBS；名字说 360 + 2:1 → 只能是 MONO。原来的「名字说 360、布局却按二义猜成 SBS」这种自相矛盾的组合不会再出现。
+  - **两样都不知道时按「错哪边更难受」取舍**：2:1 取 SBS（判 MONO 会正对接缝、没法看）；1:1 取 MONO（TAB 是最少见的布局，切错会把画面横着劈开）。
+- **2:1 裸流默认 180 SBS**：真 360 片源几乎都带 spatial media 声明（YouTube / Insta360 / GoPro / ffmpeg 都写），而 2016–2020 那批 180 SBS 往往什么都没有。`KAVR-332-CD1`（4096×2048、无 st3d/sv3d、名字无标记）从此**稳定**判为「180° 半球 · SBS」，不再看运气。
+- 文件名解析补强：`180` / `360` 走数字边界匹配（`VR180`、`180x180`、`[180][3dh][LR]` 都能命中，`1080p` / `IMG_1801` 不会），新增显式 `mono` 标记（说了 mono 就绝不切两半）。
+
+**三、离线自检（这次必须能证明「不会变」）**
+
+- 新增 `tools/FormatDetectorCheck.kt` + `tools/run-format-check.sh`：用 Gradle 缓存里的 Kotlin 编译器直接编**工程里那份 `FormatDetector.kt`**，跑 30 条断言，含 200 次重复判定必须完全一致。
+- 自检当场抓到两个真实回归，都已修：
+  ① 容差放宽到 ±15% 时，16:9（1.78）被当成 2:1，普通电影直接进了球面 → 收回到 ±5%/±6%；
+  ② 1:1 的二义一律「取立体」，把 180 Mono 判成 TAB 360 → 改成 SBS > MONO 的取舍顺序。
+- 结果：`30/30` 全过。`assembleDebug` 通过，`check_structure.py` 通过（Kotlin 63 文件 / 15412 行）。
+
+**四、仍然风险点（说清楚，不粉饰）**
+
+- 没有任何元数据、名字也没标记的 **2:1 真 360 Mono 片**，会被判成 180 SBS（画面切两半）。这类片源极少，且一眼能看出，用格式浮层手选一次即可（手选会写记忆、优先于自动判据）。
+- `MEMORY_VERSION` 升到 5，启动时清空旧格式记忆——旧表里全是抽帧时代的错误结论。清空后按新规则重判，同一部片结论与之前手选的 180 SBS 一致，不会白清。
+- 俯仰反向（alpha26 的现场开关）与瞳距（离轴视锥）两件真机问题，这一版**没有动**，仍待真机反馈。
 
 ### 本轮新增（alpha26 / V2.39，一次真机都没跑）
 
@@ -391,6 +428,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| V2.40 | **版本号 1.1.0-alpha27**（`versionCode 101000027`）。**删除抽帧判布局整条链路**（`core/StereoFrameJudge.kt`、`VrRenderer` 的离屏 FBO + 192×96 读回 + `onFrameSample`、`VrCoordinator.onFrameVerdict` 与 4 个专用字段、`FormatDetector` 的 `frame` 参数、`tools/StereoJudgeCheck.kt` + `run-stereo-check.sh`）。识别改为**文件名 > 容器元数据 > 几何**三条确定性判据：新增宽高比反解 `hypotheses()`（已知视场则布局唯一；二义时 2:1 取 SBS、1:1 取 MONO），2:1 裸流默认 180 SBS；文件名 `180/360` 改数字边界匹配并支持 `VR180`/`180x180`，新增显式 `mono`。`FormatDetector.Result.source` 记证据来源并写入 `[fmt]` 日志。`MEMORY_VERSION` 4 → 5 清空被抽帧污染的旧记忆。新增 `tools/FormatDetectorCheck.kt` + `run-format-check.sh`（30 条断言，含 200 次确定性；当场抓到「16:9 误判全景」「1:1 误判 TAB」两个回归并修复）。验证：`run-format-check.sh` 30/30、`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 63 文件 / 15412 行）。**未上真机**。 |
 | V2.39 | **版本号 1.1.0-alpha26**（`versionCode 101000026`）。俯仰翻转改用纯 Kotlin 实现（`core/PoseMath.flipPitch`，显式 `Ry·Rx(−pitch)·Rz(roll)`），新增 `tools/PoseMathCheck.kt` + `tools/run-pose-check.sh`（21 条断言）；`CardboardHeadsetProvider` 补 `setFlipPitch/isFlipPitch` 并转发 fallback，`refreshRotation` 里也套翻转；`SensorHeadsetProvider` 新增 `pendingFlipRecenter`（翻转下一帧就地重定）；`VrHeadsetProvider.isFlipPitch()`；首次播放弹「抬头看到什么」自检卡（`VrUiState.pitchCheck` + `VrAction.PitchIsNormal/PitchIsFlipped` + `VrSettings.pitchChecked` + `pitch_checked` 持久化），手机设置加「重新自检一次」并整体套 `ScrollView`。瞳距改离轴视锥：新增 `core/Optics.kt`（63mm 参考、1.2°/mm、±9° 上限、`frustumLeftRight`），两个 Provider 的 `eyeParams` 都换，调节条与日志显示「每眼 X.X°」。验证：`run-pose-check.sh` 21/21、`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 64 文件 / 16091 行）。**未上真机**。 |
 | V2.38 | **版本号 1.1.0-alpha25**（`versionCode 101000025`）。重定「正前方」改口径：**看哪儿，哪儿就是正前方**，不再要求瞄准按钮。新增 `AlignCountdown`（`VrUiState`）+ `VrSettings.alignCountdownMs`（默认 10s / 3–20s）+ 持久化 `align_countdown_ms`；`VrCoordinator` 新增 `startAlignCountdown / updatePosture（改为驱动倒计时）/ applyAlign / confirmAlignNow / cancelAlign / recenterNow`，`updatePosture` 每帧算视线角速度（≤8°/s 累计 0.5s 算稳住）与「已调整 N°」，归零时 `recenterTo(当前姿态)`；倒计时期间独占输入（单击定 / 长按取消 / 其余吞掉）、`touch()` 不点控制台、`disarmGaze()` 作废倒计时、`GestureRecognizer` 整段停用；`VrUiLayer.panelSpec` 让面板朝向跟视线走 + 新增 `drawAlignCountdown`（环 + 秒数 + 状态行，不注册目标）；`VrRenderer.uiSignature` 把倒计时纳入脏标记；`TriggerDispatcher` 双击 → `RecenterNow`（调瞳距时仍是结束）。`VrAction` 新增 `RecenterNow / ConfirmAlign / CancelAlign`。手机端 `dialog_settings.xml` 加重定倒计时 ± 1 秒与说明、`SetupActivity` 绑定并写 `[pose]` 日志。验证：`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 62 文件 / 15690 行）。**未上真机**。 |
 | V2.37 | **版本号 1.1.0-alpha24**（`versionCode 101000024`）。C1 真机通过（`KAVR-332-CD1` 自动 180 SBS）。新增「俯仰方向」现场开关：`VrHeadsetProvider.setFlipPitch()`（接口默认空实现）、`SensorHeadsetProvider.flipPitchOf()`（按 `Ry(yaw)·Rx(pitch)·Rz(roll)` 分解，只取反 pitch，yaw/roll 保留，附 `transpose3x3`）、`VrSettings.flipPitch`（默认 false）+ `SettingsRepository` 持久化（`flip_pitch`）、手机端 `dialog_settings.xml` 加 `flipSwitch` 与说明、`SetupActivity` 绑定并写 `[pose]` 日志、`VrActivity` 建 headset 时下发。验证：`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 62 文件 / 15341 行）、分解重建 7 例 Python 数值校验（俯仰精确取反、yaw/roll 不变、正交性 <1e-9、天顶不退化）。**开关本身未上真机**。 |

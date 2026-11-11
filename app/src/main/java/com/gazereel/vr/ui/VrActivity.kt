@@ -280,11 +280,6 @@ class VrActivity : AppCompatActivity() {
             RunLog.append(this, "gl", "失败 ${t.javaClass.simpleName}: ${t.message?.take(200)}")
             runOnUiThread { showFailure(t) }
         }
-        // V2.20 / C1：抽帧判立体布局。GL 线程回调，结论要回主线程落地。
-        renderer.onFrameSample = { mediaId, verdict ->
-            handler.post { coordinator.onFrameVerdict(mediaId, verdict) }
-        }
-
         stage("surface")
         glView = VrSurfaceView(this)
         // 必须 setRenderer 之后才能设 renderMode（GLSurfaceView 的 GLThread 此时才存在）。
