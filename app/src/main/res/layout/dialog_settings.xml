@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V2.34 / B13 补齐：戴镜前的「设置」。
+
+  上一版瞳距只能戴着头显调——那是为「边看边调」设计的补救路径，
+  但瞳距本身是**戴镜前就该定好的参数**（用户偏好：精确值前移到手机滑杆），
+  所以这里补一个平面入口：拖动粗调、−/+ 修 0.5mm、一键回默认。
+
+  只放瞳距，不铺成一整页设置项：手机侧本来没有设置模块，
+  凭空长出一堆开关会让「第一屏只有两个动作」的约定被稀释。
+  后续真要加别的戴镜前设置，往这个对话框里加区块即可。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp"
+    android:background="@color/setup_card">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/settings_title"
+        android:textSize="17sp"
+        android:textStyle="bold"
+        android:textColor="@color/setup_text" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="@string/settings_lead"
+        android:textSize="11sp"
+        android:lineSpacingExtra="2dp"
+        android:textColor="@color/setup_muted" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:orientation="horizontal"
+        android:baselineAligned="false">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/settings_ipd"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/setup_text" />
+
+        <TextView
+            android:id="@+id/ipdValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="72dp"
+            android:gravity="end"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="@color/setup_cyan"
+            tools:text="62.0 mm" />
+    </LinearLayout>
+
+    <!--
+      粗调就是拖这一条：50.0–75.0mm、步进 0.5mm，比任何 ± 按钮都快。
+      V2.33 已经把真相源改成 0.5mm 整数（ipdHalfMm），这里的 value 就是 half/2f，
+      写回去走 VrSettings.ipdHalfOf()，全工程只有一套数值。
+    -->
+    <com.google.android.material.slider.Slider
+        android:id="@+id/ipdSlider"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:valueFrom="50.0"
+        android:valueTo="75.0"
+        android:stepSize="0.5"
+        android:value="62.0"
+        app:labelBehavior="gone" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_ipd_min"
+            android:textSize="11sp"
+            android:textColor="@color/setup_muted" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_ipd_max"
+            android:textSize="11sp"
+            android:textColor="@color/setup_muted" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/ipdMinus"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="@string/settings_ipd_minus"
+            android:textSize="13sp"
+            android:textColor="@color/setup_text"
+            app:cornerRadius="10dp"
+            app:strokeColor="@color/setup_border"
+            app:strokeWidth="1dp"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/ipdPlus"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:text="@string/settings_ipd_plus"
+            android:textSize="13sp"
+            android:textColor="@color/setup_text"
+            app:cornerRadius="10dp"
+            app:strokeColor="@color/setup_border"
+            app:strokeWidth="1dp"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/ipdReset"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:gravity="center"
+        android:text="@string/settings_ipd_reset"
+        android:textSize="12sp"
+        android:textColor="@color/setup_cyan"
+        android:clickable="true"
+        android:focusable="true" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="@string/settings_ipd_note"
+        android:textSize="11sp"
+        android:lineSpacingExtra="2dp"
+        android:textColor="@color/setup_muted" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/settingsDone"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="14dp"
+        android:text="@string/settings_done"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:textColor="@color/setup_deep"
+        app:cornerRadius="10dp"
+        app:backgroundTint="@color/setup_cyan" />
+
+</LinearLayout>

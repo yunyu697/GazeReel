@@ -498,20 +498,57 @@
             android:textSize="11sp"
             android:textColor="@color/setup_muted" />
 
-        <!-- V2.7.4 测试版：出问题直接截图这一页 -->
-        <TextView
-            android:id="@+id/logEntry"
+        <!--
+          V2.34：底部一行小字，两个次要入口并排。
+          「设置」是戴镜前调瞳距的地方（原先只有戴镜后能调），
+          「运行日志」仍是出问题才点一次的兜底入口——两个都不许抢主行动的权重。
+        -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="2dp"
-            android:gravity="center"
-            android:text="@string/setup_log_entry"
-            android:textSize="11sp"
-            android:textColor="@color/setup_cyan"
-            android:clickable="true"
-            android:focusable="true" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical|center_horizontal"
+            android:baselineAligned="true">
+
+            <!-- V2.7.4 测试版：出问题直接截图这一页 -->
+            <TextView
+                android:id="@+id/settingsEntry"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:paddingBottom="2dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:gravity="center"
+                android:text="@string/settings_entry"
+                android:textSize="11sp"
+                android:textColor="@color/setup_cyan"
+                android:clickable="true"
+                android:focusable="true" />
+
+            <View
+                android:layout_width="1dp"
+                android:layout_height="10dp"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
+                android:background="@color/setup_border" />
+
+            <TextView
+                android:id="@+id/logEntry"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:paddingBottom="2dp"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:gravity="center"
+                android:text="@string/setup_log_entry"
+                android:textSize="11sp"
+                android:textColor="@color/setup_muted"
+                android:clickable="true"
+                android:focusable="true" />
+        </LinearLayout>
     </LinearLayout>
 
 </LinearLayout>

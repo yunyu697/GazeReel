@@ -78,4 +78,17 @@
     <string name="log_back">返回</string>
     <string name="log_copied">已复制</string>
     <string name="log_hint">进 VR 出的问题都记在这里：崩在哪一步、打开的是哪个文件、播放器报了什么。截图即可。</string>
+
+    <!-- V2.34 / B13 补齐：戴镜前的设置（目前只有瞳距） -->
+    <string name="settings_entry">设置</string>
+    <string name="settings_title">设置</string>
+    <string name="settings_lead">瞳距是戴镜前就该定好的参数。进 VR 后也能边看边调。</string>
+    <string name="settings_ipd">瞳距</string>
+    <string name="settings_ipd_min">50.0</string>
+    <string name="settings_ipd_max">75.0</string>
+    <string name="settings_ipd_minus">− 0.5 mm</string>
+    <string name="settings_ipd_plus">+ 0.5 mm</string>
+    <string name="settings_ipd_reset">恢复默认 62.0 mm</string>
+    <string name="settings_ipd_note">两眼瞳孔中心的距离。左右画面合不上、看久了发酸，先拖这条粗调，再点 ± 修 0.5mm。它不是纸盒的透镜间距，两者别混。</string>
+    <string name="settings_done">完成</string>
 </resources>

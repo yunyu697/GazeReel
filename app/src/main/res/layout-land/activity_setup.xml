@@ -73,6 +73,25 @@
           它是出问题才点一次的兜底入口，不该和主行动抢同一条视觉权重。
           这里去掉底色，只留一行小字。
         -->
+        <!--
+          V2.34：戴镜前的「设置」入口，与日志同一条视觉等级。
+          横屏时它没有单独一栏可放，就跟日志并排待在顶栏右侧——
+          反正这一屏的主行动只有一个「进入 VR」，次要入口不该各占一行高度。
+        -->
+        <TextView
+            android:id="@+id/settingsEntry"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minHeight="32dp"
+            android:gravity="center"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:text="@string/settings_entry"
+            android:textSize="11sp"
+            android:textColor="@color/setup_cyan"
+            android:clickable="true"
+            android:focusable="true" />
+
         <TextView
             android:id="@+id/logEntry"
             android:layout_width="wrap_content"

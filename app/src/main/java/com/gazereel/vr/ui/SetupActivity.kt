@@ -39,11 +39,14 @@ import com.gazereel.vr.data.encodeCredentials
 import com.gazereel.vr.databinding.ActivitySetupBinding
 import com.gazereel.vr.databinding.DialogEditSourceBinding
 import com.gazereel.vr.databinding.DialogFolderBinding
+import com.gazereel.vr.databinding.DialogSettingsBinding
 import com.gazereel.vr.databinding.ItemFolderBinding
 import com.gazereel.vr.databinding.ItemSourceBinding
+import com.gazereel.vr.input.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 /**
  * 戴镜前的唯一入口。
@@ -220,6 +223,9 @@ class SetupActivity : AppCompatActivity() {
         binding.logEntry.setOnClickListener {
             startActivity(Intent(this, LogActivity::class.java))
         }
+        // V2.34 / B13 补齐：戴镜前的设置。瞳距原先只能进 VR 摸着侧键调，
+        // 但它本来就是「戴镜前定好、戴镜后微调」的参数，平面这一层才是第一现场。
+        binding.settingsEntry.setOnClickListener { showSettings() }
         binding.shareType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(
                 parent: AdapterView<*>?, view: View?, position: Int, id: Long
@@ -747,6 +753,55 @@ class SetupActivity : AppCompatActivity() {
     // -------------------------------------------------------------- 选文件夹
 
     /** 深色对话框：自定义视图自带背景，不依赖系统按钮栏配色。 */
+    /**
+     * V2.34 / B13 补齐：戴镜前的设置，目前只有瞳距一项。
+     *
+     * 为什么补在平面层：`VrSettings.ipdHalfMm` 已经是全工程唯一真相源（0.5mm 整数），
+     * VR 内那条「边看边调」是为「看着画面调」设计的补救路径；但瞳距本身是戴镜前
+     * 就该定好的参数——手机屏能看见、能拖、不用摸着侧键猜。
+     *
+     * 写盘走 `SettingsRepository.update()`（它顺带完成 `ipd_mm` → `ipd_half_mm` 迁移）；
+     * `VrActivity.onCreate` 每次都新建一份 repository，所以这里改完直接进 VR 就生效，
+     * 不需要重启，也不存在两套缓存。
+     */
+    private fun showSettings() {
+        val view = DialogSettingsBinding.inflate(layoutInflater)
+        val dialog = darkDialog(view.root)
+        val repo = SettingsRepository(this)
+        var half = repo.current.ipdHalfMm
+
+        fun render() {
+            view.ipdValue.text = VrSettings.ipdLabel(half)
+            // Slider 的值必须落在 50.0 + n×0.5 的网格上，half/2f 天然满足；
+            // 用差值判断而不是 `!=`，避免浮点抖动把监听器打成死循环。
+            val mm = half / 2f
+            if (abs(view.ipdSlider.value - mm) > 0.01f) view.ipdSlider.value = mm
+            view.ipdMinus.isEnabled = half > VrSettings.IPD_MIN_HALF
+            view.ipdPlus.isEnabled = half < VrSettings.IPD_MAX_HALF
+        }
+
+        fun apply(next: Int) {
+            val clamped = next.coerceIn(VrSettings.IPD_MIN_HALF, VrSettings.IPD_MAX_HALF)
+            if (clamped != half) {
+                half = clamped
+                repo.update { it.copy(ipdHalfMm = clamped) }
+                RunLog.append("ipd", "戴镜前调瞳距 · ${VrSettings.ipdLabel(clamped)}")
+            }
+            render()
+        }
+
+        // 拖动就是粗调（0.5mm 步进已经够细），± 是落到精确值用的微调，
+        // 两个入口写的是同一个 `ipdHalfMm`，不存在「粗调微调各存一份」。
+        view.ipdSlider.addOnChangeListener { _, value, _ -> apply(VrSettings.ipdHalfOf(value)) }
+        view.ipdMinus.setOnClickListener { apply(half - VrSettings.IPD_FINE_HALF) }
+        view.ipdPlus.setOnClickListener { apply(half + VrSettings.IPD_FINE_HALF) }
+        view.ipdReset.setOnClickListener { apply(VrSettings.IPD_DEFAULT_HALF) }
+        view.settingsDone.setOnClickListener { dialog.dismiss() }
+
+        render()
+        dialog.show()
+    }
+
     private fun darkDialog(view: View): AlertDialog {
         val dialog = AlertDialog.Builder(this, R.style.SetupDialog).setView(view).create()
         dialog.window?.setBackgroundDrawable(ColorDrawable(getColor(R.color.setup_card)))

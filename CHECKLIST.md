@@ -11,9 +11,9 @@
 >    `[设计]` 只有设计、代码没动 · `[已实现]` 代码改了、编译过 · `[真机]` 用户在真机上确认过 · `[回归]` 曾经可用、后来坏了
 > 5. **动任何功能前先核查成熟方案**（官方 SDK / 平台 API / 成熟库 / 行业标准），结论写进《附录 · 成熟方案核查》；自研只做成熟方案不覆盖的那部分，并在裁决记录里写清边界。
 >
-> 最后更新：V2.33 / 1.1.0-alpha20（2026-11-11，B13 瞳距粗调+微调 / B14 调节条交互契约，修 B8 两个真机问题）
+> 最后更新：V2.34 / 1.1.0-alpha21（2026-11-11，瞳距补上戴镜前入口：手机配置页「设置」；同时 alpha19/alpha20 已提交并补齐 tag、推送远端）
 >
-> **当前基线**：代码 `V2.33 / 1.1.0-alpha20`，**全部改动仍在工作区、未提交**（`HEAD` 仍是 `b1ede0a` / alpha18），已有编译产物 `GazeReel-1.1.0-alpha20.apk`（**未上真机**）。**GitHub 远端 `main` 停在 `b9dbf0a` / `v1.1.0-alpha3`，本地领先 15 个提交未 push**；本地 20 个 tag、远端只有 11 个（最新 alpha3），详见工程化后的 tag 待补核段。
+> **当前基线**：提交 `4c13079`（V2.32+V2.33 合一次提交，对应 `v1.1.0-alpha20`）＋ 工作区 `V2.34 / 1.1.0-alpha21` 未提交；产物 `GazeReel-1.1.0-alpha21.apk`（**未上真机**）。**远端已同步**：`origin/main` = `4c13079`，本地与远端各 **27 个 tag**，最新 `v1.1.0-alpha20`（alpha13–18 的 6 个 tag 本轮补上；alpha19 从未落提交，因此没有 alpha19 tag）。
 
 ---
 
@@ -68,7 +68,7 @@
 | B10 | 片库首页的长按语义：现在只是弹一句「已在片库首页」 | `[设计]` | 第 394 行 | 长按在片库有明确去向，不是空动作 |
 | B11 | **视线光标**：画在真实视线落点上（原来钉在面板正中），设置里可关，播放中控制台收起时不画 | `[已实现]` 待真机 | V2.14 / 第 12 章 | 能看出自己在瞄哪个按钮，纯看片时画面里没有多余的点 |
 | B12 | **播放中调出片库要有回头路**：片库底栏出现「返回播放」，一个动作回到正在看的那一部（播放器只暂停、不重开文件） | `[已实现]` 待真机 | V2.16 真机反馈 | 播放中按「片库」再按「返回播放」，画面与进度接上 |
-| B13 | **瞳距调节（粗调 + 微调组合）**：设置浮层「瞳距」行显示当前值（0.5mm 精度）并给出「瞳距 · 边看边调」入口 → 播放中不遮挡视频的调节条（卡片 `212,48–812,252`，底边在画布中线 256 之上；不铺压暗层、视频不暂停不重开），`VrRenderer` 每帧读 `ipdMm` 故即时生效。**V2.33 已落地**：`VrSettings.ipdHalfMm` 统一 0.5mm 整数单位（100–150 half = 50.0–75.0mm），**粗调 2.0mm / 微调 0.5mm 叠加到同一个值**，`val ipdMm: Float get() = ipdHalfMm / 2f` 保持每帧读取不变；`SettingsRepository` 把旧 `ipd_mm` 迁移到 `ipd_half_mm`。触发键单击切粗/微（无凝视目标时）、双击 / 长按退出，音量键在调节态内临时借用做加/减、退出即归还；瞳距态调节条注册 `adjDec` / `adjInc` / `adjMode` / `adjClose` 四个凝视目标（普通音量/亮度条只有三个、无 `adjMode`）且排在 `targets` 最前，避免被下层控制台抢命中。**成熟方案核查**：QR 设备参数（`QrCode.getSavedDeviceParams()` → `DeviceParams.getInterLensDistance()`）是硬件透镜中心距、**不是生理瞳距**，没扫码回落 Cardboard V1，本次不接，列为 C3/C5 的 QR 专项（附录 §6） | `[已实现]` 待真机 | V2.33 / alpha20 / 用户 2026-11-11 需求 / 附录 §6 | 戴镜看片时按入口，视频继续播、画面不被盖住；先粗调跨到大致范围再切微调修到 0.5mm，左右画面能合上且数值与显示一致；退出后音量键立刻恢复调音量 |
+| B13 | **瞳距调节（粗调 + 微调组合）**：**戴镜前**在手机配置页底部「设置」里拖到大致值（V2.34 / alpha21 补：50.0–75.0mm、0.5mm 步进、± 微调、一键回默认 62.0，写的是同一个 `ipdHalfMm`）；**戴镜后**设置浮层「瞳距」行显示当前值（0.5mm 精度）并给出「瞳距 · 边看边调」入口 → 播放中不遮挡视频的调节条（卡片 `212,48–812,252`，底边在画布中线 256 之上；不铺压暗层、视频不暂停不重开），`VrRenderer` 每帧读 `ipdMm` 故即时生效。**V2.33 已落地**：`VrSettings.ipdHalfMm` 统一 0.5mm 整数单位（100–150 half = 50.0–75.0mm），**粗调 2.0mm / 微调 0.5mm 叠加到同一个值**，`val ipdMm: Float get() = ipdHalfMm / 2f` 保持每帧读取不变；`SettingsRepository` 把旧 `ipd_mm` 迁移到 `ipd_half_mm`。触发键单击切粗/微（无凝视目标时）、双击 / 长按退出，音量键在调节态内临时借用做加/减、退出即归还；瞳距态调节条注册 `adjDec` / `adjInc` / `adjMode` / `adjClose` 四个凝视目标（普通音量/亮度条只有三个、无 `adjMode`）且排在 `targets` 最前，避免被下层控制台抢命中。**成熟方案核查**：QR 设备参数（`QrCode.getSavedDeviceParams()` → `DeviceParams.getInterLensDistance()`）是硬件透镜中心距、**不是生理瞳距**，没扫码回落 Cardboard V1，本次不接，列为 C3/C5 的 QR 专项（附录 §6） | `[已实现]` 待真机 | V2.33 / V2.34 / alpha20 / alpha21 / 用户 2026-11-11 需求 / 附录 §6 | 戴镜前在平面页先把瞳距拖到大致范围；戴镜看片时按入口，视频继续播、画面不被盖住；先粗调跨到大致范围再切微调修到 0.5mm，左右画面能合上且数值与显示一致；退出后音量键立刻恢复调音量 |
 | B14 | **调节条交互契约（修 B8 两个真机问题）**：照 AOSP `VolumeDialogImpl.rescheduleTimeoutH()` 的成熟契约——每次调节/凝视交互都取消旧计时重排，准星停在 `adj*` 目标上时按 hover 长保持（`ADJUST_HOVER_MS = 16_000`），离开后回到静止 `FEEDBACK_MS = 2_600` 才淡出；准星原始落点用 `GazeDetector.hoveredId`（不受上膛 / 静默期 / `mustLeave` 清空影响），不是会被清掉的 `currentId`。照 Android `SeekBar` / Material `Slider` 把**真实值比例**映射到轨道：**最终实现删掉段条小点**，`AdjustFeedback` 去掉 `level`，只留 `steps`（是否画刻度）+ `fraction`（唯一填充依据），`fraction=0` 时轨道零填充、音量 0 显示「静音」。调节条同时是**可操作控件**（四个 `adj*` 凝视目标 + 主动「完成」`DismissAdjust`），不再是纯反馈卡 | `[已实现]` 待真机 | V2.33 / alpha20 / 用户 2026-11-11 真机反馈 / 附录 §6 | 按一次音量/亮度后慢慢找按钮、凝视 1.2 秒完成第二次调节，条仍在且值变了；准星离开后 2.6 秒才淡出；把音量调到 0 时轨道无高亮填充、显示「静音」 |
 
 ---
@@ -105,18 +105,22 @@
 
 > **正式版之前只打 tag、不发包。** tag 只标记代码走到哪一步，APK 一律本地 `./gradlew :app:assembleDebug` 生成。
 >
-> ⚠ **tag 待补核（2026-11-11 15:40 按 `git ls-remote` + GitHub API 核实，此前只看了本地，前提不完整）**：
-> - **GitHub 远端**：`origin` = `https://github.com/yunyu697/GazeReel.git`；`refs/heads/main` = `b9dbf0a` = **V2.19c / `v1.1.0-alpha3`**；远端 **11 个 tag**（`v1.0.0-alpha1`–`8` + `v1.1.0-alpha1`–`3`），最新就是 alpha3；`/releases` 返回空数组，**从没发过 release / 安装包**，符合「只打 tag、不发包」。
-> - **本地**：20 个 tag，最新 `v1.1.0-alpha12`（`6937e1a`）；`main` **ahead 15**（`git log --oneline origin/main..HEAD` 共 15 个提交 = alpha4–alpha18）。其中 **9 个本地 tag（alpha4–alpha12）从未 push 到远端**，另有 **6 个提交（alpha13–18）连本地 tag 都没有**。
-> - **alpha19 / alpha20**：`version.properties` 已升到 `1.1.0-alpha20`（alpha19 从未落地成提交），两版改动**全部还在工作区、尚未提交**，不存在可打 tag 的提交。
+> ✅ **tag 已补齐并推送（2026-11-11 19:52 执行，用户「按建议顺序做」授权后落地）**：
+> - **GitHub 远端（已更新）**：`refs/heads/main` = `4c13079`（V2.32+V2.33 / alpha20），远端 **27 个 tag**，最新 `v1.1.0-alpha20`；`/releases` 仍为空，**从没发过 release / 安装包**，符合「只打 tag、不发包」。
+> - **本地（已对齐远端）**：**27 个 tag**（原 20 个 + 补 alpha13–18 六个 + alpha20 一个），`main` 与 `origin/main` 差 `0 / 0`；alpha4–alpha12 九个此前没推的 tag 已一并推上去。
+> - **alpha19 / alpha20（已落提交）**：两版改动共用同一份工作区，无法拆成编译得过中间态，因此合并为一次提交 `4c13079`，tag 只打 `v1.1.0-alpha20`；**alpha19 没有独立 tag，这不是遗漏，是它从来没有独立提交**。
 >
-> 与「tag = `v` + version.properties」的约定不符的**不止 alpha13 起那 6 个**，而是从 alpha4 起本地打完就没同步过远端。补之前要先确认：是刻意只推到 alpha3、还是漏了 push；顺序上必须先落提交，再决定「补 6 个本地 tag + push 9 个已有 tag + push 15 个提交 + 打 alpha20 tag」哪些要做。**远端动作一律等用户点头，本轮未执行。**
+> 结论：从 alpha4 起本地打完就没同步过远端，根部问题是「本地 tag 从未 push」。本轮按用户授权一次补齐：先落提交（`4c13079`），再补 alpha13–18 六个 tag + alpha20 tag，最后 `git push origin main` 与 `git push origin --tags`。**每个 tag 都用 `git show <tag>:version.properties` 逐个核对过，27 个全部与 tag 名一致**，符合「tag = `v` + version.properties」。
 
 ---
 
 ## 已知未验证（真机一跑就可能翻案）
 
-**总口径**：当前代码 `V2.33 / 1.1.0-alpha20`。alpha4–alpha20 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+**总口径**：当前代码 `V2.34 / 1.1.0-alpha21`。alpha4–alpha21 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+
+### 本轮新增（alpha21 / V2.34，一次真机都没跑）
+
+- **B13 手机侧入口**：只有编译 + `tools/check_structure.py` 静态校验。真机要验：① 竖屏底部「设置」与「运行日志」同一行是否不挤、不换行、点得到；② 横屏顶栏「设置」在「运行日志」左侧、是否被「进入 VR」压掉；③ 滑杆能否拖到 50.0 / 75.0 两端、拖动时数值是否同步、关掉对话框再打开是否仍是这个值；④ `± 0.5mm` 到边界是否自动变灰、恢复默认是否回到 62.0mm；⑤ 改完直接进 VR，`VrRenderer` 每帧读到的 `ipdMm` 是否是新值（左右画面间距要真的变）；⑥ 覆盖安装且旧版存过 `ipd_mm` 的机器，迁移后数值是否不变。
 
 ### 本轮新增（alpha20 / V2.33，一次真机都没跑）
 
@@ -258,6 +262,8 @@
 | V2.33 | hover 续时取哪个准星落点 | 附录 §6 写的是 `gaze.currentId` | **`currentId` 会被上膛、静默期、`mustLeave` / `mustClear` 清空**；调节条刚浮出那 1 秒静默里它必然是 null，hover 长保持永远进不去。新增 `GazeDetector.hoveredId` 只记原始 `target?.id`，专供 `VrCoordinator.tick(hoverId)` 续时；凝视命中判定仍走 `currentId`，**两者不许混用**。 |
 | V2.33 | 调节条与下层目标的命中优先级 | 以为浮层画在上层就自然先命中 | `VrUiLayer.targetAt()` / `currentTargets()` 取 `firstOrNull`，下层控制台按钮先注册就会抢走落点。`drawFrame` 在 `state.feedback != null` 时先清空 `targets`、画完 `drawAdjustFeedback()` 再追加下层目标；`GazeDetector.screenKey` 同时纳入 `feedback` / `ipdTuning`，让新浮层出现算一次「换屏」走 1 秒静默。 |
 | V2.33 | 「设置中增加瞳距」落在哪一层 | 容易理解成手机配置页加一个戴镜前滑杆 | 回源码：`SetupActivity` / `activity_setup.xml`（含 `layout-land`）**没有设置模块**，现有瞳距只在 VR 内设置浮层。且用户明确要求「观看视频时实时调节」，戴镜前滑杆做不到。落地为 VR 设置浮层新增「瞳距 · 边看边调」入口 + 播放中不遮挡视频的调节态；**手机侧配置页一行未动**。若用户要的是手机侧入口，这是待确认的产品分歧，不是已完成。 |
+| V2.34 | 瞳距要不要戴镜前入口 | V2.33 只做了 VR 内「边看边调」，手机侧 `SetupActivity` 一行未动，记为待确认的产品分歧 | **用户 2026-11-11 19:44 裁决「先做 2 和 3」= 手机侧要落地**。依据是 VR 铁律「精确值前移到戴镜前手机滑杆」：戴镜后摸侧键调瞳距本来就是补救路径，不是第一现场。落地为配置页底部「设置」→ `dialog_settings.xml`（滑杆 50.0–75.0mm / 0.5mm 步进 + `±0.5mm` + 恢复默认）。写盘复用 `SettingsRepository.update()` 与 `ipdHalfMm`，**不新增第二套数值**，VR 内那条入口原样保留 |
+| V2.34 | alpha19 要不要单独一个提交 | 计划里 alpha19、alpha20 各一版各一提交 | **做不到**：alpha19 从未落提交，两版改动叠在同一份工作区、同一批文件上，拆出来的中间态编译不过（`VrCoordinator` / `VrUiState` / `VrActivity` / CHECKLIST 都被两版改过）。合并为 `4c13079` 一次提交，只打 `v1.1.0-alpha20`；**alpha19 没有 tag 是事实，不是漏打** |
 
 ---
 
@@ -265,6 +271,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| V2.34 | **版本号 1.1.0-alpha21**（`versionCode 101000021`）：B13 瞳距补上戴镜前入口。`SetupActivity` 底部新增「设置」（竖屏与「运行日志」同一行、横屏在顶栏日志左侧，竖横两套 layout 的 view id 一致），点开 `dialog_settings.xml`：当前值（0.5mm 精度）+ 滑杆 50.0–75.0mm（`stepSize=0.5`、`labelBehavior=gone`）+ `−0.5 / +0.5` + 「恢复默认 62.0mm」+ 说明「它不是纸盒的透镜间距」。「设置」用 accent 色、「运行日志」降级为 muted（沿用 V2.19 日志降级）。写入走 `SettingsRepository.update().copy(ipdHalfMm=…)`，`RunLog` 记 `[ipd] 戴镜前调瞳距`；`VrActivity.onCreate` 每次新建 repository，改完直接进 VR 生效。滑杆回写用差值判断（`abs(value-mm) > 0.01f`），避免浮点抖动把监听器打成死循环。**验证**：`assembleDebug` BUILD SUCCESSFUL、`check_structure.py` 通过（Kotlin 62 文件 / 14764 行、XML 21、values 113）、产物 `GazeReel-1.1.0-alpha21.apk`（15MB，`versionCode 101000021`）。**未上真机**。 |
 | V2.33 | **版本号 1.1.0-alpha20**（本轮，`versionCode 101000020`；alpha19 从未落提交，两版改动在同一工作区上继续，`HEAD` 仍是 `b1ede0a` / alpha18）。**B13 瞳距粗调+微调 + B14 调节条交互契约**，按附录 §6 的成熟方案核查结论落地，`②` 与其它暂不动项一字未改。`VrUiState.VrSettings` 把 `ipdMm: Int` 换成 `ipdHalfMm: Int`（0.5mm 单位，100–150 half = 50.0–75.0mm）+ `val ipdMm: Float get() = ipdHalfMm / 2f` 保持 `VrRenderer` 每帧读取不变，新增 `IPD_COARSE_HALF=4` / `IPD_FINE_HALF=1` / `ipdLabel()`；`VrUiState.ipdTuning`；`AdjustFeedback` 最终删掉 `level`、只留 `steps` + `fraction`。`SettingsRepository` 改存 `ipd_half_mm`、从旧 `ipd_mm` 迁移并 `remove`。`VrAction` 新增 `StartIpdTuning` / `StopIpdTuning` / `ToggleIpdMode` / `DismissAdjust`。`VrCoordinator` 重构 `adjust()` 与 `showAdjust()`、新增 `startIpdTuning()` / `stopIpdTuning()` / `toggleIpdMode()` / `keepsIpdTuning()`（任何非调节动作先归还音量键）、`ipdFraction()`，`tick(hoverId)` 照 AOSP `rescheduleTimeoutH()` 做交互感知重排（`ADJUST_ACTIVE_MS=8_000` / `ADJUST_HOVER_MS=16_000` / 静止 `FEEDBACK_MS=2_600`）。`GazeDetector` 新增原始落点 `hoveredId`，`screenKey` 纳入 `feedback` / `ipdTuning`。`VrActivity` 把 `gaze.hoveredId` 传给 `tick()`、音量键在瞳距态临时借给 `ipd`。`TriggerDispatcher` 瞳距态双击退出 / 单击切粗微 / 长按 Back。`VrUiLayer` 把调节条从纯反馈卡改成注册 `adjDec` / `adjInc` / `adjMode` / `adjClose` 四个凝视目标的可操作控件（目标排到 `targets` 最前）、卡片 `212,48–812,252` 不压画布中线 256、按 `fraction` 画连续轨道、删段条小点；设置浮层新增「瞳距 · 边看边调」入口与三按钮底栏。`tools/preview_player.py` 新增 `draw_adjust()` / `draw_adjust_sheet()` / `draw_settings()` 并把 `button()` 文本锚点 `mm`→`ms`（Canvas `drawText` 的 y 是 baseline），产出 `output/adjust-bars.png` / `output/settings-ipd.png` 复核版式。**验证**：`./gradlew :app:assembleDebug` 多次 BUILD SUCCESSFUL、`tools/check_structure.py` 静态校验通过、产物 `GazeReel-1.1.0-alpha20.apk`；离屏图发现「静音条拥挤」后删段条并复看通过。**一次真机都没跑**：B8 两个真机问题只是代码修复、未复验，B13/B14 由 `[设计]` 改 `[已实现] 待真机`。 |
 | V2.32 | **版本号 1.1.0-alpha19**（本轮，`versionCode 101000019`）。按用户「先完成 1、3、4」裁决落地，**② Media3 `Format.stereoMode` 未动**：① `HttpDirectoryScanner` 的 `href` 正则换 jsoup 1.24.1（保留同源 / 扩展名 / 目录 / `titleOf` 全部规则，新增 charset 自探与同源 `<base>`），开 `coreLibraryDesugaring`；新增 `tools/HttpDirParseCheck.java` 纯 JVM 对照测试（13 项断言）。③ 新增 `JcifsCrossCheck.kt`，在 `SmbSessionPool.listShares()` 与 `LanSmbScanner.smbName()` 两处并排写 `RunLog`，后台单线程 + 60s 节流 + 最多 2 个在途任务 + 每次自建并关闭 `CIFSContext`；不排除 BouncyCastle；播放与目录遍历仍走 smbj，手写 srvsvc fallback 一字未动。④ 新增 `core/DistortionComposer.kt`（main 侧接口）、`cardboard/SdkOptics.kt`（共用开关，默认 false）、`cardboard/SdkDistortionComposer.kt`（全屏离屏纹理 + 左右半区 + `getDistortionMesh` + `renderEyeToDisplay(0,…)`）；`VrHeadsetProvider.distortionComposer()` 默认 null；`VrRenderer.drawFrame` 在 `glClear` 前 `beginFrame`、两眼画完 `endFrame`、失败当帧退回直出；`VrRenderer.releaseGl()` 由 `VrActivity.onDestroy` 经 `queueEvent` 投递到 GL 线程。**编译通过、APK 已产出，一次真机都没跑；C3/C5 开关仍默认关。** 收尾全链路走查又修三处 GL 绑定问题（无条件解绑收窄、`glFailed` 分支离屏 FBO 残留、离屏纹理附着留在 GL_TEXTURE0 绑定上），详见裁决记录「V2.32 收尾」行；并纠正「alpha13–19 共 7 个提交无 tag」为 **alpha13–18 共 6 个提交无 tag + alpha19 尚未提交**；随后查 GitHub 又发现该结论仍只覆盖本地，远端 `main` 其实停在 alpha3、本地领先 15 个提交未 push、9 个本地 tag 从未同步（见工程化后的 tag 待补核段与「V2.32 收尾」裁决）。 |
 | V2.31 | **版本号 1.1.0-alpha18 / `b1ede0a`**（上一基线）。**C1 接缝定案**：`StereoFrameJudge` 的「两半不像」降为弱证据，抽帧只许 MONO→SBS/TAB 升级、**禁止反向降级**；`VrCoordinator.onFrameVerdict` 结论绑定 `mediaId`（切到下一部片即丢弃过期结论），抽帧判出的 MONO 不写记忆；`LibraryRepository.MEMORY_VERSION` 3→**4** 清库。另：`VrRenderer` 抽帧窗口、SMB 搜索并发与取名（`LanSmbScanner` / `SmbNameProbe` / `SmbSessionPool`）、`DefaultLoadControl` 显式播放缓冲、`LanHttp` 换 OkHttp 4.12.0、`SubtitleTrack` 补强（BOM / CRLF / 标签 / 重叠时间轴） |
@@ -301,7 +308,7 @@
 
 ---
 
-## 附录 · 成熟方案核查（2026-11-11；修表阶段代码一行未动，**V2.32 之后 ①③④ 已动代码、V2.33 之后 §6 的 B13/B14 已动代码；本附录 §1/§5/§6 的计划文字按裁决记录读**）
+## 附录 · 成熟方案核查（2026-11-11；修表阶段代码一行未动，**V2.32 之后 ①③④ 已动代码、V2.33 之后 §6 的 B13/B14 已动代码、V2.34 又给 B13 补了手机侧入口；本附录 §1/§5/§6 的计划文字按裁决记录读**）
 
 **核查基线**：代码 `V2.31 / 1.1.0-alpha18 / b1ede0a`。核查时表头仍写「最后更新 V2.9」、
 正文只记到 V2.19c，与代码差 12 个版本。
@@ -402,5 +409,5 @@
 | 音量 0 仍亮一格 | Android `SeekBar` / Material `Slider`：`value` 直接映射轨道填充比例，`value=0 → 填充 0`；AOSP 音量面板静音时显示静音图标而非第一段；离散档用 `stepSize`，不用「1 基档号」当填充量 | **照契约改，离屏图复核后又推翻一层**：不再画段条，`AdjustFeedback` 删掉 `level`，只按 `fraction` 画连续填充（`steps` 仅决定是否画刻度）；`value=0` 时轨道零填充，音量 0 `detail` 显示「静音」 |
 | 粗调 + 微调组合 | 没有 drop-in 的 Android/VR 库；行业通用契约是「离散主档 + 细步进叠加到同一值」（Material `Slider.stepSize`、相机 EV 补偿、无障碍 single-switch scanning 的 auto-repeat） | **自研，但只自研这一个控件**：0.5mm 整数单位、粗 2.0mm / 微 0.5mm 叠加、触发键切模式、音量键临时借用。不引入额外硬件、不引入位置追踪 |
 
-**本轮自研的边界**：只写「一个可操作、交互感知淡出、按真实值填充的调节条」+ 瞳距的粗微步长与持久化迁移；**Cardboard SDK 的光学参数、每眼投影、畸变、QR 解析一行都不自己写**。V2.33 已按此边界落地并编译；仍未做手机侧配置页的瞳距入口（见裁决记录「设置中增加瞳距落在哪一层」，属待确认的产品分歧）。
+**本轮自研的边界**：只写「一个可操作、交互感知淡出、按真实值填充的调节条」+ 瞳距的粗微步长与持久化迁移；**Cardboard SDK 的光学参数、每眼投影、畸变、QR 解析一行都不自己写**。V2.33 已按此边界落地并编译；**手机侧入口已于 V2.34 / alpha21 补上**（配置页底部「设置」→ `dialog_settings.xml`，滑杆 50.0–75.0mm / 0.5mm 步进 + `±0.5mm` + 恢复默认），裁决见「瞳距要不要戴镜前入口」一行；它只是同一个 `ipdHalfMm` 的另一个入口，没有新增自研的数值逻辑。
 
