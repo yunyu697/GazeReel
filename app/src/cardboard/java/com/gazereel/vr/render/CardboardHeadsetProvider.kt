@@ -5,6 +5,7 @@ import android.opengl.Matrix
 import android.os.SystemClock
 import android.view.Surface
 import android.view.WindowManager
+import com.gazereel.vr.core.DistortionComposer
 import com.gazereel.vr.core.Eye
 import com.gazereel.vr.core.EyeParams
 import com.gazereel.vr.core.RotationBlend
@@ -50,12 +51,15 @@ import kotlin.math.acos
  * 估计、`PredictRotation` 姿态预测、`ApplyNeckModel`、显示空间旋转补偿、
  * viewport 变化时的基准连续性。这些正是「平躺慢慢歪 / 转头拖尾 / 不顺滑」的解药。
  *
- * ## 本次边界
+ * ## 光学边界（V2.32）
  *
- * **只接管头追，不改光学。** `LensDistortion` 的真实 FOV / IPD 与畸变网格会改变
- * 现有球面网格的取景范围，必须连桶形畸变专项一起校准；本次先把
- * [USE_SDK_OPTICS] 留成开关（默认 false），沿用已经验证过的分屏几何，
- * 保证画面几何零变化、只换姿态来源。
+ * V2.30 只接管头追、不改光学；V2.32 把 [SdkDistortionComposer] 这条「两眼离屏 →
+ * SDK 畸变网格 → 屏幕」的链补齐，与 [sdkEyeParams] 的真实 FOV / IPD 一起挂在
+ * [USE_SDK_OPTICS] 开关下。**默认仍是 false**：开关关着时 lensDistortion 不创建、
+ * [distortionComposer] 返回 null、画面几何一帧不变，只换姿态来源。
+ *
+ * 打开后必须用网格线在真机上把球面网格 / UI 平面 / 2D 银幕三层一起校准，
+ * 只编译通过不算数（见 SdkOptics.kt 的校准清单）。
  *
  * 任何 SDK 初始化 / 运行期异常都会整体回退到 SensorHeadsetProvider，
  * 保证缺 native 库（如 x86 模拟器）时仍可启动。
@@ -119,6 +123,16 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
                 "Cardboard SDK 头追已启用 · EKF融合/零偏估计/预测 ${PREDICTION_NS / 1_000_000}ms/显示空间补偿"
             } else {
                 "Cardboard SDK 初始化失败，回退纯传感器"
+            }
+        )
+        RunLog.append(
+            context, "gl",
+            if (USE_SDK_OPTICS && lensDistortion != null) {
+                "[C3/C5] SDK 光学已开 · 每眼 FOV/IPD + 桶形畸变离屏链（待真机网格线校准）"
+            } else if (USE_SDK_OPTICS) {
+                "[C3/C5] SDK 光学开关已开但纸盒参数没读到，本轮仍走直出几何"
+            } else {
+                "[C3/C5] SDK 光学默认关 · 左右半屏直出，画面几何零变化"
             }
         )
     }
@@ -200,6 +214,17 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
         viewLocked = locked
     }
 
+    /**
+     * C5 / V2.32：只有 [USE_SDK_OPTICS] 打开且纸盒参数解析成功才返回离屏合成器。
+     * 返回的实例**不碰 GL 资源**，真正的 FBO 与 DistortionRenderer 在 GL 线程首次
+     * [SdkDistortionComposer.beginFrame] 里分配；这样 main 源码集不需要 import SDK 类。
+     */
+    override fun distortionComposer(): DistortionComposer? {
+        if (!USE_SDK_OPTICS) return null
+        val ld = lensDistortion ?: return null
+        return SdkDistortionComposer(ld)
+    }
+
     override fun eyeParams(eye: Eye, aspect: Float, ipdMeters: Float): EyeParams {
         if (!ready) return fallback.eyeParams(eye, aspect, ipdMeters)
         val ld = lensDistortion
@@ -232,7 +257,10 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
         return EyeParams(view, projection)
     }
 
-    /** SDK 真实 FOV / IPD 的每眼参数，待桶形畸变专项一起启用。 */
+    /**
+     * C3：SDK 真实 FOV / IPD 的每眼参数。V2.30 已实现，V2.32 起与 C5 的畸变网格
+     * 由同一个 [USE_SDK_OPTICS] 开关同时启用，避免「换了投影没换网格」的半套状态。
+     */
     private fun sdkEyeParams(ld: LensDistortion, eye: Eye, ipdMeters: Float): EyeParams {
         val ordinal = if (eye == Eye.LEFT) EyeType.LEFT else EyeType.RIGHT
         val eyeFromHead = FloatArray(16)
@@ -413,10 +441,7 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
         const val STILL_MS = 700L
         const val INITIAL_MAX_WAIT_MS = 4_000L
 
-        /**
-         * 打开后会用 SDK 的每眼 FOV / IPD 投影，需要同时适配 ProjectionMesh 的
-         * 取景范围与桶形畸变网格；未做该专项前保持 false，画面几何零变化。
-         */
-        const val USE_SDK_OPTICS = false
+        // USE_SDK_OPTICS 已移到同包顶层 SdkOptics.kt，供 CardboardHeadsetProvider
+        // 与 SdkDistortionComposer 共用；改那一处即可，别在这里再留一个副本。
     }
 }

@@ -225,8 +225,15 @@ class VrUiLayer(
             if (!state.gazeArmed) drawArmPrompt()
         }
 
-        // V2.11：档位变化浮层，压在提示之上——用户按了键就得立刻看见结果。
-        state.feedback?.let { drawAdjustFeedback(it) }
+        // V2.33 / B14：调节条是**可操作**的一层，压在提示之上。
+        // 它自己的凝视目标必须排在下层目标之前：targetAt() 取 firstOrNull，
+        // 若下层控制台按钮先注册，重叠处点到的会是下层，条看起来能点其实点不到。
+        state.feedback?.let { fb ->
+            val lower = targets.toList()
+            targets.clear()
+            drawAdjustFeedback(state, fb)
+            targets.addAll(lower)
+        }
 
         published = targets.toList()
 
@@ -264,7 +271,7 @@ class VrUiLayer(
         if (!state.settings.cursorEnabled) return
         if (!state.gazeArmed) return
         if (state.screen == VrScreen.PLAYER &&
-            state.overlay == VrOverlay.NONE && !state.consoleVisible
+            state.overlay == VrOverlay.NONE && !state.consoleVisible && !state.ipdTuning
         ) return
         // 视线落到面板之外时，画面里没有可瞄的东西，画一个贴边的假光标只会误导。
         if (point.x < 0f || point.y < 0f || point.x > W || point.y > H) return
@@ -310,49 +317,101 @@ class VrUiLayer(
     }
 
     /**
-     * V2.11：音量 / 亮度档位浮层。
+     * V2.11 建立、V2.33 / B14 重做：**可操作的**档位 / 瞳距调节条。
      *
-     * 设计第 415 行：「值的变化自己浮出来——视野中央大字档位 + 5 段条，1.2 秒淡出；
-     * 不必低头进控制台确认，也不占用常驻画面。」
+     * 真机反馈「音量和亮度条激活之后，用户来不及操作就消失了」——原来这张卡
+     * 一个 `GazeTarget` 都没注册，2.6 秒固定淡出后什么都来不及点。现在它带
+     * `−` / `+` / 粗微 / 完成 四个大目标，淡出由交互感知计时驱动（见 VrCoordinator.tick）。
      *
-     * 位置刻意放在画布中心偏上约 5°：卡片压住准星会让「我正在瞄什么」变得看不清，
-     * 而偏上 5° 仍在舒适区中央，不用转头就能读到。
+     * 填充照 Android `SeekBar` / Material `Slider` 的契约用**真实值比例**：
+     * `fraction = 0` 时填充宽度为 0，所以音量静音不会再「亮一格」。
+     * 原来把 1 基档号 `level + 1` 当点亮段数，正是这个 bug 的来源。
      *
-     * 注意：它现在画在世界锁定的 UI 画布上，所以会跟着头动。
-     * 设计要的是屏幕空间层，那属于 CHECKLIST B6（UI 三层拆分），还没做。
+     * 位置仍在画布上半部（y 48–252）：UI 平面在播放页低 13°，换算过来这条卡
+     * 落在视线下方约 3°–13°，**视频正中永远空着**——瞳距要看着画面才调得准。
+     * 它画在世界锁定的 UI 画布上，屏幕空间层属于 B6，还没做。
      */
-    private fun drawAdjustFeedback(feedback: AdjustFeedback) {
+    private fun drawAdjustFeedback(state: VrUiState, feedback: AdjustFeedback) {
         val remain = feedback.untilMs - SystemClock.elapsedRealtime()
         if (remain <= 0L) return
-        // 最后 300ms 渐隐，避免「啪」一下消失。
+        // 最后 300ms 渐隐，避免「啪」一下消失。常驻（Long.MAX_VALUE）时恒为不透明。
         val alpha = ((remain / 300f).coerceIn(0f, 1f) * 255f).toInt().coerceIn(0, 255)
 
-        val card = RectF(W / 2f - 190f, 96f, W / 2f + 190f, 220f)
+        val card = RectF(212f, 48f, 812f, 252f)
         val layer = canvas.saveLayerAlpha(card, alpha)
 
-        fill.color = 0xEE0E1B2C.toInt()
+        fill.color = 0xF20E1B2C.toInt()
         canvas.drawRoundRect(card, 22f, 22f, fill)
         stroke.color = C_ACCENT
-        stroke.strokeWidth = 2f
+        stroke.strokeWidth = 2.5f
         canvas.drawRoundRect(card, 22f, 22f, stroke)
 
-        label(feedback.label, card.left + 28f, card.top + 44f, 30f, C_TEXT)
-        label(feedback.detail, card.right - 28f, card.top + 44f, 30f, C_ACCENT, Paint.Align.RIGHT)
+        label(feedback.label, card.left + 26f, 92f, 28f, C_TEXT)
+        label(feedback.detail, card.right - 26f, 92f, 32f, C_ACCENT, Paint.Align.RIGHT)
 
-        // 段条：亮到第 level 段。5 档音量就是 5 段，3 档亮度就是 3 段。
-        val barLeft = card.left + 28f
-        val barRight = card.right - 28f
-        val gap = 8f
-        val segmentWidth = (barRight - barLeft - gap * (feedback.steps - 1)) / feedback.steps
-        val barTop = card.top + 66f
-        val barBottom = barTop + 24f
-        for (i in 0 until feedback.steps) {
-            val left = barLeft + i * (segmentWidth + gap)
-            fill.color = if (i < feedback.level) C_ACCENT else C_BORDER
+        // 连续轨道：`fraction` 是唯一的长度依据，0 → 没有填充。
+        val track = RectF(card.left + 26f, 110f, card.right - 26f, 134f)
+        fill.color = C_BORDER
+        canvas.drawRoundRect(track, 12f, 12f, fill)
+        val filled = (track.width() * feedback.fraction.coerceIn(0f, 1f))
+        if (filled > 0f) {
+            fill.color = C_ACCENT
             canvas.drawRoundRect(
-                RectF(left, barTop, left + segmentWidth, barBottom), 6f, 6f, fill
+                RectF(track.left, track.top, track.left + filled, track.bottom), 12f, 12f, fill
             )
         }
+        if (feedback.steps > 1) {
+            // 档位刻度只说明「只有这几档」，不再拿档号当填充长度。
+            stroke.color = 0x990E1B2C.toInt()
+            stroke.strokeWidth = 3f
+            for (i in 1 until feedback.steps) {
+                val x = track.left + track.width() * i / feedback.steps
+                canvas.drawLine(x, track.top + 3f, x, track.bottom - 3f, stroke)
+            }
+        }
+        if (feedback.steps == 0) {
+            // 连续值（瞳距 / 亮度）：滑块钉在真实值上，不画假档位。
+            fill.color = C_TEXT
+            canvas.drawCircle(
+                track.left + filled.coerceIn(0f, track.width()), track.centerY(), 9f, fill
+            )
+        }
+        // 不画「段条小点」：离屏对照图里它与提示挤成一行，静音时四个全灭还像坏了；
+        // 连续轨道 + 刻度已经把「真实值」和「只有这几档」都说清楚了。
+
+        small.textSize = 17f
+        label(
+            ellipsize(feedback.hint ?: "", card.width() - 52f, small),
+            W / 2f, 164f, 17f, C_MUTED, Paint.Align.CENTER
+        )
+
+        // 大按钮排：普通音量/亮度 3 个（− / + / 完成，168×54），
+        // 瞳距「边看边调」态 4 个（多一个切粗微，126×54）；最小约 6.0°×2.7°。
+        // 实体侧键才是主通道，凝视按钮是备用；不做凝视滑杆、不做一排小 ±。
+        val showMode = feedback.key == "ipd" && state.ipdTuning
+        val count = if (showMode) 4 else 3
+        val bw = if (showMode) 126f else 168f
+        val gap = 14f
+        var x = W / 2f - (count * bw + (count - 1) * gap) / 2f
+        val top = 182f
+        val bottom = 236f
+        button("adjDec", "−", RectF(x, top, x + bw, bottom), VrAction.Adjust(feedback.key, -1))
+        x += bw + gap
+        button("adjInc", "+", RectF(x, top, x + bw, bottom), VrAction.Adjust(feedback.key, 1))
+        x += bw + gap
+        if (showMode) {
+            button(
+                "adjMode", if (feedback.coarse) "切微调" else "切粗调",
+                RectF(x, top, x + bw, bottom), VrAction.ToggleIpdMode,
+                highlighted = true
+            )
+            x += bw + gap
+        }
+        button(
+            "adjClose", "完成",
+            RectF(x, top, x + bw, bottom),
+            if (state.ipdTuning) VrAction.StopIpdTuning else VrAction.DismissAdjust
+        )
 
         canvas.restoreToCount(layer)
     }
@@ -808,7 +867,8 @@ class VrUiLayer(
         val rows = listOf(
             Triple("亮度", VrSettings.BRIGHTNESS_LABELS[brightnessLevel], "brightness"),
             Triple("音量", "${volumeLevel + 1} / ${VrSettings.VOLUME_STEPS.size}", "volume"),
-            Triple("瞳距 IPD", "${s.ipdMm} mm", "ipd"),
+            // V2.33：值来自 0.5mm 单一真相源，显示到 0.1mm，别再显示整数 mm。
+            Triple("瞳距 IPD", VrSettings.ipdLabel(s.ipdHalfMm), "ipd"),
             Triple("凝视时长", "${s.gazeDurationMs} ms", "gaze")
         )
         rows.forEachIndexed { i, (label, value, key) ->
@@ -844,8 +904,21 @@ class VrUiLayer(
                 highlighted = enabled && !isAction
             )
         }
-        button("clearMem", "清除格式记忆", RectF(140f, 438f, 430f, 490f), VrAction.ClearFormatMemory)
-        button("setBack", "返回", RectF(594f, 438f, 884f, 490f), VrAction.CloseOverlay)
+        // V2.33 / B13：瞳距**必须戴着看左右两眼能不能合上**才调得准，而设置浮层
+        // 用 0xEE 面板铺满画布、一进去就把画面盖住了。所以这里给的不是又一对
+        // 精确小按钮，而是一个「边看边调」入口：关掉浮层、收起控制台、只留上方细条。
+        small.textSize = 17f
+        label(
+            ellipsize("瞳距要戴着看画面才调得准 · 边看边调不挡视频", 720f, small),
+            W / 2f, 416f, 17f, C_MUTED, Paint.Align.CENTER
+        )
+        button("clearMem", "清除格式记忆", RectF(110f, 438f, 380f, 490f), VrAction.ClearFormatMemory)
+        button(
+            "ipdTune", "瞳距 · 边看边调",
+            RectF(392f, 438f, 632f, 490f), VrAction.StartIpdTuning,
+            highlighted = true
+        )
+        button("setBack", "返回", RectF(644f, 438f, 884f, 490f), VrAction.CloseOverlay)
     }
 
     // ── 绘制辅助 ───────────────────────────────────────────────────────

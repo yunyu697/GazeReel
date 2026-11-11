@@ -5,7 +5,9 @@ import android.net.wifi.WifiManager
 import android.util.Xml
 import com.gazereel.vr.core.MediaRef
 import com.gazereel.vr.core.RandomAccessSource
+import org.jsoup.Jsoup
 import org.xmlpull.v1.XmlPullParser
+import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.StringReader
 import java.net.DatagramPacket
@@ -235,7 +237,16 @@ class WebDavScanner(private val credentials: SmbCredentials) {
     }
 }
 
-/** 普通 HTTP 目录（nginx autoindex / python -m http.server 等）的列举。 */
+/**
+ * 普通 HTTP 目录（nginx autoindex / python -m http.server 等）的列举。
+ *
+ * E6 / V2.32：把 `href` 正则换成 jsoup 的 DOM 解析。正则只对「恰好写成
+ * `href="..."` 的规范 HTML」有效，遇到无引号属性、单双引号混用、HTML 实体
+ * （`&amp;`）、畸形标签或中文 GBK 目录页就会整批漏项；jsoup 按浏览器规则解析，
+ * 这些情况都能拿到链接。**其余判断一条没改**：排序参数 / 脚本 / 父目录过滤、
+ * 同源校验、扩展名、目录判定、[titleOf]、去重，全部照旧，保证同一批目录页
+ * 替换前后 `IndexEntry` 逐条一致。
+ */
 class HttpDirectoryScanner(private val credentials: SmbCredentials) {
     private val client = LanHttpClient(credentials)
 
@@ -245,18 +256,43 @@ class HttpDirectoryScanner(private val credentials: SmbCredentials) {
         if (response.code !in 200..299) {
             throw IOException("HTTP 目录返回 HTTP ${response.code}（检查地址与账号）")
         }
-        val html = String(response.body, Charsets.UTF_8)
-        val links = Regex("""href\s*=\s*["']([^"'#]+)["']""", RegexOption.IGNORE_CASE)
+
+        // 编码优先级：HTTP Content-Type 的 charset > <meta charset> / BOM（jsoup 自探）> UTF-8。
+        // 旧版写死 UTF-8，中文 GBK 目录页的文件名会整批变乱码，也就拿不到可读标题。
+        // charsetName 传 null 时 jsoup 会读 meta / BOM；声明了非法名字则退回自探。
+        val declared = charsetOf(response.header("Content-Type"))
+        val doc = runCatching {
+            Jsoup.parse(ByteArrayInputStream(response.body), declared, base)
+        }.getOrElse {
+            Jsoup.parse(ByteArrayInputStream(response.body), null, base)
+        }
+
+        // <base href> 决定相对链接的解析基准。只在与请求地址同源时采纳：
+        // 站外 <base> 会把所有相对链接解析到站外、被同源校验整批挡掉，
+        // 反而让本来能用的目录页变空。不采纳时行为与替换前完全一致。
         val baseHost = runCatching { URL(base).host }.getOrNull()
-        return links.findAll(html).mapNotNull { match ->
-            val href = match.groupValues[1].trim()
+        val declaredBase = doc.selectFirst("base[href]")?.attr("href")?.trim()
+        val effectiveBase = declaredBase?.let { tag ->
+            runCatching { URL(URL(base), tag).toString() }.getOrNull()
+                ?.takeIf { baseHost == null || it.hostOf() == baseHost }
+        } ?: base
+        if (effectiveBase != base) {
+            RunLog.append("net", "HTTP 目录采纳 <base> · $declaredBase")
+        }
+
+        // 用 [href] 而不是 a[href]：旧正则匹配的是**任意** href 属性，
+        // 收窄成 <a> 会让某些目录页悄悄少几条。只排除 <base> 本身，
+        // 因为它是基准声明、不是可浏览对象（旧正则会误收，属修正）。
+        return doc.select("[href]").mapNotNull { link ->
+            if (link.tagName().equals("base", ignoreCase = true)) return@mapNotNull null
+            val href = link.attr("href").trim().substringBefore('#')
             // 排序参数、脚本、父目录链接都不是可浏览对象。
             if (href.isEmpty() || href.startsWith("?") || href.startsWith("#") ||
                 href.startsWith("javascript:", true) || href.startsWith("../") ||
                 href == "/" || href == "./" || href == "../"
             ) return@mapNotNull null
-            val absolute = runCatching { URL(URL(base), href).toString() }.getOrNull()
-                ?: return@mapNotNull null
+            val absolute = runCatching { URL(URL(effectiveBase), href).toString() }
+                .getOrNull() ?: return@mapNotNull null
             val resolved = runCatching { URL(absolute) }.getOrNull() ?: return@mapNotNull null
             if (baseHost != null && !resolved.host.equals(baseHost, true)) return@mapNotNull null
             val clean = absolute.substringBefore('?').substringBefore('#')
@@ -272,6 +308,14 @@ class HttpDirectoryScanner(private val credentials: SmbCredentials) {
             }
         }.distinctBy { it.path }.toList()
     }
+
+    /** 从 `Content-Type: text/html; charset=GBK` 里取 charset；没有就交给 jsoup 自探。 */
+    private fun charsetOf(contentType: String?): String? = contentType?.let { value ->
+        Regex("""charset\s*=\s*["']?([\w-]+)""", RegexOption.IGNORE_CASE)
+            .find(value)?.groupValues?.get(1)
+    }
+
+    private fun String.hostOf(): String? = runCatching { URL(this).host }.getOrNull()
 }
 
 /**

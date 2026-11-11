@@ -34,6 +34,17 @@ interface VrHeadsetProvider {
 
     fun eyeParams(eye: Eye, aspect: Float, ipdMeters: Float): EyeParams
 
+    /**
+     * C5 / V2.32：可选的桶形畸变后处理（见 [DistortionComposer]）。
+     *
+     * 默认 null = 左右半屏直出，画面几何零变化。返回非 null 时，VrRenderer
+     * 会把两眼先画进离屏纹理，再交给它合成；SDK 的真实每眼 FOV / IPD 投影
+     * 与畸变网格必须**同时**启用，只开一个会把视场和网格对不上。
+     *
+     * 默认实现让手写 Provider / 传感器回退路径无需改动。
+     */
+    fun distortionComposer(): DistortionComposer? = null
+
     /** 「重置正前方」（PRD 4.6）。 */
     fun recenter()
 

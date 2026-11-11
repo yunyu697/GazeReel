@@ -45,6 +45,16 @@ class GazeDetector(
     @Volatile var progress: Float = 0f
         private set
 
+    /**
+     * V2.33 / B14：准星**原始**落点上的目标 id。
+     *
+     * 与 [currentId] 不同：这里不受上膛、静默期、`mustLeave` / `mustClear` 影响。
+     * 调节条要用它判断「用户是不是正瞄着条」，才能照 AOSP 的 hover 契约续时；
+     * 拿 `currentId` 会在 `mustClear` / 冷却窗口里读成 null，条反而提前消失。
+     */
+    @Volatile var hoveredId: String? = null
+        private set
+
     private var startedAt = 0L
     private var lastX = Float.NaN
     private var lastY = Float.NaN
@@ -85,6 +95,7 @@ class GazeDetector(
      */
     fun reset() {
         currentId = null
+        hoveredId = null
         progress = 0f
         startedAt = 0L
         lastX = Float.NaN
@@ -105,6 +116,7 @@ class GazeDetector(
         lastY = point.y
 
         val target = uiLayer.currentTargets().firstOrNull { it.rect.contains(point.x, point.y) }
+        hoveredId = target?.id
 
         // V2.9：没上膛就只记录落点，绝不累计停留。
         if (!state.gazeArmed) {
@@ -131,7 +143,10 @@ class GazeDetector(
         // 而「挪到这里」正好在中央——不算换屏的话，浮层刚出来就会被停留确认掉，
         // 变成「没问就自己转了」，正好违背「先问再动」。
         val postureUp = state.postureCandidate != null
-        val screenKey = "${state.screen}/${state.overlay}/$postureUp"
+        // V2.33：「新浮层出现算一次换屏」——调节条带自己的凝视目标，
+        // 瞳距「边看边调」又换掉整层输入语义，两者都必须重新走 1 秒静默。
+        val adjustUp = state.feedback != null
+        val screenKey = "${state.screen}/${state.overlay}/$postureUp/${state.ipdTuning}/$adjustUp"
         if (screenKey != lastScreen) {
             lastScreen = screenKey
             armedAt = now + ARM_DELAY_MS

@@ -56,12 +56,22 @@ class TriggerDispatcher(
             }
             TriggerKind.DOUBLE_CLICK -> {
                 lastClickAt = 0L
-                dispatcher.dispatch(VrAction.OpenSettings, InputChannel.TRIGGER)
+                // V2.33 / B13：调瞳距时双击是「快速结束」，不是打开设置浮层——
+                // 那层 0xEE 面板会把正在看的画面整个盖住。
+                dispatcher.dispatch(
+                    if (stateProvider().ipdTuning) VrAction.StopIpdTuning
+                    else VrAction.OpenSettings,
+                    InputChannel.TRIGGER
+                )
             }
             TriggerKind.CLICK -> {
+                val tuning = stateProvider().ipdTuning
                 if (event.atMs - lastClickAt < DOUBLE_TAP_MS) {
                     lastClickAt = 0L
-                    dispatcher.dispatch(VrAction.OpenSettings, InputChannel.TRIGGER)
+                    dispatcher.dispatch(
+                        if (tuning) VrAction.StopIpdTuning else VrAction.OpenSettings,
+                        InputChannel.TRIGGER
+                    )
                     return
                 }
                 lastClickAt = event.atMs
@@ -78,7 +88,8 @@ class TriggerDispatcher(
                 // V2.14：控制台收起时，单击只负责「把它叫出来」。
                 // 原来这条路径落到 TogglePlay，于是控制台一收起就再也叫不回来——
                 // 之前它永远不隐藏，正好把这个洞盖住了。
-                if (consoleWasHidden) {
+                // 调瞳距时控制台是故意收起的，单击不该把它叫回来挡住画面。
+                if (consoleWasHidden && !tuning) {
                     dispatcher.dispatch(VrAction.ShowConsole, InputChannel.TRIGGER)
                     return
                 }
@@ -86,6 +97,8 @@ class TriggerDispatcher(
                 val target = uiLayer.targetAt(headset.headRotation(), state)
                 when {
                     target != null -> dispatcher.dispatch(target.action, InputChannel.TRIGGER)
+                    // V2.33 / B13：空白处单击 = 切粗/微，绝不落到「播放页单击 = 暂停」。
+                    tuning -> dispatcher.dispatch(VrAction.ToggleIpdMode, InputChannel.TRIGGER)
                     state.screen == VrScreen.PLAYER && state.overlay == VrOverlay.NONE ->
                         dispatcher.dispatch(VrAction.TogglePlay, InputChannel.TRIGGER)
                     else -> dispatcher.dispatch(VrAction.ShowConsole, InputChannel.TRIGGER)

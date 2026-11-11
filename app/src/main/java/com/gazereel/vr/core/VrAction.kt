@@ -130,6 +130,23 @@ sealed class VrAction {
     // 现在正前方只在进 VR 时定一次，需要微调请用 AlignForward（带确认卡）。
     object LockView : VrAction()
     object ClearFormatMemory : VrAction()
+
+    /**
+     * V2.33 / B13：设置浮层「瞳距 · 边看边调」。
+     *
+     * 进这个态时视频不暂停、不重开、不铺压暗层——瞳距要看着左右画面能不能合上才调得准，
+     * 而原来的设置浮层用 0xEE 面板铺满画布，一进去画面就被盖住了。
+     */
+    object StartIpdTuning : VrAction()
+
+    /** 退出「边看边调」：立刻把音量键还给音量，调节条淡出。 */
+    object StopIpdTuning : VrAction()
+
+    /** 粗调 2.0mm ↔ 微调 0.5mm；两者叠加到同一个 0.5mm 单位的值上。 */
+    object ToggleIpdMode : VrAction()
+
+    /** B14：音量 / 亮度调节条上的「完成」——主动收起，不等它自己淡出。 */
+    object DismissAdjust : VrAction()
 }
 
 /** 世界锁定 UI 上的可凝视区域；坐标用 UI 画布像素，左右眼共用同一份布局。 */

@@ -80,6 +80,9 @@ android {
     }
 
     compileOptions {
+        // E6：jsoup 官方 README 要求开 core library desugaring（NIO 规格），
+        // 否则在低版本 Android 上解析 HTTP 目录页会因 java.nio 缺失而崩。
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -141,6 +144,21 @@ dependencies {
 
     // SMB2/SMB3 随机读（PRD 6.3）。0.13.0 提供 File.read(buffer, fileOffset, ...) 与 File.getLength()。
     implementation(libs.smbj)
+
+    // E6 / 检查表：HTTP 目录页解析。jsoup 自身零传递依赖；
+    // coreLibraryDesugaring 用 NIO 规格（jsoup 官方对 Android 的明确要求）。
+    implementation(libs.jsoup)
+    coreLibraryDesugaring(libs.desugar.jdk.libs.nio)
+
+    // E7 / 检查表：只用于「共享枚举 + 取名」的双跑对照日志，播放与目录遍历不碰它。
+    // 不排除 bcprov：jcifs 的 NtlmPasswordAuthenticator 算 NTLM 哈希时直接引用
+    // org/bouncycastle（已用 javap 核实），排除会在认证时 NoClassDefFoundError。
+    // Android 系统内置的是 com.android.org.bouncycastle，包名不同，不会冲突。
+    // 代价是 APK 变大；这条链整体包在 Throwable 隔离里，失败只写一行日志。
+    implementation(libs.jcifs.ng) {
+        // provided 作用域不会传递，这里显式挡掉 servlet 相关类，避免误打包。
+        exclude(group = "javax.servlet", module = "javax.servlet-api")
+    }
 
     // 片库索引、观看进度、格式覆盖表（PRD 7）
     implementation(libs.room.runtime)

@@ -129,7 +129,8 @@ class VrActivity : AppCompatActivity() {
             // V2.28：只保留手动「挪到这里」确认卡的倒计时；自动检测已停用。
             coordinator.updatePosture(headset.headRotation(), now)
             gaze.update(now)
-            coordinator.tick()
+            // B14：把准星原始落点交给状态机，调节条据此判断 hover 续时。
+            coordinator.tick(gaze.hoveredId)
             logUiIfChanged()
             handler.postDelayed(this, 33L)
         }
@@ -397,10 +398,14 @@ class VrActivity : AppCompatActivity() {
         // 无需第二台设备：系统按键与有线耳机线控作为可选备用通道。
         return when (keyCode) {
             KeyEvent.KEYCODE_VOLUME_UP -> {
-                coordinator.handle(VrAction.Adjust("volume", 1), InputChannel.SYSTEM); true
+                // V2.33 / B13：调瞳距期间把实体侧键临时借给瞳距（零瞄准、可边看边按）。
+                // 退出那态会立刻归还——由 VrCoordinator.isIpdTuning 单点决定，没有第二份标志。
+                val key = if (coordinator.isIpdTuning) "ipd" else "volume"
+                coordinator.handle(VrAction.Adjust(key, 1), InputChannel.SYSTEM); true
             }
             KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                coordinator.handle(VrAction.Adjust("volume", -1), InputChannel.SYSTEM); true
+                val key = if (coordinator.isIpdTuning) "ipd" else "volume"
+                coordinator.handle(VrAction.Adjust(key, -1), InputChannel.SYSTEM); true
             }
             KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> {
                 injectTrigger(TriggerKind.CLICK); true
@@ -430,6 +435,12 @@ class VrActivity : AppCompatActivity() {
     override fun onDestroy() {
         handler.removeCallbacks(tick)
         handler.removeCallbacks(longPress)
+        // C5 / V2.32：SDK 畸变渲染器与离屏 FBO 必须在 GL 线程释放。
+        // 排在 onPause() 之前投递，保证 GL 线程还活着、事件能排到队列前面；
+        // 默认关时 renderer.releaseGl() 是空操作，直出路径行为完全不变。
+        if (::glView.isInitialized && ::renderer.isInitialized) {
+            runCatching { glView.queueEvent { runCatching { renderer.releaseGl() } } }
+        }
         if (::glView.isInitialized) glView.onPause()
         // 初始化失败时这些可能没建起来，逐个判断，避免二次崩溃。
         if (::player.isInitialized) runCatching { player.release() }

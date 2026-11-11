@@ -54,13 +54,22 @@ class VrCoordinator(
 
     private companion object {
         /**
-         * 档位反馈的存活时间。
-         *
-         * 设计第 415 行写的是 1.2 秒，但真机反馈「还没来得及操作调节条就消失了」——
-         * 1.2 秒够看清一个数，不够「看清 + 再按一下」。档位是连按的，
-         * 每次按键都会把这个时间戳往后推，所以延长不会让它变成常驻浮层。
+         * V2.33 / B14：静止后的淡出时长。对齐 AOSP `VolumeDialogImpl` 的默认 3000ms 量级。
+         * 关键不是这个数字，而是**它不再是从激活那一刻起算的固定倒计时**。
          */
         const val FEEDBACK_MS = 2_600L
+
+        /**
+         * 一次调节之后的存活时间：够「看清数值 + 转头找到按钮 + 凝视 1.2 秒确认」。
+         * 原实现只有 2.6 秒且那张卡没有凝视目标，真机反馈「来不及操作就消失了」。
+         */
+        const val ADJUST_ACTIVE_MS = 8_000L
+
+        /**
+         * 准星停在调节条上时的长保持。对齐 AOSP `VolumeDialogImpl` 的
+         * `DIALOG_HOVERING_TIMEOUT_MILLIS = 16000`：用户正在瞄按钮，条就不许消失。
+         */
+        const val ADJUST_HOVER_MS = 16_000L
 
         /**
          * 手动「正前方」低于这个偏移就直说「不用挪」。
@@ -69,6 +78,12 @@ class VrCoordinator(
          */
         const val ALIGN_MIN_RAD = 0.035f
     }
+
+    /** V2.33 / B13：VrActivity 用它决定音量键是调音量还是临时借给瞳距。 */
+    val isIpdTuning: Boolean get() = uiState.ipdTuning
+
+    /** AOSP `computeTimeoutH()` 里 mHovering 的角色：准星是否停在调节条上。 */
+    private var adjustHovered = false
 
     var sources: Map<Long, SourceEntity> = emptyMap()
 
@@ -348,6 +363,11 @@ class VrCoordinator(
 
     fun handle(action: VrAction, channel: InputChannel) {
         touch()
+        // V2.33 / B13：「边看边调」只在「播放页 + 无浮层」成立。
+        // 任何换屏 / 退出动作都先把音量键还回去，否则用户进了设置浮层，
+        // 侧键还在偷偷改瞳距——这是最典型的「借用不归还」。
+        // Back 例外：它由 back() 自己处理，先退调瞳距再谈退回片库。
+        if (uiState.ipdTuning && !keepsIpdTuning(action)) stopIpdTuning()
         // V2.7.8：换片这类不可撤销的动作必须能追溯「是谁按的」。
         // 上一轮「播几秒自己跳下一个」排查了半天，就是因为日志里只有结果、没有来源。
         when (action) {
@@ -415,11 +435,24 @@ class VrCoordinator(
             VrAction.LockView -> toggleViewLock()
             is VrAction.Adjust -> adjust(action.key, action.delta)
             is VrAction.ToggleOption -> toggleOption(action.key)
+            VrAction.StartIpdTuning -> startIpdTuning()
+            VrAction.StopIpdTuning -> stopIpdTuning()
+            VrAction.ToggleIpdMode -> toggleIpdMode()
+            VrAction.DismissAdjust -> {
+                adjustHovered = false
+                uiState = uiState.copy(feedback = null)
+            }
             VrAction.ClearFormatMemory -> {
                 scope.launch(Dispatchers.IO) { library.clearFormatMemory() }
                 showMessage("格式记忆已清除")
             }
         }
+    }
+
+    /** 只有「还在调」这一组动作能留在瞳距态里；其余一律先退出。 */
+    private fun keepsIpdTuning(action: VrAction): Boolean = when (action) {
+        is VrAction.Adjust, VrAction.ToggleIpdMode, VrAction.Back -> true
+        else -> false
     }
 
     private fun openSelected() {
@@ -686,6 +719,9 @@ class VrCoordinator(
     private fun back() {
         val state = uiState
         when {
+            // V2.33 / B13：瞳距「边看边调」是最上层的一层，长按先退它，
+            // 否则用户只想结束调瞳距，结果直接退出了正在看的片子。
+            state.ipdTuning -> stopIpdTuning()
             // V2.19：姿态确认浮层在最上层，返回键先撤它。
             state.postureCandidate != null -> dismissPosture()
             state.overlay != VrOverlay.NONE -> uiState = state.copy(overlay = VrOverlay.NONE)
@@ -715,19 +751,22 @@ class VrCoordinator(
     }
 
     /**
-     * V2.11：档位制调节 + 视野中央反馈。
+     * V2.11 建立、V2.33 / B14 重做：档位制调节 + **可操作的、交互感知的**调节条。
      *
-     * 设计第 392 / 415 行的口径：音量 5 档（实体侧键一次一档）、亮度 3 档、
-     * 变化时在视野中央浮出大字与段条、1.2 秒淡出。
-     *
-     * 原来是 `±10%` 的连续值：音量要按十一次才从最小到最大，而且**视野里没有任何反馈**——
-     * 戴镜后按音量键，用户看不到任何变化，只能怀疑按键坏了。
+     * 真机两条反馈都在这一层被推翻：
+     * 1. 「音量和亮度条激活之后，用户来不及操作就消失了」——原来 2.6 秒是从激活
+     *    那一刻起算的固定倒计时，而且那张卡一个凝视目标都没注册，等于不可操作。
+     *    现在照 AOSP `VolumeDialogImpl.rescheduleTimeoutH()`：每次调节重排为
+     *    [ADJUST_ACTIVE_MS]，准星停在条上时按 [ADJUST_HOVER_MS] 长保持，
+     *    离开才回落到 [FEEDBACK_MS]。
+     * 2. 「音量为 0 的时候也会显示一格」——原来把 1 基档号 `level + 1` 直接当成
+     *    「点亮段数」，第 0 档（静音）也亮一段。现在**不再画段条**：一条轨道只按
+     *    `fraction`（真实值 / 100）填充，静音 = 0 宽度，档位只由刻度线表达。
      */
     private fun adjust(key: String, delta: Int) {
         // 音量键走的是 InputChannel.SYSTEM，不经过 TriggerDispatcher，
         // 这里要自己把淡出计时推后，否则连按音量时控制台会中途消失。
-        // 注意用 keepConsoleAlive 而不是 touch：按音量键不该把控制台叫出来，
-        // 设计第 392 行要的是「档位在视野中央浮出来，不用低头进控制台」。
+        // 注意用 keepConsoleAlive 而不是 touch：按音量键不该把控制台叫出来。
         keepConsoleAlive()
         when (key) {
             "volume" -> {
@@ -739,15 +778,15 @@ class VrCoordinator(
                     .coerceIn(0, steps.lastIndex)
                 systemVolume.setPercent(steps[level])
                 val next = settings.update { it.copy(volume = steps[level]) }
-                uiState = uiState.copy(
-                    settings = next,
-                    feedback = AdjustFeedback(
-                        label = "音量",
-                        detail = "${level + 1} / ${steps.size}",
-                        level = level + 1,
-                        steps = steps.size,
-                        untilMs = SystemClock.elapsedRealtime() + FEEDBACK_MS
-                    )
+                showAdjust(
+                    next = next,
+                    key = "volume",
+                    label = "音量",
+                    detail = if (steps[level] == 0) "静音" else "${level + 1} / ${steps.size}",
+                    // 5 档去掉「静音」正好 4 段，3 条刻度落在 25 / 50 / 75。
+                    steps = steps.size - 1,
+                    fraction = steps[level] / 100f,
+                    hint = "音量键 ± · 或凝视下方按钮 · 准星停在条上不会消失"
                 )
             }
             "brightness" -> {
@@ -755,23 +794,42 @@ class VrCoordinator(
                 val level = (VrSettings.brightnessStep(settings.current.brightness) + delta)
                     .coerceIn(0, steps.lastIndex)
                 val next = settings.update { it.copy(brightness = steps[level]) }
-                uiState = uiState.copy(
-                    settings = next,
-                    feedback = AdjustFeedback(
-                        label = "亮度",
-                        detail = VrSettings.BRIGHTNESS_LABELS[level],
-                        level = level + 1,
-                        steps = steps.size,
-                        untilMs = SystemClock.elapsedRealtime() + FEEDBACK_MS
-                    )
+                showAdjust(
+                    next = next,
+                    key = "brightness",
+                    label = "亮度",
+                    detail = VrSettings.BRIGHTNESS_LABELS[level],
+                    // 35 / 70 / 100 不是均分，画均分刻度等于说谎，所以不画。
+                    steps = 0,
+                    fraction = steps[level] / 100f,
+                    hint = "凝视下方按钮 · 准星停在条上不会消失"
                 )
             }
-            // IPD 与凝视时长不是「戴镜时频繁调节」的东西，保持连续微调。
             "ipd" -> {
+                val coarse = uiState.feedback?.takeIf { it.key == "ipd" }?.coarse ?: true
+                val step = if (coarse) VrSettings.IPD_COARSE_HALF else VrSettings.IPD_FINE_HALF
                 val next = settings.update {
-                    it.copy(ipdMm = (it.ipdMm + delta * 2).coerceIn(50, 75))
+                    it.copy(
+                        ipdHalfMm = (it.ipdHalfMm + delta * step)
+                            .coerceIn(VrSettings.IPD_MIN_HALF, VrSettings.IPD_MAX_HALF)
+                    )
                 }
-                uiState = uiState.copy(settings = next)
+                val tuning = uiState.ipdTuning
+                showAdjust(
+                    next = next,
+                    key = "ipd",
+                    label = if (tuning) "瞳距 · 边看边调" else "瞳距",
+                    detail = VrSettings.ipdLabel(next.ipdHalfMm),
+                    steps = 0,
+                    fraction = ipdFraction(next.ipdHalfMm),
+                    // 设置浮层里不是「边看边调」态：音量键仍归音量、单击仍是切粗微之外的语义。
+                    // 提示必须和这一刻真正能用的输入一致，否则又是一句假话。
+                    hint = if (tuning) ipdHint(coarse)
+                    else "一次 2.0mm · 想边看边调请点下方「瞳距 · 边看边调」",
+                    coarse = coarse
+                )
+                RunLog.append("ui", "瞳距 → ${VrSettings.ipdLabel(next.ipdHalfMm)}" +
+                    "（${if (coarse) "粗调" else "微调"}）")
             }
             "gaze" -> {
                 val next = settings.update {
@@ -780,6 +838,106 @@ class VrCoordinator(
                 uiState = uiState.copy(settings = next)
             }
         }
+    }
+
+    private fun ipdFraction(half: Int): Float =
+        (half - VrSettings.IPD_MIN_HALF).toFloat() /
+            (VrSettings.IPD_MAX_HALF - VrSettings.IPD_MIN_HALF).toFloat()
+
+    private fun ipdHint(coarse: Boolean): String =
+        (if (coarse) "粗调 2.0mm" else "微调 0.5mm") +
+            " · 音量键 ± · 单击切粗微 · 长按完成"
+
+    /** 一次真实调节 = AOSP 的一次 `rescheduleTimeoutH()`：取消旧计时、重排。 */
+    private fun showAdjust(
+        next: VrSettings,
+        key: String,
+        label: String,
+        detail: String,
+        steps: Int,
+        fraction: Float,
+        hint: String,
+        coarse: Boolean = true
+    ) {
+        val tuning = uiState.ipdTuning
+        adjustHovered = false
+        uiState = uiState.copy(
+            settings = next,
+            feedback = AdjustFeedback(
+                key = key,
+                label = label,
+                detail = detail,
+                steps = steps,
+                fraction = fraction.coerceIn(0f, 1f),
+                // 调瞳距期间常驻：用户要反复抬头看画面能不能合上，条不能中途消失。
+                untilMs = if (tuning) Long.MAX_VALUE
+                else SystemClock.elapsedRealtime() + ADJUST_ACTIVE_MS,
+                hint = hint,
+                coarse = coarse
+            )
+        )
+    }
+
+    /**
+     * V2.33 / B13：从设置浮层进入「边看边调」。
+     *
+     * 三条硬约束都由这里保证：**视频不暂停、不重开、不铺压暗层**。
+     * 设置浮层用 0xEE 面板铺满 1024×512，一进去画面就被盖住，而瞳距必须
+     * 看着左右两眼能不能合上才调得准——所以进态时直接把浮层关掉、把控制台收起，
+     * 只留上方一条细调节条（视频正中仍然空着）。
+     */
+    private fun startIpdTuning() {
+        if (uiState.screen != VrScreen.PLAYER) {
+            showMessage("先播放一部片子 · 瞳距要看着画面才调得准")
+            return
+        }
+        val s = settings.current
+        adjustHovered = false
+        uiState = uiState.copy(
+            overlay = VrOverlay.NONE,
+            ipdTuning = true,
+            consoleVisible = false,
+            lastActivityMs = SystemClock.elapsedRealtime(),
+            message = null,
+            messageUntilMs = 0L,
+            feedback = AdjustFeedback(
+                key = "ipd",
+                label = "瞳距 · 边看边调",
+                detail = VrSettings.ipdLabel(s.ipdHalfMm),
+                steps = 0,
+                fraction = ipdFraction(s.ipdHalfMm),
+                untilMs = Long.MAX_VALUE,
+                hint = ipdHint(true),
+                coarse = true
+            )
+        )
+        RunLog.append("ui", "进入瞳距边看边调 · 起始 ${VrSettings.ipdLabel(s.ipdHalfMm)}")
+    }
+
+    /** 退出调瞳距：音量键立刻归还，值已经每帧被渲染层读到、无需二次应用。 */
+    private fun stopIpdTuning() {
+        if (!uiState.ipdTuning) return
+        val label = VrSettings.ipdLabel(settings.current.ipdHalfMm)
+        adjustHovered = false
+        uiState = uiState.copy(
+            ipdTuning = false,
+            feedback = null,
+            consoleVisible = true,
+            lastActivityMs = SystemClock.elapsedRealtime()
+        )
+        showMessage("瞳距 $label 已记住 · 音量键已归还")
+        RunLog.append("ui", "退出瞳距边看边调 · $label")
+    }
+
+    /** 粗调 / 微调共用同一个 0.5mm 整数值：不是两套值，是两种步长。 */
+    private fun toggleIpdMode() {
+        if (!uiState.ipdTuning) return
+        val fb = uiState.feedback ?: return
+        val coarse = !fb.coarse
+        uiState = uiState.copy(
+            feedback = fb.copy(coarse = coarse, hint = ipdHint(coarse), untilMs = Long.MAX_VALUE)
+        )
+        RunLog.append("ui", "瞳距切到${if (coarse) "粗调 2.0mm" else "微调 0.5mm"}")
     }
 
     private fun toggleViewLock() {
@@ -832,34 +990,63 @@ class VrCoordinator(
      *    结果控制台永远等不到 8 秒静默，永远挡在画面上。
      */
     fun touch() {
+        val tuning = uiState.ipdTuning
         uiState = uiState.copy(
-            consoleVisible = true,
+            // B13：调瞳距时控制台不许被任何动作点亮，否则整块面板又把视频盖住。
+            consoleVisible = if (tuning) false else true,
             lastActivityMs = SystemClock.elapsedRealtime()
         )
     }
 
-    /** 控制台已经显示时，把淡出计时推后；没显示就不动它。 */
+    /** 控制台已经显示时，把淡出计时推后；没显示 / 调瞳距时就不动它。 */
     private fun keepConsoleAlive() {
         val state = uiState
-        if (state.consoleVisible) {
+        if (state.consoleVisible && !state.ipdTuning) {
             uiState = state.copy(lastActivityMs = SystemClock.elapsedRealtime())
         }
     }
 
-    fun tick() {
+    /**
+     * B14：调节条的淡出是**交互感知**的，不是从激活那一刻起算的固定倒计时。
+     *
+     * 对齐 AOSP `VolumeDialogImpl`：hover 期间 16000ms、离开回落到 3000ms 量级；
+     * 每次真实调节在 [showAdjust] 里重排一次。这里额外保证 hover 期间不会
+     * 因为「一次长停留超过了 16 秒」而到期——每秒续一次，最多每帧一次 state copy。
+     *
+     * @param hoverId 当前准星压着的原始目标 id；只有 `adj*` 算「停在条上」。
+     */
+    fun tick(hoverId: String? = null) {
         val now = SystemClock.elapsedRealtime()
         val state = uiState
         if (state.message != null && state.messageUntilMs > 0L && now >= state.messageUntilMs) {
             uiState = state.copy(message = null, messageUntilMs = 0L)
         }
-        // V2.11：档位反馈自己到期，不常驻。绘制层只在它存在时多画一层。
-        val withFeedback = uiState
-        val feedback = withFeedback.feedback
-        if (feedback != null && now >= feedback.untilMs) {
-            uiState = withFeedback.copy(feedback = null)
+
+        val feedback = uiState.feedback
+        if (feedback != null && !uiState.ipdTuning) {
+            val hovering = hoverId?.startsWith("adj") == true
+            val until = when {
+                hovering && !adjustHovered -> now + ADJUST_HOVER_MS  // 刚进入 hover
+                !hovering && adjustHovered -> now + FEEDBACK_MS      // 刚离开 hover
+                hovering && feedback.untilMs - now < ADJUST_HOVER_MS - 1_000L ->
+                    now + ADJUST_HOVER_MS                           // 持续 hover，每秒续一次
+                else -> feedback.untilMs
+            }
+            adjustHovered = hovering
+            if (until != feedback.untilMs) {
+                uiState = uiState.copy(feedback = uiState.feedback?.copy(untilMs = until))
+            }
+            if (now >= (uiState.feedback?.untilMs ?: 0L)) {
+                uiState = uiState.copy(feedback = null)
+                adjustHovered = false
+            }
+        } else if (feedback == null) {
+            adjustHovered = false
         }
+
         val current = uiState
-        if (current.screen == VrScreen.PLAYER && current.overlay == VrOverlay.NONE &&
+        if (!current.ipdTuning &&
+            current.screen == VrScreen.PLAYER && current.overlay == VrOverlay.NONE &&
             current.consoleVisible && current.settings.autoFade &&
             now - current.lastActivityMs > current.settings.consoleTimeoutMs
         ) {

@@ -4,6 +4,8 @@ import com.gazereel.vr.core.VrFormat
 import com.gazereel.vr.data.db.MediaItemEntity
 import com.gazereel.vr.data.db.PlayProgressEntity
 import com.gazereel.vr.player.SubtitleCue
+import java.util.Locale
+import kotlin.math.roundToInt
 
 /** PRD 4.5：主状态为片库 / 播放，格式确认与设置为覆盖浮层。 */
 enum class VrScreen { LIBRARY, PLAYER }
@@ -18,7 +20,15 @@ data class VrSettings(
     val gesturesEnabled: Boolean = true,
     val brightness: Int = 70,
     val volume: Int = 75,
-    val ipdMm: Int = 62,
+    /**
+     * V2.33 / B13：瞳距的**唯一真相源**，单位是 0.5mm。
+     *
+     * 原来存的是整数 mm，只能 2mm 一跳，粗调与微调没有共同落点；
+     * 改成半毫米整数后，粗调 4 个单位（2.0mm）与微调 1 个单位（0.5mm）
+     * 直接叠加到同一个值上，既能一步跨到大致范围，也能修到 0.5mm。
+     * 持久化从 `ipd_mm` 迁移到 `ipd_half_mm`，见 SettingsRepository。
+     */
+    val ipdHalfMm: Int = IPD_DEFAULT_HALF,
     val consoleTimeoutMs: Long = 8_000L,
     val lockView: Boolean = false,
     val subtitlesEnabled: Boolean = true,
@@ -29,6 +39,9 @@ data class VrSettings(
      */
     val cursorEnabled: Boolean = true
 ) {
+    /** 米制毫米，供渲染层每帧读取；不另存，避免两套数值打架。 */
+    val ipdMm: Float get() = ipdHalfMm / 2f
+
     companion object {
         /**
          * V2.11：音量 5 档、亮度 3 档。
@@ -42,6 +55,13 @@ data class VrSettings(
         val VOLUME_STEPS = intArrayOf(0, 25, 50, 75, 100)
         val BRIGHTNESS_STEPS = intArrayOf(35, 70, 100)
         val BRIGHTNESS_LABELS = arrayOf("暗", "标准", "亮")
+
+        // B13：50.0–75.0mm，覆盖成人与儿童纸盒的常见范围。
+        const val IPD_MIN_HALF = 100
+        const val IPD_MAX_HALF = 150
+        const val IPD_DEFAULT_HALF = 124      // 62.0mm
+        const val IPD_COARSE_HALF = 4         // 2.0mm / 步，全程 13 步
+        const val IPD_FINE_HALF = 1           // 0.5mm / 步
 
         /** 找到当前值最接近的档位序号；越界的旧值也能落到最近的档上。 */
         fun stepOf(steps: IntArray, value: Int): Int {
@@ -59,26 +79,50 @@ data class VrSettings(
 
         fun volumeStep(volume: Int): Int = stepOf(VOLUME_STEPS, volume)
         fun brightnessStep(brightness: Int): Int = stepOf(BRIGHTNESS_STEPS, brightness)
+
+        fun ipdHalfOf(mm: Float): Int =
+            (mm * 2f).roundToInt().coerceIn(IPD_MIN_HALF, IPD_MAX_HALF)
+
+        fun ipdLabel(half: Int): String =
+            String.format(Locale.US, "%.1f mm", half / 2f)
     }
 }
 
 /**
- * V2.11：档位变化反馈。
+ * V2.11 建立、V2.33 / B14 重构：**可操作的调节条**，不再是纯反馈浮层。
  *
- * 设计第 415 行：「值的变化自己浮出来——视野中央大字档位 + 5 段条，1.2 秒淡出；
- * 不必低头进控制台确认，也不占用常驻画面。」
+ * 真机反馈两条，都指向「它看着像能点、其实不能点、还来不及看就消失」：
+ * 1. 原来 2.6 秒固定淡出，且 `drawAdjustFeedback` 没注册任何 `GazeTarget`；
+ * 2. `level = 档号 + 1` 把 **1 基档号**当成「点亮段数」，音量 0 仍亮一格。
  *
- * 之前 `adjust()` 只改写设置值，戴镜后按音量键**视野里什么都不发生**，
- * 用户只会以为按键坏了或者软件卡住了。
+ * 成熟方案（附录 §6）：AOSP `VolumeDialogImpl.rescheduleTimeoutH()` 用「交互感知」的
+ * 倒计时——每次交互取消旧计时重排，hover 期间 16000ms，离开回落到 3000ms；
+ * Android `SeekBar` / Material `Slider` 用真实值比例填充轨道，`value=0 → 长度为 0`。
+ *
+ * 修法不是「把段数改对」，而是**不再画段条**：离屏对照图里连续轨道 + 一排小点
+ * 既重复又挤，静音时四个全灭还像坏了。现在只有一条按 [fraction] 填充的轨道，
+ * 档位用刻度线表达，连续值（瞳距）用滑块表达。VR 是 Canvas 手绘，没有 View 可复用，
+ * 所以照契约实现：本对象带 `key` 让绘制层把 `−` / `+` / 模式注册成凝视目标，
+ * coordinator 按准星原始落点判断 hover 续时。
  */
 data class AdjustFeedback(
+    /** "volume" | "brightness" | "ipd" —— 调节条上按钮回带的 key。 */
+    val key: String,
     val label: String,
     val detail: String,
-    /** 当前档位，1 基；段条点亮到第几段。 */
-    val level: Int,
+    /**
+     * 把轨道均分几段并画 `steps - 1` 条刻度线；`0` = 连续值，不画刻度。
+     * 音量 5 档去掉「静音」正好 4 段，刻度落在 25/50/75；亮度 35/70/100 不均分，
+     * 所以不画假刻度；瞳距是连续值，也不画。
+     */
     val steps: Int,
+    /** 真实值比例 0–1，轨道填充的唯一依据；0 → 完全不填充。 */
+    val fraction: Float,
     /** 过期时刻（SystemClock.elapsedRealtime）。 */
-    val untilMs: Long
+    val untilMs: Long,
+    /** 瞳距专用：粗/微模式与按键说明。 */
+    val hint: String? = null,
+    val coarse: Boolean = true
 )
 
 data class VrUiState(
@@ -146,8 +190,13 @@ data class VrUiState(
     val message: String? = null,
     /** V2.4：0 表示常驻；否则为提示自动淡出的时刻（SystemClock.elapsedRealtime）。 */
     val messageUntilMs: Long = 0L,
-    /** V2.11：音量 / 亮度档位变化的浮层反馈，1.2 秒后自行消失。 */
+    /** V2.11 / V2.33：可操作的调节条；存在时绘制层注册凝视目标。 */
     val feedback: AdjustFeedback? = null,
+    /**
+     * V2.33 / B13：瞳距「边看边调」态。为真时调节条不自动淡出、音量键临时借用、
+     * 触发键单击切粗/微；长按退出后音量键立刻归还。
+     */
+    val ipdTuning: Boolean = false,
     /**
      * V2.9：凝视是否已上膛。
      *

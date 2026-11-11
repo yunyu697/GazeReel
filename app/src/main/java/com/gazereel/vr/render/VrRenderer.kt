@@ -8,6 +8,7 @@ import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import android.os.SystemClock
 import android.view.Surface
+import com.gazereel.vr.core.DistortionComposer
 import com.gazereel.vr.core.Eye
 import com.gazereel.vr.core.Projection
 import com.gazereel.vr.core.StereoFrameJudge
@@ -26,8 +27,10 @@ import javax.microedition.khronos.opengles.GL10
  * - 每眼用不同的 uEyeRegion 采样同一纹理，实现 Mono / SBS / TAB；
  * - UI 作为独立 GL 层画在 2 米虚拟距离，世界锁定（model 固定，不跟随头部）；
  * - 亮度通过 uBrightness 只作用于视频层；IPD 由 VrHeadsetProvider 消费。
- * - 桶形畸变列为独立专项：正确实现需改为离屏 FBO 后处理并按纸盒参数真机校准，
- *   EyeParams.distortion 目前仅是预留字段，不参与已验证的直出渲染链路。
+ * - C5 / V2.32：桶形畸变已有可接线链路，但默认关。开关打开时两眼先渲进
+ *   [DistortionComposer] 提供的全屏离屏纹理，再由 SDK 畸变网格合成到屏幕；
+ *   关着时仍是原来那套左右半屏 glViewport 直出，画面几何零变化。
+ *   EyeParams.distortion 仍是预留字段，不参与任何一条链路。
  */
 class VrRenderer(
     private val headset: VrHeadsetProvider,
@@ -94,8 +97,17 @@ class VrRenderer(
     private var framesSinceOpen = 0
     private val samples = ArrayList<StereoFrameJudge.Verdict>(3)
 
+    // V2.32 / C5：默认关时这里是 null，drawFrame 里连一次额外判断都不会做。
+    // 惰性解析放在 GL 线程上：Provider 的 distortionComposer() 只是造一个不碰 GL
+    // 的薄对象，真正的 FBO 与 SDK 畸变渲染器在它自己的 beginFrame 里分配。
+    private var composerResolved = false
+    private var composer: DistortionComposer? = null
+
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         try {
+            // C5：GL 上下文重建时，上一轮的 FBO / 纹理 / SDK DistortionRenderer
+            // 全部作废。这里已经在 GL 线程上，正好按约定释放，下一帧按需重建。
+            composer?.release()
             GLES20.glDisable(GLES20.GL_CULL_FACE)       // 内翻球面需要双面可见
             GLES20.glEnable(GLES20.GL_BLEND)
             // Canvas 的 ARGB_8888 是预乘 alpha，混合因子用 ONE 避免边缘二次变暗。
@@ -124,6 +136,9 @@ class VrRenderer(
     override fun onDrawFrame(gl: GL10?) {
         if (glFailed) {
             // 已经失败过就只清屏，不再每帧重复抛异常。
+            // 若异常发生在 C5 的 beginFrame 与 endFrame 之间，离屏 FBO 还绑着，
+            // 不先解绑，清屏就清进纹理、屏幕停在上一帧。默认路径 composer 为 null，不变。
+            if (composer != null) GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
             return
         }
@@ -201,6 +216,16 @@ class VrRenderer(
             GlUtils.uploadBitmap(uiTextureId, uiLayer.render(state, gazeId, gazeProgress, cursor))
         }
 
+        // C5 / V2.32：开关关着（或链初始化失败）时 targets 为 null，
+        // 下面整段与改动前逐行一致。beginFrame 必须在 glClear 之前——
+        // 清的是离屏纹理，不是屏幕；顺序反了会拿上一帧的合成结果当底。
+        val activeComposer = distortion()
+        val targets = activeComposer?.beginFrame(width, height)
+        // 只有「链在、但这一帧初始化失败退回直出」才需要解绑：beginFrame 可能已经
+        // 绑过离屏 FBO。composer 为 null 时根本没人绑过，默认路径一帧里不许多一次 GL 调用。
+        if (activeComposer != null && targets == null) {
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        }
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         val panel = uiLayer.panelSpec(state)
         // 缓动期间朝向每帧都在变；量化到 1 毫弧度（约 0.06°），避免 24 帧各建一次 FloatBuffer。
@@ -216,8 +241,14 @@ class VrRenderer(
         }
 
         for (eye in listOf(Eye.LEFT, Eye.RIGHT)) {
-            val viewportX = if (eye == Eye.LEFT) 0 else width / 2
-            GLES20.glViewport(viewportX, 0, width / 2, height)
+            // 离屏链的左右半区与直出的左右半屏数值相同，只有落点不同。
+            val viewport = targets?.viewportOf(eye)
+            if (viewport != null) {
+                GLES20.glViewport(viewport[0], viewport[1], viewport[2], viewport[3])
+            } else {
+                val viewportX = if (eye == Eye.LEFT) 0 else width / 2
+                GLES20.glViewport(viewportX, 0, width / 2, height)
+            }
             val params = headset.eyeParams(eye, aspect, ipdMeters)
             Matrix.multiplyMM(mvp, 0, params.projectionMatrix, 0, params.viewMatrix, 0)
 
@@ -253,7 +284,25 @@ class VrRenderer(
                 )
             }
         }
+        // 两眼都画完了才合成；只画一只眼就合成会在另一侧读到旧像素。
+        if (targets != null) activeComposer?.endFrame()
         GlUtils.checkError("onDrawFrame")
+    }
+
+    /**
+     * 惰性装配畸变链。默认 Provider 返回 null，所以直出路径只有一次布尔判断。
+     * 装配失败只记一行日志并保持直出，绝不让缺 AAR / 缺 native 变成闪退。
+     */
+    private fun distortion(): DistortionComposer? {
+        if (!composerResolved) {
+            composerResolved = true
+            composer = runCatching { headset.distortionComposer() }
+                .onFailure {
+                    RunLog.append("gl", "[C5] 畸变链装配失败，保持直出：${it.message}")
+                }
+                .getOrNull()
+        }
+        return composer
     }
 
     /**
@@ -482,6 +531,21 @@ class VrRenderer(
         glFailed = true
         android.util.Log.e("CardboardVr.GL", "GL 渲染失败", t)
         onGlError?.invoke(t)
+    }
+
+    /**
+     * C5 / V2.32：**必须在 GL 线程调用**（VrActivity 用 `queueEvent` 投递）。
+     * SDK 的 DistortionRenderer.close() 与 FBO / 纹理删除都要求上下文有效，
+     * 挂到主线程那条 [release] 上会在部分机型上留下 GL 资源或直接报错。
+     * 默认关时 composer 为 null，这个方法是个空操作。
+     */
+    fun releaseGl() {
+        runCatching { composer?.release() }
+            .onFailure {
+                RunLog.append("gl", "[C5] GL 资源释放异常：${it.message}")
+            }
+        composer = null
+        composerResolved = false
     }
 
     fun release() {

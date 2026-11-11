@@ -292,6 +292,12 @@ class SmbSessionPool {
             val probed = probeCommon(active, host)
             ShareListing(probed, false, describe(viaRpc.exceptionOrNull()))
         }
+        // E7 / V2.32：jcifs-ng 双跑对照。放在 result 算完之后，srvsvc 成功和
+        // 试连兜底两条路径都能拿到对照证据；提交只是往后台队列丢一个 Runnable，
+        // 不占这次会话、不进网络、不改 result，失败也只多写一行日志。
+        JcifsCrossCheck.compareShares(
+            host, credentials, names, result.names, result.authoritative
+        )
         // 枚举成功（哪怕真的是空列表）或试连有命中才缓存；整条失败不缓存。
         if (result.authoritative || result.names.isNotEmpty()) {
             SmbScanCache.put(cacheKey, result)
