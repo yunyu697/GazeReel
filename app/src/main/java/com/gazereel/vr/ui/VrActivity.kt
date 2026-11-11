@@ -33,7 +33,6 @@ import com.gazereel.vr.data.SmbSessionPool
 import com.gazereel.vr.data.UnifiedDataSourceFactory
 import com.gazereel.vr.data.db.AppDatabase
 import com.gazereel.vr.input.GazeDetector
-import com.gazereel.vr.input.GestureRecognizer
 import com.gazereel.vr.input.SettingsRepository
 import com.gazereel.vr.input.TriggerDispatcher
 import com.gazereel.vr.player.PlaybackService
@@ -60,7 +59,6 @@ class VrActivity : AppCompatActivity() {
     private lateinit var coordinator: VrCoordinator
     private lateinit var gaze: GazeDetector
     private lateinit var trigger: TriggerDispatcher
-    private lateinit var gesture: GestureRecognizer
     private lateinit var renderer: VrRenderer
     private lateinit var player: PlayerController
     private lateinit var headset: VrHeadsetProvider
@@ -90,10 +88,9 @@ class VrActivity : AppCompatActivity() {
     private val tick = object : Runnable {
         override fun run() {
             val now = SystemClock.elapsedRealtime()
-            // V2.19：姿态闭环跑在主线程，33ms 一次。缓动 0.8 秒 ≈ 24 帧，够顺。
+            // V2.28：只保留手动「挪到这里」确认卡的倒计时；自动检测已停用。
             coordinator.updatePosture(headset.headRotation(), now)
             gaze.update(now)
-            gesture.update(now)
             coordinator.tick()
             logUiIfChanged()
             handler.postDelayed(this, 33L)
@@ -209,7 +206,7 @@ class VrActivity : AppCompatActivity() {
             systemVolume = SystemVolume(this),
             prober = prober,
             onExit = { finish() },
-            onRecenter = { gaze.reset(); gesture.reset() }
+            onRecenter = { gaze.reset() }
         )
 
         stage("inputs")
@@ -222,10 +219,6 @@ class VrActivity : AppCompatActivity() {
         trigger = TriggerDispatcher(
             uiLayer, headset, dispatcher,
             { coordinator.uiState }, { coordinator.touch() }
-        )
-        gesture = GestureRecognizer(
-            headset, dispatcher, settings,
-            { coordinator.uiState }
         )
 
         stage("renderer")

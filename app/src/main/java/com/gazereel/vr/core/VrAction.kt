@@ -125,7 +125,9 @@ sealed class VrAction {
      * 所以配戴过程中的晃动不会误开视频。
      */
     object ArmGaze : VrAction() { override val priority = 4 }
-    object ResetForward : VrAction()
+    // V2.28：ResetForward 已移除。按钮在面板下方，凝视它时视线必然离开舒适中心，
+    // 而它又是瞬跳 re-center，等于把「低头看按钮」写成了新的正前方。
+    // 现在正前方只在进 VR 时定一次，需要微调请用 AlignForward（带确认卡）。
     object LockView : VrAction()
     object ClearFormatMemory : VrAction()
 }

@@ -17,6 +17,7 @@ import com.gazereel.vr.core.TriggerEvent
 import com.gazereel.vr.core.TriggerKind
 import com.gazereel.vr.core.VrHeadsetProvider
 import com.gazereel.vr.core.viewRotationOf
+import com.gazereel.vr.data.RunLog
 
 /**
  * 无 Cardboard AAR 时的可运行实现：Android 旋转矢量传感器 + 自绘左右眼视口。
@@ -63,18 +64,44 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     private val easeScratch = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
 
     /**
-     * V2.7.3：进 VR 后要「第一眼正对片库」，但 start() 时传感器还没出过数据，
-     * 此刻的 rotation 还是单位矩阵——立刻 recenter 等于把基准设成「零姿态」，
-     * 等第一帧真数据到来，画面就跳到手机的绝对朝向去了。
-     * 所以基准必须等第一帧数据到达时再定。
+     * V2.28：正前方只在进 VR 时定**一次**，而且要等姿态稳下来再定。
+     *
+     * 旧版在第一帧传感器数据到达时就 recenterLocked()：那一刻用户还举着手机往
+     * 纸盒里塞，手机往往是竖直的。等他戴稳、把手机后仰到舒服的 10°，正前方
+     * 已经钉在那个竖直姿态上了——这就是真机「要摆回 0° 才正对」的十来度偏差。
+     * alpha14 试过事后静默补偿，结果每次动头都重定一次，反而更乱（见
+     * VrCoordinator.updatePosture 的注释）。
+     *
+     * 现在改成：连续若干帧视线几乎不动，就认为「戴稳了」，用那一刻的姿态定基准。
+     * 最长等 4 秒兜底，避免用户一直在动时永远不定。定完即关，之后不再自动改。
      */
     @Volatile
     private var pendingInitialRecenter = false
+    private var initialDeadlineMs = 0L
+    private var stillFrames = 0
+    private var hasLastRawPose = false
+    private val lastRawPose = FloatArray(16)
+
+    companion object {
+        /** 帧间视线夹角小于它算「没动」，约 0.6°。 */
+        private const val STILL_RAD = 0.010f
+
+        /** 连续静止多少帧才定基准：SENSOR_DELAY_GAME 约 50Hz，25 帧 ≈ 0.5 秒。 */
+        private const val STILL_FRAMES = 25
+
+        /** 最长等待时间；超时就按当前姿态定，不能让用户一直没有正前方。 */
+        private const val INITIAL_MAX_WAIT_MS = 4_000L
+    }
 
     override val supportsHardwareTrigger: Boolean = false
 
     override fun start() {
-        pendingInitialRecenter = true
+        synchronized(lock) {
+            pendingInitialRecenter = true
+            initialDeadlineMs = SystemClock.elapsedRealtime() + INITIAL_MAX_WAIT_MS
+            stillFrames = 0
+            hasLastRawPose = false
+        }
         // V2.25：面板朝向在进入时就确定，之后每帧只做比对，避免窗口刚建好时读错。
         lastPanelRotation = panelRotation().takeIf { it in 0..3 } ?: Surface.ROTATION_0
         // V2.24 诊断：每次进 VR 重新开始记录，只读。
@@ -238,8 +265,19 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         synchronized(lock) {
             System.arraycopy(matrix, 0, rotation, 0, 16)
             if (pendingInitialRecenter) {
-                pendingInitialRecenter = false
-                recenterLocked()
+                val now = SystemClock.elapsedRealtime()
+                val still = hasLastRawPose && poseDelta(matrix, lastRawPose) < STILL_RAD
+                stillFrames = if (still) stillFrames + 1 else 0
+                System.arraycopy(matrix, 0, lastRawPose, 0, 16)
+                hasLastRawPose = true
+                if (stillFrames >= STILL_FRAMES || now >= initialDeadlineMs) {
+                    pendingInitialRecenter = false
+                    recenterLocked()
+                    RunLog.append(
+                        "posture",
+                        "首次基准 · 姿态稳定后定一次（静止 $stillFrames 帧）"
+                    )
+                }
             }
             // 诊断用：当前参考系里的姿态，供记录「用户实际看到的横滚与偏离」。
             Matrix.multiplyMM(diagRotation, 0, inverseOffset, 0, rotation, 0)
@@ -258,6 +296,12 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
             crossLen = crossLen,
             branch = branch
         )
+    }
+
+    /** 两个姿态的视线夹角（弧度）：只用来判断「手机是不是还被握着在动」。 */
+    private fun poseDelta(a: FloatArray, b: FloatArray): Float {
+        val dot = (a[8] * b[8] + a[9] * b[9] + a[10] * b[10]).coerceIn(-1f, 1f)
+        return Math.acos(dot.toDouble()).toFloat()
     }
 
     /**

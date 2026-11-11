@@ -817,17 +817,16 @@ class VrUiLayer(
             button("dec$i", "−", RectF(160f, y, 240f, y + 44f), VrAction.Adjust(key, -1))
             button("inc$i", "+", RectF(784f, y, 864f, y + 44f), VrAction.Adjust(key, 1))
         }
-        // 三行三列，8 个目标（V2.14 加入「虚拟光标」，V2.19 加入「挪到这里」）。
-        // 「重置正前方」是瞬跳回水平，「挪到这里」是缓转到现在的姿势——两件事，不能合并。
+        // V2.28：删掉「头部手势」与「重置正前方」。
+        // 前者一直误触发（点头自动确认格式、摇头自动翻页），后者是瞬跳 re-center，
+        // 按钮又在面板下方，凝视它的那一刻朝向直接被写成了新的正前方。
         val toggles = listOf(
             Triple("自动连播", s.autoNext, "autoNext"),
             Triple("自动淡出", s.autoFade, "autoFade"),
-            Triple("头部手势", s.gesturesEnabled, "gestures"),
             Triple("锁定视角", s.lockView, "lockView"),
             Triple("字幕", s.subtitlesEnabled, "subtitles"),
             Triple("虚拟光标", s.cursorEnabled, "cursor"),
-            Triple("挪到这里", false, "align"),
-            Triple("重置正前方", false, "recenter")
+            Triple("挪到这里", false, "align")
         )
         toggles.forEachIndexed { i, (label, enabled, key) ->
             val col = i % 3
@@ -835,11 +834,10 @@ class VrUiLayer(
             val x = 110f + col * 270f
             val y = 286f + row * 48f
             val action: VrAction = when (key) {
-                "recenter" -> VrAction.ResetForward
                 "align" -> VrAction.AlignForward
                 else -> VrAction.ToggleOption(key)
             }
-            val isAction = key == "recenter" || key == "align"
+            val isAction = key == "align"
             button(
                 "toggle$i", label + if (isAction) "" else if (enabled) " · 开" else " · 关",
                 RectF(x, y, x + 250f, y + 46f), action,

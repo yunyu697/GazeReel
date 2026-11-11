@@ -94,61 +94,25 @@ class VrCoordinator(
 
     private fun degrees(rad: Float): Int = Math.toDegrees(rad.toDouble()).toInt()
 
-    /** 每帧（约 60Hz）由 VrActivity 的 tick 推一次，跑在主线程，不碰 GL 线程。 */
+    /**
+     * V2.28：自动姿态闭环已停用，这里只剩手动确认卡的倒计时。
+     *
+     * alpha14 把首次基准死区收到 2°，并允许「戴稳之后」继续静默校准，于是进 VR
+     * 头 6 秒内任何 2–25° 的稳定姿态都会触发一次 0.8 秒自动重定向：塞手机、
+     * 按开始、挑片时各定一次正前方，抬头看片就偏十来度；切换视频时再动一次头
+     * 又「突然回到画面中央」。真机反馈「更严重了、非常混乱」就是它。
+     *
+     * 正前方改为只在进 VR 时定一次——Provider 等姿态稳定下来的第一个瞬间
+     * （见 SensorHeadsetProvider.pendingInitialRecenter），之后不再自动动画面。
+     * 用户仍可以用「挪到这里」自己微调，那条路径带确认卡、不会静默抢画面。
+     */
     fun updatePosture(rotation: FloatArray, nowMs: Long) {
-        // 手动卡片挂着的时候，**绝不能让自动检测覆盖它**：
-        // 此刻 tracker 没有候选，下面的 copy 会把 postureCandidate 写回 null，
-        // 卡片就只闪一帧。所以这里单独走一条分支，只负责倒计时。
-        if (manualPitch != null) {
-            val left = (manualUntilMs - nowMs).coerceAtLeast(0L)
-            if (left == 0L) {
-                dismissPosture()
-            } else if (left != uiState.postureRemainingMs) {
-                uiState = uiState.copy(postureRemainingMs = left)
-            }
-            return
-        }
-
-        // V2.27：不再因为「按过开始键」就放弃首次基准。戴稳之后那 900ms 稳定姿态
-        // 仍是唯一可信的正前方；PostureTracker 自己有 6 秒窗口 + 25° 上限兜底，
-        // 不会在用户已经看内容时抢走画面。
-        val changed = posture.onPose(rotation, nowMs, allowBaseline = true)
-
-        // ① 首次基准：进 VR 后**第一个稳定姿态就是正前方**，静默转过去，不问他。
-        //
-        // 这一条是 V2.19c 的核心。真实顺序是「先躺好、再塞手机」，而 Provider 的首次
-        // 重定发生在第一帧传感器数据到达时——那一刻用户还在往盒子里塞手机，
-        // 正前方被定成了一个随便的方向。等他躺好，画面就挂在天花板前面。
-        // 与其事后问他「要不要挪」，不如把「躺好、不动」这个瞬间本身当作答案：
-        // 那正是他舒服的姿势。
-        posture.pendingBaseline?.let { pose ->
-            headset.recenterTo(pose, PostureTracker.ANIM_MS)
-            posture.baselineEstablished(nowMs)
-            onRecenter()
-            RunLog.append("posture", "首次基准 · 偏移 ${degrees(posture.offsetOf(pose))}° → 已定为你现在的姿势")
-            return
-        }
-
-        val candidate = posture.candidate
-        val yaw = posture.candidateYaw
-        val remaining = if (candidate == null) 0L else posture.candidateRemainingMs(nowMs)
-        if (changed || candidate != uiState.postureCandidate ||
-            yaw != uiState.postureYaw || remaining != uiState.postureRemainingMs
-        ) {
-            // 只在候选出现 / 消失时记一行。真机若仍觉得「没反应」，
-            // 日志里有没有这行就是「检测没跑」和「检测跑了但没到阈值」的分界。
-            if (candidate != uiState.postureCandidate) {
-                RunLog.append(
-                    "posture",
-                    if (candidate == null) "候选撤销" else
-                        "候选出现 · 俯仰 ${degrees(candidate)}° 偏航 ${degrees(yaw)}°"
-                )
-            }
-            uiState = uiState.copy(
-                postureCandidate = candidate,
-                postureYaw = yaw,
-                postureRemainingMs = remaining
-            )
+        if (manualPitch == null) return
+        val left = (manualUntilMs - nowMs).coerceAtLeast(0L)
+        if (left == 0L) {
+            dismissPosture()
+        } else if (left != uiState.postureRemainingMs) {
+            uiState = uiState.copy(postureRemainingMs = left)
         }
     }
 
@@ -439,22 +403,6 @@ class VrCoordinator(
                 uiState = uiState.copy(gazeArmed = true, consoleVisible = true)
                 RunLog.append("ui", "凝视已上膛 via $channel")
                 showMessage("已开始 · 凝视 ${settings.current.gazeDurationMs} 毫秒即确认", 2_200L)
-            }
-            VrAction.ResetForward -> {
-                // V2.27 只读诊断：这个按钮在面板上，凝视它时视线必然离开舒适中心几度。
-                // 记下按下时的偏角，真机若「重置完仍差一点」，这行能区分
-                // 是按钮位置带来的、还是姿态链路本身还有偏差。
-                RunLog.append(
-                    "posture",
-                    "重置正前方 · 按下时偏角 ${degrees(posture.offsetOf(headset.headRotation()))}°"
-                )
-                // V2.4：重定基准后清掉凝视停留与手势窗口，并给一条会消失的反馈。
-                headset.recenter()
-                // V2.19：基准归零了，候选与静默期也要一起清掉。
-                posture.reset()
-                uiState = uiState.copy(postureCandidate = null, postureYaw = 0f, postureRemainingMs = 0L)
-                onRecenter()
-                showMessage("正前方已重置")
             }
             VrAction.LockView -> toggleViewLock()
             is VrAction.Adjust -> adjust(action.key, action.delta)
@@ -800,7 +748,6 @@ class VrCoordinator(
             when (key) {
                 "autoNext" -> current.copy(autoNext = !current.autoNext)
                 "autoFade" -> current.copy(autoFade = !current.autoFade)
-                "gestures" -> current.copy(gesturesEnabled = !current.gesturesEnabled)
                 "subtitles" -> current.copy(subtitlesEnabled = !current.subtitlesEnabled)
                 "cursor" -> current.copy(cursorEnabled = !current.cursorEnabled)
                 else -> current
