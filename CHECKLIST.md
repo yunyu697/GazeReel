@@ -11,9 +11,9 @@
 >    `[设计]` 只有设计、代码没动 · `[已实现]` 代码改了、编译过 · `[真机]` 用户在真机上确认过 · `[回归]` 曾经可用、后来坏了
 > 5. **动任何功能前先核查成熟方案**（官方 SDK / 平台 API / 成熟库 / 行业标准），结论写进《附录 · 成熟方案核查》；自研只做成熟方案不覆盖的那部分，并在裁决记录里写清边界。
 >
-> 最后更新：V2.35 / 1.1.0-alpha22（2026-11-11 晚，修 VR 播放 OOM 崩溃 + 「打开不正对画面中心」两件事；两件都没有真机验证）
+> 最后更新：V2.36 / 1.1.0-alpha23（2026-11-11 晚，C1 抽帧布局判据改写：零位移相关 → 视差补偿分块比对；起因是 `KAVR-332-CD1` 手选「180 半球 · SBS」画面就正常）
 >
-> **当前基线**：`V2.35 / 1.1.0-alpha22`（tag `v1.1.0-alpha22`；上一版是 `128c5da` / alpha21）；产物 `GazeReel-1.1.0-alpha22.apk`（**未上真机**）。本轮两处改动都可能改变真机观感，**先看「本轮新增（alpha22）」再上机**。
+> **当前基线**：`V2.36 / 1.1.0-alpha23`（tag `v1.1.0-alpha23`；上一版是 `40d55ae` / alpha22）；产物 `GazeReel-1.1.0-alpha23.apk`（**未上真机**）。本轮只改「怎么从像素判布局」，**先看「本轮新增（alpha23）」再上机**。
 
 ---
 
@@ -79,7 +79,7 @@
 
 | 编号 | 事项 | 状态 | 依据 | 怎么算做完 |
 |---|---|---|---|---|
-| C1 | 抽帧比对左右半幅，判 SBS / TAB。**V2.20 落地**（相关系数、三时刻一致、external 纹理画进 192×96 FBO 再 `glReadPixels`），V2.23 之后 `bccc9f3`（alpha9）整体回滚到 alpha3、`a22f3b7`（alpha10）摘回格式判定部分；**V2.27** 抽帧窗口从「开播 0.17–2 秒试 12 次、判不出就永久判死」改成起点 1.5s / 间隔 0.5s / 最长约 60s，避开 2–5 秒的片头黑场；**V2.31 定案**：抽帧只许把 MONO **升级**成 SBS/TAB，**禁止 SBS/TAB→MONO 降级**、结论绑定 `mediaId`（切到下一部片就丢掉过期结论）、抽帧判出的 MONO 不写记忆，`MEMORY_VERSION` 3→4 清掉被污染的旧记录 | `[已实现]` 待真机 | V2.20 / V2.24 / V2.27 / V2.31 裁决 | 那批 Doink 文件进 VR 后自己改成 SBS、打开时**不正对接缝**；片头黑场长的片不会被判死；三帧说法不一时不乱改；切换视频不会拿上一部片的像素重算格式 |
+| C1 | 抽帧比对左右半幅，判 SBS / TAB。**V2.20 落地**（相关系数、三时刻一致、external 纹理画进 192×96 FBO 再 `glReadPixels`），V2.23 之后 `bccc9f3`（alpha9）整体回滚到 alpha3、`a22f3b7`（alpha10）摘回格式判定部分；**V2.27** 抽帧窗口从「开播 0.17–2 秒试 12 次、判不出就永久判死」改成起点 1.5s / 间隔 0.5s / 最长约 60s，避开 2–5 秒的片头黑场；**V2.31 定案**：抽帧只许把 MONO **升级**成 SBS/TAB，**禁止 SBS/TAB→MONO 降级**、结论绑定 `mediaId`（切到下一部片就丢掉过期结论）、抽帧判出的 MONO 不写记忆，`MEMORY_VERSION` 3→4 清掉被污染的旧记录；**V2.36 判据重写**：零位移相关（门槛 0.95）换成视差补偿的分块比对（±10% 半幅位移搜索 + 峰值独占 + 最宽视差带 0.45/0.90/连片 0.55），起因是 `KAVR-332-CD1` 这种真立体片被 0.95 门槛判成 MONO、整幅 SBS 铺球面（详见「本轮新增（alpha23）」与裁决记录 V2.36） | `[已实现]` 待真机 | V2.20 / V2.24 / V2.27 / V2.31 / V2.36 裁决 | 那批 Doink 文件进 VR 后自己改成 SBS、打开时**不正对接缝**；片头黑场长的片不会被判死；三帧说法不一时不乱改；切换视频不会拿上一部片的像素重算格式 |
 | C2 | 鱼眼 180 / 220、立方体 3×2、EAC 的枚举、网格与 shader 分支 | `[设计]` | 08.3 | 各有一台设备实拍样片能正确显示 |
 | C3 | `FieldOfView` 真正参与渲染。**出处更正**：`sdkEyeParams()`（`getEyeFromHeadMatrix` + `getEyeProjectionMatrix`）是 **V2.30 / alpha17 就写好的**，不是 V2.32 新建；V2.32 做的只是把开关从 companion 挪到同包顶层 `SdkOptics.kt`，让它与 C5 畸变链**共用同一个 `USE_SDK_OPTICS`**，杜绝「换了投影没换网格」的半套状态。**默认 false**，打开后 FOV 才真的改变取景 | `[已实现]` 待真机（默认关） | V2.30 / V2.32 裁决 / 附录 §5 ④ | 打开开关后取景范围变化，且网格线校准通过；没校准前不许当成可用 |
 | C4 | 平面半宽片源宽高比自动还原 | `[设计]` | 08.3 | 非标准 half-SBS 不变形 |
@@ -116,7 +116,24 @@
 
 ## 已知未验证（真机一跑就可能翻案）
 
-**总口径**：当前代码 `V2.35 / 1.1.0-alpha22`。alpha4–alpha22 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+**总口径**：当前代码 `V2.36 / 1.1.0-alpha23`。alpha4–alpha23 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+
+### 本轮新增（alpha23 / V2.36，一次真机都没跑）
+
+**一、`KAVR-332-CD1` 手选「180° 半球 · SBS 左右」就正常了 → C1 抽帧判据重写**
+
+- 真机事实（用户 2026-11-11 晚）：同一部片，手动选 180 SBS，画面正常。**它不是 mono**——之前的「360° 球面 · Mono」是布局判错，既不是姿态问题，也不是投影问题。
+- 旧判据错在哪：`StereoFrameJudge` 比的是**零位移**相关系数，门槛 0.95。立体片的左右两幅天生横移一个视差量，视差越大相关越低；该片实测 `左右 0.794 / 上下 0.176`，被判「不像同一场景」→ MONO → 4096×2048 按 MONO 算成 2:1 → 360 球面，正前方正好压在接缝上。
+- 新判据（V2.36）**视差补偿后的分块比对**：
+  ① 判据网格 192×96，切 6×6 的块，只在有起伏的块上做（标准差 ≥ 0.012，天空 / 黑边 / 暗角直接跳过）；
+  ② 每块在 **±10% 半幅宽**内找自己的最佳位移（半幅 96 px 时是 9 px，换 4096×2048 片源约 190 px）；
+  ③ **峰值独占**：最佳相关要比「离它 1 px 以外的次佳」高 0.05 —— 挡水面 / 草地 / 条纹这类平稳纹理的巧合（合成水面实测带内 0.000）；
+  ④ 取最宽的视差带（±2 px）：带内块占比 ≥ **0.45**、带内平均相关 ≥ **0.90**、带内块**连成片**（有上下左右邻块的占比 ≥ **0.55**）三条同时成立才判立体；
+  ⑤ 三帧一致才落地、「抽帧只许升级不许降级」这两条原样保留。
+- 布局改对之后投影自己就对了：`FormatDetector` 是先定布局、再用**每眼**画幅比推视场，4096×2048 的 SBS 每眼 2048×2048 = 1:1 → 180 半球。**没有为这部片加任何特例 / 文件名白名单。**
+- 离线自检：新增 `tools/StereoJudgeCheck.kt` + `tools/run-stereo-check.sh`，用本地 Gradle 缓存里的 Kotlin 编译器直接编译**工程里那份 `StereoFrameJudge.kt`**，跑 10 个合成场景（SBS 视差 0/2/4/6、前后景分层、压缩噪声、黑边、暗角、TAB、mono 360、mono 平面 2D、平稳纹理、平坦画面），全部通过。
+- 真机要验：① `KAVR-332-CD1` **不手选**打开是否直接是「180° 半球 · SBS 左右」；② 日志出现 `抽帧校正 … → 180° 半球 · SBS`，且 `带内 ≥0.45 / 均值 ≥0.9 / 连片 ≥0.55`；③ **真正的 mono 360 片没被误判成 SBS**（这类误判会把画面拉成两倍宽，比原来更糟）；④ 之前手选过的片仍优先用记忆值（`userPickedFormat` 早退没被绕过）。
+- 已知限制：整帧几乎没纹理（浓雾、纯色天空、全黑）时这一帧不判；三帧拿不到一致结论就维持原判，不会来回跳。
 
 ### 本轮新增（alpha22 / V2.35，一次真机都没跑）
 
@@ -284,6 +301,11 @@
 | V2.35 | 「打开不正对画面中心」 | 认定是姿态或球面几何算错，一直在姿态链路上修 | **前提不完整**。几何与正前方采样一直正确（180° SBS 恒为 0.25/0.75）；错的是参考系——基准定在「塞手机那一刻」（日志「静止 0 帧」），与戴稳后差 90°，接缝正好转到正中。改为**打开新片时只对齐方位角**（`recenterYaw`），俯仰/横滚保持重力对齐，避免低头点开下一部时地平线跟着歪。 |
 | V2.35 | VR 播放 OOM | 认为 SMB 1MB 分块太大 | **不是主因**。堆顶到 256MB 上限是 Media3 采样缓冲造成的：`prioritizeTimeOverSizeThresholds(true)` + 90 秒上限 = 取消字节上限，而缓冲是 Java 堆上的 `byte[]`。改为 96MB 字节封顶 + `largeHeap`；SMB 分块降到 256KB 只是把「最后一根稻草」变细。 |
 | V2.35 | 抽帧 SBS 判据 | 相关 ≥0.95 才算 SBS，真 VR180 近景只有 0.79 | **暂不放宽**。改成相对判据（左右比上下高 0.3 就算 SBS）会把 mono 360 误判成 SBS（地平线在两半同样高度），后果比现在更糟。这类片（无 st3d/sv3d、名字无 `[LR]`）继续走手选 + 记忆，与 VRTV 一致。 |
+| V2.36 / 2026-11-11 | C1 抽帧门槛 | V2.35 的结论：放宽会把 mono 360 误判成 SBS，所以判据不动，这类片走手选 + 记忆 | **推翻了，但不是靠放宽门槛**。用户真机反证：`KAVR-332-CD1` 手选 180 SBS 后画面正常 → 它**本来就是立体片**，是判据把它判成了 MONO。根因是把「同一场景」当成了「同一像素」：立体片两幅天生有视差，零位移相关必然掉，视差越大掉得越多。**换成「先补偿视差再比」**——同一个门槛问题就不存在了，也不会把 mono 360 拉进来（mono 的两半是 180° 相隔的两块场景，任何小位移都对不上）。 |
+| V2.36 | 为什么分块而不是整幅 | 一个全局位移能把两幅对齐 | 只对齐一个深度。真实场景里视差逐块不同（前景大、背景小），整幅位移会让一半画面反而更歪。分块还能顺带跳过黑边 / 暗角 / 补边的纯色块。 |
+| V2.36 | 为什么必须加「峰值独占」 | 相关高就说明对上了 | **平稳纹理会骗人**：水面、草地、条纹在好几个位移上都能凑出 0.95+，而 mono 360 的左右两半**都是「一片水」**，统计上没差别。加「最佳要比离它 1 px 以外的次佳高 0.05」后，合成水面场景的带内比例从「能过」掉到 0.000。 |
+| V2.36 | 为什么还要「连成片」 | 带内块占比够了就算立体 | 几十个块 × 19 个位移，纯属巧合也能凑出一撮；但巧合是散落的，真立体的一片背景是连着的。所以再要求带内块有上下左右邻块的比例 ≥0.55。 |
+| V2.36 | 投影规则要不要跟着改 | 布局判对了，180 可能还要单独加规则 | **不用**。`FormatDetector` 本来就是先定布局、再按**每眼**画幅比推视场；4096×2048 的 SBS 每眼 2048×2048 = 1:1，天然落在 180 的区间。为了这一部片去改投影阈值，等于给一条片开特例。 |
 
 ---
 
@@ -291,6 +313,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| V2.36 | **版本号 1.1.0-alpha23**（`versionCode 101000023`）。C1 抽帧判据重写：`StereoFrameJudge` 从「零位移整幅相关系数（门槛 0.95）」改为「视差补偿后的分块比对」——192×96 判据网格、6×6 块、±10% 半幅宽的位移搜索、峰值独占（`PAIR_MATCH 0.86` / `PEAK_GAP 0.05`）、最宽视差带三条判据（`BAND_RATIO 0.45` / `PAIR_MEAN 0.90` / `BAND_CLUSTER 0.55`），`Verdict` 增加 `sbsBand/tabBand/sbsMean/tabMean/sbsCluster/tabCluster/sbsShift/tabShift`，`describe()` 把「零位移 / 带内 / 均值 / 连片」一起写进 `[fmt]` 日志；`combine()` 三帧一致与「只许升级、不许降级」保持原样。新增离线自检 `tools/StereoJudgeCheck.kt`（10 个合成场景）+ `tools/run-stereo-check.sh`（用 Gradle 缓存里的 Kotlin 编译器编**真代码**）；`tools/build/stereo-check/` 为产物目录。验证：自检 10/10 PASS、`assembleDebug` 通过、`check_structure.py` 通过。**未上真机**。 |
 | V2.35 | **版本号 1.1.0-alpha22**（`versionCode 101000022`）。① **OOM 崩溃**：`DefaultLoadControl` 改回按字节封顶（96MB + `prioritizeTimeOverSizeThresholds(false)`、15s/30s、backBuffer 10s）——上一版「90 秒 + 时间优先」等于取消字节上限，而 Media3 采样缓冲是 Java 堆上的 `byte[]`，8K 几十秒即几百 MB；清单开 `largeHeap`；SMB 分块 1MB→256KB、单源缓存 12MB→4MB、`withReadBufferSize(256KB)`；`UnifiedDataSource.open()` 补关旧 source；新增 `[mem]` 每 10 秒一行与崩溃行内存账。② **打开不正对中心**：新增 `recenterYaw()`（只转世界 Y 轴，俯仰/横滚保持重力对齐），在 `startPlayback()` 打开新片时对齐方位角，并 `onRecenter()` 清凝视/手势窗口。③ `CardboardHeadsetProvider` 初始化失败时写出异常类型与消息（真机上 SDK 从未启用，此前日志无线索）。验证：`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 62 文件 / 14954 行）、打包清单含 `largeHeap` 与 `versionCode 101000022`、对齐数学 Python 逐例校验。**未上真机**。 |
 | V2.34 | **版本号 1.1.0-alpha21**（`versionCode 101000021`）：B13 瞳距补上戴镜前入口。`SetupActivity` 底部新增「设置」（竖屏与「运行日志」同一行、横屏在顶栏日志左侧，竖横两套 layout 的 view id 一致），点开 `dialog_settings.xml`：当前值（0.5mm 精度）+ 滑杆 50.0–75.0mm（`stepSize=0.5`、`labelBehavior=gone`）+ `−0.5 / +0.5` + 「恢复默认 62.0mm」+ 说明「它不是纸盒的透镜间距」。「设置」用 accent 色、「运行日志」降级为 muted（沿用 V2.19 日志降级）。写入走 `SettingsRepository.update().copy(ipdHalfMm=…)`，`RunLog` 记 `[ipd] 戴镜前调瞳距`；`VrActivity.onCreate` 每次新建 repository，改完直接进 VR 生效。滑杆回写用差值判断（`abs(value-mm) > 0.01f`），避免浮点抖动把监听器打成死循环。**验证**：`assembleDebug` BUILD SUCCESSFUL、`check_structure.py` 通过（Kotlin 62 文件 / 14764 行、XML 21、values 113）、产物 `GazeReel-1.1.0-alpha21.apk`（15MB，`versionCode 101000021`）。回看布局时发现竖屏两个小字并排后「设置」只剩约 38×23dp，低于可点热区下限，已加 `minHeight="32dp"`、左右 padding 12dp（热区约 46×32dp）并重编（同一 alpha21 内不另升版本）。**未上真机**。 |
 | V2.33 | **版本号 1.1.0-alpha20**（本轮，`versionCode 101000020`；alpha19 从未落提交，两版改动在同一工作区上继续，`HEAD` 仍是 `b1ede0a` / alpha18）。**B13 瞳距粗调+微调 + B14 调节条交互契约**，按附录 §6 的成熟方案核查结论落地，`②` 与其它暂不动项一字未改。`VrUiState.VrSettings` 把 `ipdMm: Int` 换成 `ipdHalfMm: Int`（0.5mm 单位，100–150 half = 50.0–75.0mm）+ `val ipdMm: Float get() = ipdHalfMm / 2f` 保持 `VrRenderer` 每帧读取不变，新增 `IPD_COARSE_HALF=4` / `IPD_FINE_HALF=1` / `ipdLabel()`；`VrUiState.ipdTuning`；`AdjustFeedback` 最终删掉 `level`、只留 `steps` + `fraction`。`SettingsRepository` 改存 `ipd_half_mm`、从旧 `ipd_mm` 迁移并 `remove`。`VrAction` 新增 `StartIpdTuning` / `StopIpdTuning` / `ToggleIpdMode` / `DismissAdjust`。`VrCoordinator` 重构 `adjust()` 与 `showAdjust()`、新增 `startIpdTuning()` / `stopIpdTuning()` / `toggleIpdMode()` / `keepsIpdTuning()`（任何非调节动作先归还音量键）、`ipdFraction()`，`tick(hoverId)` 照 AOSP `rescheduleTimeoutH()` 做交互感知重排（`ADJUST_ACTIVE_MS=8_000` / `ADJUST_HOVER_MS=16_000` / 静止 `FEEDBACK_MS=2_600`）。`GazeDetector` 新增原始落点 `hoveredId`，`screenKey` 纳入 `feedback` / `ipdTuning`。`VrActivity` 把 `gaze.hoveredId` 传给 `tick()`、音量键在瞳距态临时借给 `ipd`。`TriggerDispatcher` 瞳距态双击退出 / 单击切粗微 / 长按 Back。`VrUiLayer` 把调节条从纯反馈卡改成注册 `adjDec` / `adjInc` / `adjMode` / `adjClose` 四个凝视目标的可操作控件（目标排到 `targets` 最前）、卡片 `212,48–812,252` 不压画布中线 256、按 `fraction` 画连续轨道、删段条小点；设置浮层新增「瞳距 · 边看边调」入口与三按钮底栏。`tools/preview_player.py` 新增 `draw_adjust()` / `draw_adjust_sheet()` / `draw_settings()` 并把 `button()` 文本锚点 `mm`→`ms`（Canvas `drawText` 的 y 是 baseline），产出 `output/adjust-bars.png` / `output/settings-ipd.png` 复核版式。**验证**：`./gradlew :app:assembleDebug` 多次 BUILD SUCCESSFUL、`tools/check_structure.py` 静态校验通过、产物 `GazeReel-1.1.0-alpha20.apk`；离屏图发现「静音条拥挤」后删段条并复看通过。**一次真机都没跑**：B8 两个真机问题只是代码修复、未复验，B13/B14 由 `[设计]` 改 `[已实现] 待真机`。 |
