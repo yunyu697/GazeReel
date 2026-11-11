@@ -11,9 +11,9 @@
 >    `[设计]` 只有设计、代码没动 · `[已实现]` 代码改了、编译过 · `[真机]` 用户在真机上确认过 · `[回归]` 曾经可用、后来坏了
 > 5. **动任何功能前先核查成熟方案**（官方 SDK / 平台 API / 成熟库 / 行业标准），结论写进《附录 · 成熟方案核查》；自研只做成熟方案不覆盖的那部分，并在裁决记录里写清边界。
 >
-> 最后更新：V2.41 / 1.1.0-alpha28（2026-11-11 深夜，**「俯仰反向」开关整段删除**——它在数学上就不可能是对的；同时把两个商业播放器（VRTV / SourceVR）拆开核对，确认它们的头追全部来自 Google VR SDK，而我们的 SDK 从来没起来过）
+> 最后更新：V2.42 / 1.1.0-alpha29（2026-11-12 凌晨，**控制台与设置按 SKYBOX 的语言重做**：控制台从 22 个凝视目标降到 15 个并全面图标化，设置从「− 值 +」平铺改成 2 列卡片；底色从藏青换成石墨灰）
 >
-> **当前基线**：`V2.41 / 1.1.0-alpha28`（上一版 `fc424e2` / alpha27）；产物 `GazeReel-1.1.0-alpha28.apk`（**未上真机**）。这一版继续做减法：删掉「俯仰反向」这条**物理上不成立**的修法（它是镜像不是旋转，真机表现就是「点一下之后抬头低头画面在转」），改为内容侧的球面上下翻转（VR 内可当场拨）；并核清两个参照 App 用的是哪套 SDK。**先看「本轮新增（alpha28）」再上机**。
+> **当前基线**：`V2.42 / 1.1.0-alpha29`（上一版 `ca657b6` / alpha28）；产物 `GazeReel-1.1.0-alpha29.apk`（**未上真机**）。这一版只动界面：控制台与设置按 `SKYBOX VR Video Player` 的演示逐帧对照重做，配色改成石墨灰 + 单一强调色。行为没变（动作全部沿用原 `VrAction`）。**先看「本轮新增（alpha29）」再上机**。
 
 ---
 
@@ -116,7 +116,78 @@
 
 ## 已知未验证（真机一跑就可能翻案）
 
-**总口径**：当前代码 `V2.41 / 1.1.0-alpha28`。alpha4–alpha28 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+**总口径**：当前代码 `V2.42 / 1.1.0-alpha29`。alpha4–alpha29 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+
+### 本轮新增（alpha29 / V2.42，一次真机都没跑）
+
+**零、起因**
+
+用户给了一段 `SKYBOX VR Video Player on Meta Quest` 的商店演示（30 秒），要求「参考一下别人的界面设计，看看我们的有多简陋」。
+片子拆成 30 帧逐帧看过（`ffmpeg -vf fps=1` + 联系表），下面是能对上的差距，全部按**代码坐标**说，不是印象。
+
+| | SKYBOX | 我们（alpha28 及以前） |
+|---|---|---|
+| 结构 | 三块独立弧面 + 3D 房间 | 一块 1024×512 的平板 `panel(20,14,1004,498)` |
+| 导航 | 左栏常驻清单（图标+文字+箭头） | 顶栏 4 个 96×66 图标 |
+| 卡片 | 名字写在卡**外**，悬停放大、标题变白加粗 | 名字压在卡内渐变条上（232×165 里塞 44px 时间） |
+| 控制台 | 下方一条细胶囊 | 10 段跳转 + 5 个文字运输键 + 7 个文字快捷 = **22 个凝视目标** |
+| 设置 | 列表行（右值/右开关） | 「− 值 +」四行 + 3×2 个「亮度 · 开」文字按钮 |
+| 图标 | 全套 | `Glyph` 只有 4 个，其余一律写字 |
+| 底色 | 近黑 + 单一强调色 | 藏青 `#0E1B2C` + 青 `#67E8F9`，像调试面板 |
+
+**一、为什么不去抄它的三栏**
+
+SKYBOX 是 Quest 手柄/指针操作，右栏那些小条目点得到。我们是**凝视 + 一个触发键**：
+把两块侧栏塞到视野边缘，等于把 20 个小目标放在余光里、停留 600ms 触发，误触率会很难看。
+所以只取它的**视觉语言**（分组、卡片、单强调色、名字在卡外、悬停放大），不取它的**信息架构**。
+
+**二、控制台：22 → 15 个目标，运输键全面图标化**
+
+- 面板从 `40..984 × 300..500`（944×200，占画面下缘约 12°）收成胶囊 `60..366..964..500`（904×134，约 7.7°）。
+- 运输键 `上一部 / -60s / 暂停 / +60s / 下一部` 五个文字按钮 → `PREV / REW30 / PLAY-PAUSE / FWD30 / NEXT` 五个图标；
+  播放键是整条控制台唯一的实心强调色块（位置固定、形状固定，不用找）。
+- 其余六个入口保留文字标签（片库 / 正前方 / 格式 / 设置 / 退出）：**图标看不懂就点不动**，而凝视没有「悬停提示」这条后路。
+- 跳转从 10 段降到 5 段（每段 20%），视觉上仍是一条连续细线；命中带仍有 36px 高——**细线只是看起来细**。
+- 识别结果从「压在画面上的横幅」挪到左上角两行小字：它是状态，不是控件。
+- 目标数：10 段跳转 + 5 运输 + 7 快捷 = 22 → 5 段跳转 + 5 运输 + 5 工具 = 15，其中 10 个是 ≥66px（4.0°）的大目标。
+
+**三、设置：「− 值 +」平铺 → 2 列 × 5 行卡片**
+
+- 一格一个目标：左名字、右值或开关（胶囊 toggle）。每格 336×68 ≈ 20.3°×4.1°。
+- **为什么不做成 SKYBOX 那种 40px 高的列表行**：40px 只有 2.4°，凝视压准都难，更别说停 600ms。
+  视觉语言照搬，尺寸按凝视重算——这一条必须写在代码注释里，否则下次又有人「对齐」回列表。
+- 底下三个按钮：返回 / 瞳距·边看边调（唯一主按钮）/ 清除格式记忆。
+
+**四、配色：藏青 → 石墨灰**
+
+`C_PANEL #0E1B2C → #131316`、`C_PANEL_HI #12283F → #1E1E23`、`C_BORDER #22364F → #2E2E34`、
+`C_TEXT #EAF2FA → #F2F2F3`、`C_MUTED #B9C6DA → #9E9EA6`、`C_POSTER #173A5E → #232327`，
+新增 `C_DIM #6E6E76`（15px 注解专用）。强调色仍是品牌青 `#67E8F9`，但只出现在「现在该点的那个」上。
+
+**五、图标系统：4 个 → 12 个**
+
+新增 `GRID / CLOCK / CC / FRAME / PLAY / PAUSE / PREV / NEXT / REW30 / FWD30 / MORE / SLIDERS`，
+统一走 `glyph(kind, cx, cy, size, color, lw)`，坐标一律按「图标单位（−1..1）」算再换算成画布像素。
+
+四个在出图阶段被否掉、必须写下来的坑：
+1. `(cx - 0.55) * s * S` 这种写法把画布坐标和图标单位乘到一起，图标会缩到中心像"没画"——只准走 `ux()/uy()`。
+2. `±60s` 原来画 110° 小半圆 + 三角，缩到 26px 就是一个逗号 → 改 3/4 圈 + 切向箭头（切向由角度算，顺时针 `(−sin, cos)`）。
+3. 齿轮缩到 22px 变成太阳（V2.13 已踩过一次）→ 控制台的「设置」改用**滑杆**；齿轮只在片库 30px 处保留。
+4. 2×2 网格图标描边必须比格子窄一大截（`lw * 0.72`），否则 22px 下糊成四个点。
+
+**六、验证（都是离线，一次真机都没跑）**
+
+- `tools/mock_design.py`：把三张改版稿按**实现里的同一套坐标**画出来（胶囊 60/366/964/500、卡片 336×68 @170/518…），
+  出图阶段就抓到 4 个图标问题（上面第五节）。图与代码同源，不是"画饼"。
+- `run-format-check.sh` 30/30、`run-pose-check.sh` 28/28、`assembleDebug` 通过、
+  `check_structure.py` 通过（Kotlin 63 文件 / 15410 行）。
+- **本次没有任何像素级真机验证**：字号、对比度、目标间距都还是按角度算出来的，戴上去可能还要再调一轮。
+
+**七、没动的东西**
+
+- 片库没改（仍是 2×4 平板）。它的三栏版只画在稿里（`output/mock-home.png`），键位与分页要动 `VrUiState`，留到下一轮。
+- 行为零改动：所有按钮仍走原来的 `VrAction`（`Adjust` / `ToggleOption` / `SeekTo` / `StartIpdTuning`…），
+  没有新增动作、没有改分发。这一版可以单独回退而不影响播放链路。
 
 ### 本轮新增（alpha28 / V2.41，一次真机都没跑）
 
@@ -484,6 +555,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| V2.42 | **版本号 1.1.0-alpha29**（`versionCode 101000029`）。界面按 SKYBOX 演示重做，行为零改动。控制台 `40..984×300..500` → 胶囊 `60..964×366..500`；运输键文字 → 图标（新增 `Glyph.PREV/REW30/PLAY/PAUSE/FWD30/NEXT`）；跳转 10 段 → 5 段（命中带 36px）；识别结果从横幅挪到左上角两行；凝视目标 22 → 15。设置从「− 值 +」四行 + 3×2 文字按钮改为 2 列 × 5 行卡片（336×68，一格一目标，右侧值/胶囊开关），因为 40px 列表行在凝视下只有 2.4° 不可用。配色藏青 → 石墨灰（`#0E1B2C→#131316` 等 6 个常量 + 新增 `C_DIM`）。图标统一走 `glyph()`，新增 `GRID/CLOCK/CC/FRAME/MORE/SLIDERS` 等；修正 4 个缩小后糊掉的图标（网格/±60s/齿轮/太阳）。新增 `tools/mock_design.py`（按实现坐标出稿）。验证：`run-format-check` 30/30、`run-pose-check` 28/28、`assembleDebug`、`check_structure` 通过（Kotlin 63 文件 / 15410 行）。**未上真机**。 |
 | V2.41 | **版本号 1.1.0-alpha28**（`versionCode 101000028`）。删除「俯仰反向」整段（`PoseMath.flipPitch`、Provider 的 `setFlipPitch/isFlipPitch`、`flip_pitch`/`pitch_checked`、方向自检卡与 `VrAction.PitchIs*`）：它是关于水平面的镜像（det=−1），重建后的效果是世界绕横滚轴转 2p，真机即「点一下之后画面在转」。修正 `yawPitchRollDeg` 的 yaw 符号（与 `gazeYawDeg` 统一为向右为正，这是 V2.37「开关没反应」的成因）。新增 `VrSettings.flipVertical` + `ProjectionMesh.curved(flipV)`：只翻球面 v，与姿态解耦；入口为手机设置 + VR 内「设置 → 画面上下」。拆包核对 VRTV / SourceVR：头追与畸变全部来自 Google VR SDK（`libgvr.so`），两家均无「俯仰反向」；并查明 `app/libs/cardboard-sdk.aar` 是 Unity C-API 版（无 `libcardboard_sdk_jni.so`、无 `Java_com_google_cardboard_sdk_*` 符号），`Initialize` 必抛 `UnsatisfiedLinkError`，这就是 SDK 从未生效的原因。验证：`run-pose-check.sh` 28/28（新增球面 u/v 断言）、`run-format-check.sh` 30/30、`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 63 文件 / 15206 行）。**未上真机**。 |
 | V2.40 | **版本号 1.1.0-alpha27**（`versionCode 101000027`）。**删除抽帧判布局整条链路**（`core/StereoFrameJudge.kt`、`VrRenderer` 的离屏 FBO + 192×96 读回 + `onFrameSample`、`VrCoordinator.onFrameVerdict` 与 4 个专用字段、`FormatDetector` 的 `frame` 参数、`tools/StereoJudgeCheck.kt` + `run-stereo-check.sh`）。识别改为**文件名 > 容器元数据 > 几何**三条确定性判据：新增宽高比反解 `hypotheses()`（已知视场则布局唯一；二义时 2:1 取 SBS、1:1 取 MONO），2:1 裸流默认 180 SBS；文件名 `180/360` 改数字边界匹配并支持 `VR180`/`180x180`，新增显式 `mono`。`FormatDetector.Result.source` 记证据来源并写入 `[fmt]` 日志。`MEMORY_VERSION` 4 → 5 清空被抽帧污染的旧记忆。新增 `tools/FormatDetectorCheck.kt` + `run-format-check.sh`（30 条断言，含 200 次确定性；当场抓到「16:9 误判全景」「1:1 误判 TAB」两个回归并修复）。验证：`run-format-check.sh` 30/30、`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 63 文件 / 15412 行）。**未上真机**。 |
 | V2.39 | **版本号 1.1.0-alpha26**（`versionCode 101000026`）。俯仰翻转改用纯 Kotlin 实现（`core/PoseMath.flipPitch`，显式 `Ry·Rx(−pitch)·Rz(roll)`），新增 `tools/PoseMathCheck.kt` + `tools/run-pose-check.sh`（21 条断言）；`CardboardHeadsetProvider` 补 `setFlipPitch/isFlipPitch` 并转发 fallback，`refreshRotation` 里也套翻转；`SensorHeadsetProvider` 新增 `pendingFlipRecenter`（翻转下一帧就地重定）；`VrHeadsetProvider.isFlipPitch()`；首次播放弹「抬头看到什么」自检卡（`VrUiState.pitchCheck` + `VrAction.PitchIsNormal/PitchIsFlipped` + `VrSettings.pitchChecked` + `pitch_checked` 持久化），手机设置加「重新自检一次」并整体套 `ScrollView`。瞳距改离轴视锥：新增 `core/Optics.kt`（63mm 参考、1.2°/mm、±9° 上限、`frustumLeftRight`），两个 Provider 的 `eyeParams` 都换，调节条与日志显示「每眼 X.X°」。验证：`run-pose-check.sh` 21/21、`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 64 文件 / 16091 行）。**未上真机**。 |

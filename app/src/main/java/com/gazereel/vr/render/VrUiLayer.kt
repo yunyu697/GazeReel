@@ -49,15 +49,17 @@ class VrUiLayer(
     companion object {
         const val W = 1024
         const val H = 512
-        private val C_PANEL = 0xFF0E1B2C.toInt()
-        private val C_PANEL_HI = 0xFF12283F.toInt()
-        private val C_BORDER = 0xFF22364F.toInt()
+        private val C_PANEL = 0xFF131316.toInt()
+        private val C_PANEL_HI = 0xFF1E1E23.toInt()
+        private val C_BORDER = 0xFF2E2E34.toInt()
         // 设计文档 08.5：把残留的旧绿色 C_ACCENT 统一到品牌青蓝 #67E8F9。
         // 第 143 行的规矩没变——这个颜色只给「现在该点的那个」，不做装饰。
         private val C_ACCENT = 0xFF67E8F9.toInt()
-        private val C_TEXT = 0xFFEAF2FA.toInt()
-        private val C_MUTED = 0xFFB9C6DA.toInt()
-        private val C_POSTER = 0xFF173A5E.toInt()
+        private val C_TEXT = 0xFFF2F2F3.toInt()
+        private val C_MUTED = 0xFF9E9EA6.toInt()
+        private val C_POSTER = 0xFF232327.toInt()
+        /** V2.42：注解色。15px 的说明文字用它，和正文的 C_MUTED 拉开一档。 */
+        private val C_DIM = 0xFF6E6E76.toInt()
         /** V2.38：倒计时最后一程还在动时的提示色。不用红色——那是报错，这里是「再稳一下」。 */
         private val C_WARN = 0xFFFFB74D.toInt()
 
@@ -305,11 +307,11 @@ class VrUiLayer(
      * 所以进 VR 后凝视默认关闭，这一屏是唯一还亮着的东西，而它只接受物理按键。
      */
     private fun drawArmPrompt() {
-        fill.color = 0xB308111E.toInt()
+        fill.color = 0xB3101013.toInt()
         canvas.drawRect(RectF(0f, 0f, W.toFloat(), H.toFloat()), fill)
 
         val card = RectF(212f, 140f, 812f, 380f)
-        fill.color = 0xF00E1B2C.toInt()
+        fill.color = 0xF016161A.toInt()
         canvas.drawRoundRect(card, 26f, 26f, fill)
         stroke.color = C_ACCENT
         stroke.strokeWidth = 3f
@@ -354,7 +356,7 @@ class VrUiLayer(
         val card = RectF(212f, 48f, 812f, 252f)
         val layer = canvas.saveLayerAlpha(card, alpha)
 
-        fill.color = 0xF20E1B2C.toInt()
+        fill.color = 0xF216161A.toInt()
         canvas.drawRoundRect(card, 22f, 22f, fill)
         stroke.color = C_ACCENT
         stroke.strokeWidth = 2.5f
@@ -376,7 +378,7 @@ class VrUiLayer(
         }
         if (feedback.steps > 1) {
             // 档位刻度只说明「只有这几档」，不再拿档号当填充长度。
-            stroke.color = 0x990E1B2C.toInt()
+            stroke.color = 0x9916161A.toInt()
             stroke.strokeWidth = 3f
             for (i in 1 until feedback.steps) {
                 val x = track.left + track.width() * i / feedback.steps
@@ -627,7 +629,7 @@ class VrUiLayer(
      */
     private fun drawAlignCountdown(cd: AlignCountdown) {
         val card = RectF(332f, 124f, 692f, 490f)
-        fill.color = 0xD90B1626.toInt()
+        fill.color = 0xD9101013.toInt()
         canvas.drawRoundRect(card, 24f, 24f, fill)
         stroke.color = C_BORDER
         stroke.strokeWidth = 2f
@@ -698,7 +700,7 @@ class VrUiLayer(
      */
     private fun drawPosturePrompt(state: VrUiState) {
         val card = RectF(140f, 92f, 884f, 420f)
-        fill.color = 0xF00B1626.toInt()
+        fill.color = 0xF0101013.toInt()
         canvas.drawRoundRect(card, 26f, 26f, fill)
         stroke.color = C_ACCENT
         stroke.strokeWidth = 2.5f
@@ -828,73 +830,127 @@ class VrUiLayer(
         )
     }
 
-    // ── 播放控制台（PRD 4.4：8 秒无操作淡出，控件位于视野下方） ────────
+    /**
+     * 播放控制台（V2.42 重做）。
+     *
+     * 旧版面是 40..984 × 300..500 的一块大板：10 段跳转 + 5 个文字运输键 +
+     * 7 个文字快捷 = **22 个凝视目标**，自己定的「单屏 ≤9」从来没满足过。
+     * 现在的规矩：
+     * 1. 收成一条 120px 高的胶囊，只占画面下缘 7.3°，不再压住半个屏；
+     * 2. 运输键全部换图标（⏮ ⏪ ⏸ ⏩ ⏭ 是通用符号，不需要中文）；
+     * 3. 其余六个入口（片库/正前方/格式/设置/退出/字幕）保留文字标签——
+     *    图标看不懂就点不动，而凝视没有「悬停提示」这条后路；
+     * 4. 跳转从 10 段降到 5 段（每段 20%），视觉上仍是一条连续的细线。
+     *
+     * 目标数 22 → 15，其中 10 个是 ≥66px（4.0°）的大目标。
+     */
     private fun drawPlayer(state: VrUiState) {
         // 字幕独立于控制台淡出：戴镜时控制台消失，字幕仍需可读。
         if (state.settings.subtitlesEnabled) {
             SubtitleParser.cueAt(state.subtitles, state.positionMs)?.let { drawSubtitle(it) }
         }
         if (!state.consoleVisible) {
-            // V2.14：这里原来常驻一行「低头或按触发键唤出控制台」。
-            // 控制台能自动淡出了，这行字就成了新的遮挡物，而且是错的——
-            // 「低头唤出」根本没实现，唤出只有触发键这一条路。整行删掉。
             return
         }
-        panel(RectF(40f, 300f, 984f, 500f))
-        small.textSize = 20f
-        small.color = C_ACCENT
-        canvas.drawText("自动识别 · " + state.format.label, W / 2f, 288f, small)
-        small.color = C_MUTED
 
-        val left = 80f
-        val segmentW = 86.4f
-        fill.color = C_BORDER
-        canvas.drawRoundRect(RectF(left, 322f, left + segmentW * 10, 344f), 8f, 8f, fill)
-        val played = if (state.durationMs > 0) {
-            state.positionMs.toFloat() / state.durationMs
+        val x0 = 60f
+        val y0 = 366f
+        val x1 = 964f
+        val y1 = 500f
+        fill.color = 0xF2101013.toInt()
+        canvas.drawRoundRect(RectF(x0, y0, x1, y1), 26f, 26f, fill)
+        stroke.color = 0xFF303036.toInt()
+        stroke.strokeWidth = 1.5f
+        canvas.drawRoundRect(RectF(x0, y0, x1, y1), 26f, 26f, stroke)
+
+        // 识别结果从「压在画面上的横幅」挪到左上角两行小字：它是状态，不是控件。
+        label(state.format.label, 26f, 30f, 16f, C_TEXT)
+        label("自动识别 · 需要时点「格式」改", 26f, 52f, 15f, C_DIM)
+
+        val barL = x0 + 26f
+        val barR = x1 - 26f
+        val barY = y0 + 44f
+        label(formatTime(state.positionMs), barL, y0 + 22f, 15f, C_MUTED)
+        label(formatTime(state.durationMs), barR, y0 + 22f, 15f, C_DIM, Paint.Align.RIGHT)
+
+        val played = if (state.durationMs > 0L) {
+            (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f)
         } else 0f
+        fill.color = 0xFF3A3A40.toInt()
+        canvas.drawRoundRect(RectF(barL, barY - 2f, barR, barY + 2f), 2f, 2f, fill)
+        if (played > 0f) {
+            fill.color = C_ACCENT
+            canvas.drawRoundRect(
+                RectF(barL, barY - 2f, barL + (barR - barL) * played, barY + 2f), 2f, 2f, fill
+            )
+        }
+        fill.color = 0xFFFFFFFF.toInt()
+        canvas.drawCircle(barL + (barR - barL) * played, barY, 6f, fill)
+
+        // 细线只是「看起来细」：命中区仍有 36px 高，否则凝视根本压不住。
+        val segW = (barR - barL) / 5f
+        for (i in 0 until 5) {
+            targets += GazeTarget(
+                "seek$i",
+                "跳到 ${(i + 1) * 20}%",
+                RectF(barL + i * segW, barY - 18f, barL + (i + 1) * segW, barY + 18f),
+                VrAction.SeekTo((i + 0.5f) / 5f)
+            )
+        }
+
+        val ty = 462f
+        val playX = 512f
+        transportButton("prev", "上一部", 352f, ty, Glyph.PREV, VrAction.Previous)
+        transportButton("rew", "后退 60 秒", 432f, ty, Glyph.REW30, VrAction.SeekBy(-60))
+        // 播放键是整条控制台唯一的强调色块：位置固定、形状固定，不用找。
         fill.color = C_ACCENT
-        canvas.drawRoundRect(RectF(left, 322f, left + segmentW * 10 * played.coerceIn(0f, 1f), 344f), 8f, 8f, fill)
-        // 10 个可凝视跳转区（PRD 4.4）
-        for (i in 0 until 10) {
-            val r = RectF(left + i * segmentW, 314f, left + (i + 1) * segmentW, 352f)
-            targets += GazeTarget("seek$i", "跳到 ${i * 10}%", r, VrAction.SeekTo((i + 0.5f) / 10f))
-        }
-
-        val labels = listOf("上一部", "-60s", if (state.playing) "暂停" else "播放", "+60s", "下一部")
-        val actions = listOf<VrAction>(
-            VrAction.Previous, VrAction.SeekBy(-60), VrAction.TogglePlay,
-            VrAction.SeekBy(60), VrAction.Next
+        canvas.drawCircle(playX, ty, 26f, fill)
+        glyph(
+            if (state.playing) Glyph.PAUSE else Glyph.PLAY,
+            playX, ty, 17f, 0xF0101013.toInt(), 3f
         )
-        labels.forEachIndexed { i, caption ->
-            val cx = 150f + i * 180f
-            button("transport$i", caption, RectF(cx - 70f, 368f, cx + 70f, 436f), actions[i], highlighted = i == 2)
-        }
-
-        // V2.8：设计文档第 394 行「任意界面一个动作回到片库」。
-        // 之前播放页只有「退出」，想回片库只能长按触发键——戴镜后看不见键盘提示，
-        // 等于没有出口。这里补一个明摆着的「片库」，语义就是已有的 VrAction.Back
-        // （存断点 → 暂停 → 回片库，并落回正在看的这一部所在的页）。
-        //
-        // V2.19：加「正前方」。这是姿态闭环唯一的明路——躺好再戴镜的人，
-        // 初始重定已经把正前方定成躺姿，自动检测永远不会触发，只能自己点。
-        val quick = listOf(
-            "片库" to VrAction.Back,
-            "正前方" to VrAction.AlignForward,
-            "格式" to VrAction.OpenFormat,
-            // V2.11：亮度是 3 档，一次跳一档（原来是 +10% 的连续值）。
-            "亮度" to VrAction.Adjust("brightness", 1),
-            "音量" to VrAction.Adjust("volume", 1),
-            "设置" to VrAction.OpenSettings,
-            "退出" to VrAction.Exit
+        targets += GazeTarget(
+            "transportPlay", if (state.playing) "暂停" else "播放",
+            RectF(playX - 33f, ty - 33f, playX + 33f, ty + 33f), VrAction.TogglePlay
         )
-        // 7 个按钮均分面板内部宽度（面板 40..984，左右各留 20），间隔 8px。
-        // 6 个时是 153px 间距，加到 7 个必须重算，否则最后一个会越出面板右边界。
-        val quickW = (904f - 6 * 8f) / 7f
-        quick.forEachIndexed { i, (caption, action) ->
-            val qx = 60f + i * (quickW + 8f)
-            button("quick$i", caption, RectF(qx, 448f, qx + quickW, 490f), action)
-        }
+        transportButton("fwd", "前进 60 秒", 592f, ty, Glyph.FWD30, VrAction.SeekBy(60))
+        transportButton("next", "下一部", 672f, ty, Glyph.NEXT, VrAction.Next)
+
+        // 左三右四：片库 / 正前方 ←→ 格式 / 设置 / 退出。字幕放到设置里，
+        // 控制台只留「看片时真要按的」，这是和旧版面 7 个快捷的取舍。
+        toolButton("tLib", "片库", 116f, Glyph.GRID, VrAction.Back)
+        toolButton("tFwd", "正前方", 190f, Glyph.CLOCK, VrAction.AlignForward)
+        toolButton("tFmt", "格式", 760f, Glyph.FRAME, VrAction.OpenFormat)
+        toolButton("tSet", "设置", 834f, Glyph.SLIDERS, VrAction.OpenSettings)
+        toolButton("tExit", "退出", 908f, Glyph.POWER, VrAction.Exit)
+    }
+
+    /** 运输键：只有图标，命中区 66×66px。 */
+    private fun transportButton(
+        id: String,
+        name: String,
+        cx: Float,
+        cy: Float,
+        kind: Glyph,
+        action: VrAction
+    ) {
+        targets += GazeTarget(id, name, RectF(cx - 33f, cy - 33f, cx + 33f, cy + 33f), action)
+        glyph(kind, cx, cy, 26f, C_TEXT, 3f)
+    }
+
+    /** 工具键：图标 + 15px 标签，命中区 66×62px。 */
+    private fun toolButton(
+        id: String,
+        name: String,
+        cx: Float,
+        kind: Glyph,
+        action: VrAction,
+        active: Boolean = false
+    ) {
+        targets += GazeTarget(id, name, RectF(cx - 33f, 436f, cx + 33f, 494f), action)
+        val color = if (active) C_ACCENT else C_TEXT
+        glyph(kind, cx, 454f, 22f, color, 2.4f)
+        label(name, cx, 492f, 15f, if (active) C_ACCENT else C_MUTED, Paint.Align.CENTER)
     }
 
     /** 字幕画在控制台上方，不与 300px 起的面板重叠；半透明底保证亮画面下可读。 */
@@ -904,7 +960,7 @@ class VrUiLayer(
         val widest = lines.maxOf { small.measureText(it) } + 56f
         val top = 196f
         val bottom = top + 20f + lines.size * 34f
-        fill.color = 0xDD08111E.toInt()
+        fill.color = 0xDD0A0A0C.toInt()
         canvas.drawRoundRect(
             RectF(W / 2f - widest / 2f, top, W / 2f + widest / 2f, bottom), 12f, 12f, fill
         )
@@ -940,72 +996,92 @@ class VrUiLayer(
         button("fmtBack", "返回", RectF(380f, 424f, 644f, 478f), VrAction.CloseOverlay)
     }
 
-    // ── 设置（PRD 4.4 / FR-12：全部可在戴镜状态完成，不出现键盘） ──────
+    /**
+     * 设置（V2.42 重做）。
+     *
+     * 旧版面是「− 值 +」四行 + 3×2 个「亮度 · 开」文字按钮，读起来像调试面板。
+     * 但 SKYBOX 那种 40px 高的 iOS 式列表行**在凝视下用不了**：40px 只有 2.4°，
+     * 压准都难，更别说停 600ms。所以这里取它的**视觉语言**（分组、卡片、右对齐值/开关），
+     * 但格子是 2 列 × 5 行、每格 336×68（20.3°×4.1°），一格一个目标。
+     */
     private fun drawSettings(state: VrUiState) {
-        panel(RectF(100f, 20f, 924f, 500f))
-        heading("设置", 62f)
+        panel(RectF(150f, 12f, 874f, 500f))
+        strongLabel("设置", 178f, 46f, 20f, C_TEXT)
+        label("凝视一格即可调整", 846f, 44f, 15f, C_DIM, Paint.Align.RIGHT)
+
         val s = state.settings
-        // V2.11：亮度 / 音量显示档位，不再显示百分比——
-        // 百分比会让人以为可以精确调到 43%，而实际只有 5 档 / 3 档。
         val volumeLevel = VrSettings.volumeStep(s.volume)
         val brightnessLevel = VrSettings.brightnessStep(s.brightness)
-        val rows = listOf(
-            Triple("亮度", VrSettings.BRIGHTNESS_LABELS[brightnessLevel], "brightness"),
-            Triple("音量", "${volumeLevel + 1} / ${VrSettings.VOLUME_STEPS.size}", "volume"),
-            // V2.33：值来自 0.5mm 单一真相源，显示到 0.1mm，别再显示整数 mm。
-            Triple("瞳距 IPD", VrSettings.ipdLabel(s.ipdHalfMm), "ipd"),
-            Triple("凝视时长", "${s.gazeDurationMs} ms", "gaze")
+
+        // 顺序按「看片时最可能改」排：亮度/音量在最前，瞳距在最下。
+        val cards = listOf(
+            CardSpec("亮度", VrSettings.BRIGHTNESS_LABELS[brightnessLevel], null, VrAction.Adjust("brightness", 1)),
+            CardSpec("音量", "${volumeLevel + 1} / ${VrSettings.VOLUME_STEPS.size}", null, VrAction.Adjust("volume", 1)),
+            CardSpec("画面上下", null, s.flipVertical, VrAction.ToggleOption("flipVertical")),
+            CardSpec("锁定视角", null, s.lockView, VrAction.ToggleOption("lockView")),
+            CardSpec("自动连播", null, s.autoNext, VrAction.ToggleOption("autoNext")),
+            CardSpec("自动淡出", null, s.autoFade, VrAction.ToggleOption("autoFade")),
+            CardSpec("字幕", null, s.subtitlesEnabled, VrAction.ToggleOption("subtitles")),
+            CardSpec("虚拟光标", null, s.cursorEnabled, VrAction.ToggleOption("cursor")),
+            CardSpec("瞳距 IPD", VrSettings.ipdLabel(s.ipdHalfMm), null, VrAction.Adjust("ipd", 1)),
+            CardSpec("凝视时长", "${s.gazeDurationMs} ms", null, VrAction.Adjust("gaze", 1))
         )
-        rows.forEachIndexed { i, (label, value, key) ->
-            val y = 84f + i * 48f
-            centerText("$label   $value", y + 28f, 22f, C_TEXT)
-            button("dec$i", "−", RectF(160f, y, 240f, y + 44f), VrAction.Adjust(key, -1))
-            button("inc$i", "+", RectF(784f, y, 864f, y + 44f), VrAction.Adjust(key, 1))
-        }
-        // V2.28：删掉「头部手势」与「重置正前方」。
-        // 前者一直误触发（点头自动确认格式、摇头自动翻页），后者是瞬跳 re-center，
-        // 按钮又在面板下方，凝视它的那一刻朝向直接被写成了新的正前方。
-        val toggles = listOf(
-            Triple("自动连播", s.autoNext, "autoNext"),
-            Triple("自动淡出", s.autoFade, "autoFade"),
-            Triple("锁定视角", s.lockView, "lockView"),
-            Triple("字幕", s.subtitlesEnabled, "subtitles"),
-            Triple("虚拟光标", s.cursorEnabled, "cursor"),
-            Triple("画面上下", s.flipVertical, "flipVertical")
-        )
-        toggles.forEachIndexed { i, (label, enabled, key) ->
-            val col = i % 3
-            val row = i / 3
-            val x = 110f + col * 270f
-            val y = 286f + row * 48f
-            val action: VrAction = VrAction.ToggleOption(key)
-            val isAction = false
-            button(
-                "toggle$i", label + if (isAction) "" else if (enabled) " · 开" else " · 关",
-                RectF(x, y, x + 250f, y + 46f), action,
-                highlighted = enabled && !isAction
+        cards.forEachIndexed { i, card ->
+            val col = i % 2
+            val row = i / 2
+            val left = 170f + col * 348f
+            val top = 58f + row * 74f
+            settingCard(
+                "set$i", card, RectF(left, top, left + 336f, top + 68f)
             )
         }
-        // V2.33 / B13：瞳距**必须戴着看左右两眼能不能合上**才调得准，而设置浮层
-        // 用 0xEE 面板铺满画布、一进去就把画面盖住了。所以这里给的不是又一对
-        // 精确小按钮，而是一个「边看边调」入口：关掉浮层、收起控制台、只留上方细条。
-        small.textSize = 17f
-        label(
-            ellipsize("瞳距要戴着看画面才调得准 · 边看边调不挡视频", 720f, small),
-            W / 2f, 416f, 17f, C_MUTED, Paint.Align.CENTER
-        )
-        button("clearMem", "清除格式记忆", RectF(110f, 438f, 380f, 490f), VrAction.ClearFormatMemory)
+
+        button("setBack", "返回", RectF(170f, 434f, 330f, 490f), VrAction.CloseOverlay)
         button(
             "ipdTune", "瞳距 · 边看边调",
-            RectF(392f, 438f, 632f, 490f), VrAction.StartIpdTuning,
+            RectF(350f, 434f, 672f, 490f), VrAction.StartIpdTuning,
             highlighted = true
         )
-        button("setBack", "返回", RectF(644f, 438f, 884f, 490f), VrAction.CloseOverlay)
+        button(
+            "clearMem", "清除格式记忆",
+            RectF(692f, 434f, 854f, 490f), VrAction.ClearFormatMemory
+        )
+    }
+
+    private data class CardSpec(
+        val title: String,
+        val value: String?,
+        val on: Boolean?,
+        val action: VrAction
+    )
+
+    /** 一格设置：左边名字、右边值或开关；整格就是一个凝视目标。 */
+    private fun settingCard(id: String, card: CardSpec, rect: RectF) {
+        targets += GazeTarget(id, card.title, RectF(rect), card.action)
+        fill.color = C_PANEL_HI
+        canvas.drawRoundRect(rect, 12f, 12f, fill)
+        label(card.title, rect.left + 18f, rect.centerY() + 6f, 16f, C_TEXT)
+        val value = card.value
+        val on = card.on
+        if (on != null) {
+            val pillLeft = rect.right - 18f - 46f
+            fill.color = if (on) C_ACCENT else 0xFF3A3A40.toInt()
+            canvas.drawRoundRect(
+                RectF(pillLeft, rect.centerY() - 10f, pillLeft + 46f, rect.centerY() + 10f),
+                10f, 10f, fill
+            )
+            fill.color = if (on) 0xFF101013.toInt() else 0xFF9E9EA6.toInt()
+            canvas.drawCircle(
+                if (on) pillLeft + 36f else pillLeft + 10f, rect.centerY(), 7f, fill
+            )
+        } else if (value != null) {
+            label(value, rect.right - 18f, rect.centerY() + 6f, 16f, C_MUTED, Paint.Align.RIGHT)
+        }
     }
 
     // ── 绘制辅助 ───────────────────────────────────────────────────────
     private fun panel(rect: RectF) {
-        fill.color = 0xEE0B1626.toInt()
+        fill.color = 0xEE131316.toInt()
         canvas.drawRoundRect(rect, 24f, 24f, fill)
         stroke.color = C_BORDER
         stroke.strokeWidth = 2f
@@ -1106,7 +1182,7 @@ class VrUiLayer(
             // 所以角标整体上移、日期行随之下移，两者纵向彻底分开。
             small.textSize = 17f
             val width = small.measureText(badge) + 18f
-            fill.color = 0xE612283F.toInt()
+            fill.color = 0xE62A2A2F.toInt()
             canvas.drawRoundRect(
                 RectF(
                     rect.right - 10f - width, rect.top + 4f,
@@ -1308,7 +1384,11 @@ class VrUiLayer(
      * 但纸盒上只有凝视可用，图标不能真的画成 40px 的小东西——那样根本瞄不中。
      * 所以做法是：**图标画小，命中区不缩小**，按钮框仍是 96×66px（约 5.8°×4.3°）。
      */
-    private enum class Glyph { CHEVRON_LEFT, CHEVRON_RIGHT, GEAR, POWER }
+    private enum class Glyph {
+        CHEVRON_LEFT, CHEVRON_RIGHT, GEAR, POWER,
+        // V2.42：控制台要全是图标，光靠上面四个不够——文字按钮是这块「简陋」的主因。
+        GRID, CLOCK, CC, FRAME, PLAY, PAUSE, PREV, NEXT, REW30, FWD30, MORE, SLIDERS
+    }
 
     private fun iconButton(
         id: String,
@@ -1325,50 +1405,174 @@ class VrUiLayer(
         stroke.strokeWidth = 2f
         canvas.drawRoundRect(rect, 16f, 16f, stroke)
 
-        val color = if (dimmed) 0x66EAF2FA else C_TEXT
-        val cx = rect.centerX()
-        val cy = rect.centerY()
-        stroke.color = color
-        stroke.strokeWidth = 4f
-        stroke.strokeCap = Paint.Cap.ROUND
-        when (glyph) {
-            Glyph.CHEVRON_LEFT -> canvas.drawPath(
-                Path().apply {
-                    moveTo(cx + 8f, cy - 14f); lineTo(cx - 8f, cy); lineTo(cx + 8f, cy + 14f)
-                },
-                stroke
-            )
-            Glyph.CHEVRON_RIGHT -> canvas.drawPath(
-                Path().apply {
-                    moveTo(cx - 8f, cy - 14f); lineTo(cx + 8f, cy); lineTo(cx - 8f, cy + 14f)
-                },
-                stroke
-            )
-            Glyph.GEAR -> {
-                // 齿轮：粗环 + 8 颗短而粗的齿。齿细长会看成太阳，和「亮度」撞车。
-                canvas.drawCircle(cx, cy, 9f, stroke)
-                stroke.strokeWidth = 7f
-                for (i in 0 until 8) {
-                    val angle = i * PI / 4.0
-                    canvas.drawLine(
-                        cx + (cos(angle) * 12f).toFloat(), cy + (sin(angle) * 12f).toFloat(),
-                        cx + (cos(angle) * 17f).toFloat(), cy + (sin(angle) * 17f).toFloat(),
-                        stroke
-                    )
-                }
-                stroke.strokeWidth = 4f
-            }
-            Glyph.POWER -> {
-                canvas.drawArc(
-                    RectF(cx - 13f, cy - 13f, cx + 13f, cy + 13f), -58f, 296f, false, stroke
-                )
-                canvas.drawLine(cx, cy - 19f, cx, cy - 1f, stroke)
-            }
-        }
+        val color = if (dimmed) 0x66F2F2F3 else C_TEXT
+        glyph(glyph, rect.centerX(), rect.centerY(), 30f, color, 4f)
         stroke.strokeCap = Paint.Cap.BUTT
         stroke.color = C_BORDER
         stroke.strokeWidth = 2f
     }
+
+
+    /**
+     * 统一图标绘制（V2.42）。
+     *
+     * 约定：`u/v` 是**图标单位**（−1..1，u 向右、v 向下），乘 `s` 之后才是画布像素。
+     * 之前这里踩过 `(cx - 0.55) * s * S` 这种把画布坐标和图标单位乘到一起的坑，
+     * 结果是图标整个缩到中心、看起来像"没画"。所有分支只准通过 p() 取值。
+     */
+    private fun glyph(kind: Glyph, cx: Float, cy: Float, size: Float, color: Int, lw: Float = 2.4f) {
+        val s = size / 2f
+        stroke.color = color
+        stroke.strokeWidth = lw
+        stroke.strokeCap = Paint.Cap.ROUND
+        stroke.strokeJoin = Paint.Join.ROUND
+        fill.color = color
+
+        fun ux(u: Float) = cx + u * s
+        fun uy(v: Float) = cy + v * s
+
+        fun line(vararg uv: Float) {
+            val path = Path()
+            path.moveTo(ux(uv[0]), uy(uv[1]))
+            var i = 2
+            while (i + 1 < uv.size) {
+                path.lineTo(ux(uv[i]), uy(uv[i + 1]))
+                i += 2
+            }
+            canvas.drawPath(path, stroke)
+        }
+
+        fun shape(vararg uv: Float) {
+            val path = Path()
+            path.moveTo(ux(uv[0]), uy(uv[1]))
+            var i = 2
+            while (i + 1 < uv.size) {
+                path.lineTo(ux(uv[i]), uy(uv[i + 1]))
+                i += 2
+            }
+            path.close()
+            canvas.drawPath(path, fill)
+        }
+
+        fun box(u0: Float, v0: Float, u1: Float, v1: Float, r: Float = 0f, filled: Boolean = true) {
+            val rect = RectF(ux(u0), uy(v0), ux(u1), uy(v1))
+            if (filled) canvas.drawRoundRect(rect, r * s, r * s, fill)
+            else canvas.drawRoundRect(rect, r * s, r * s, stroke)
+        }
+
+        fun circle(r: Float, filled: Boolean = false) {
+            if (filled) canvas.drawCircle(cx, cy, r * s, fill) else canvas.drawCircle(cx, cy, r * s, stroke)
+        }
+
+        // 弧末端的开口箭头：切向由角度直接算，顺时针 (−sin, cos)、逆时针取反。
+        // 不手动摆角度——镜像时必反。
+        fun head(angleDeg: Float, r: Float, dir: Float) {
+            val a = Math.toRadians(angleDeg.toDouble())
+            val tx = -Math.sin(a).toFloat() * dir
+            val ty = Math.cos(a).toFloat() * dir
+            val tipU = Math.cos(a).toFloat() * r
+            val tipV = Math.sin(a).toFloat() * r
+            val bx = tipU - tx * 0.42f
+            val by = tipV - ty * 0.42f
+            val half = 0.46f
+            val arrow = Path()
+            arrow.moveTo(ux(tipU), uy(tipV))
+            arrow.lineTo(ux(bx - ty * half), uy(by + tx * half))
+            arrow.moveTo(ux(tipU), uy(tipV))
+            arrow.lineTo(ux(bx + ty * half), uy(by - tx * half))
+            canvas.drawPath(arrow, stroke)
+        }
+
+        when (kind) {
+            Glyph.CHEVRON_LEFT -> line(0.25f, -0.5f, -0.3f, 0f, 0.25f, 0.5f)
+            Glyph.CHEVRON_RIGHT -> line(-0.25f, -0.5f, 0.3f, 0f, -0.25f, 0.5f)
+            Glyph.GEAR -> {
+                // 齿轮：细环 + 8 颗短齿。齿细长会看成太阳，和「亮度」撞车（V2.13 的老问题）。
+                circle(0.34f)
+                val tooth = lw * 1.4f
+                stroke.strokeWidth = tooth
+                for (i in 0 until 8) {
+                    val a = i * PI / 4.0
+                    canvas.drawLine(
+                        ux((cos(a) * 0.52).toFloat()), uy((sin(a) * 0.52).toFloat()),
+                        ux((cos(a) * 0.86).toFloat()), uy((sin(a) * 0.86).toFloat()), stroke
+                    )
+                }
+                stroke.strokeWidth = lw
+            }
+            Glyph.POWER -> {
+                canvas.drawArc(
+                    RectF(ux(-0.72f), uy(-0.72f), ux(0.72f), uy(0.72f)), -58f, 296f, false, stroke
+                )
+                line(0f, -0.9f, 0f, -0.05f)
+            }
+            Glyph.GRID -> {
+                // 2×2 小方块：描边必须比格子窄一大截，否则 22px 下四个格子糊成四个点。
+                stroke.strokeWidth = lw * 0.72f
+                for (du in floatArrayOf(-1f, 1f)) {
+                    for (dv in floatArrayOf(-1f, 1f)) {
+                        val c = 0.44f
+                        box(du * c - 0.34f, dv * c - 0.34f, du * c + 0.34f, dv * c + 0.34f, 0.12f, false)
+                    }
+                }
+                stroke.strokeWidth = lw
+            }
+            Glyph.CLOCK -> {
+                circle(0.8f)
+                line(0f, 0f, 0f, -0.5f)
+                line(0f, 0f, 0.4f, 0.18f)
+            }
+            Glyph.CC -> {
+                box(-0.92f, -0.55f, 0.92f, 0.55f, 0.16f, false)
+                line(-0.6f, 0.06f, -0.34f, 0.06f)
+                line(0.16f, 0.06f, 0.56f, 0.06f)
+            }
+            Glyph.FRAME -> {
+                box(-0.86f, -0.6f, 0.86f, 0.6f, 0.12f, false)
+                line(-0.86f, -0.12f, 0.86f, -0.12f)
+            }
+            Glyph.PLAY -> shape(-0.5f, -0.85f, -0.5f, 0.85f, 0.95f, 0f)
+            Glyph.PAUSE -> {
+                box(-0.62f, -0.8f, -0.16f, 0.8f, 0.08f)
+                box(0.16f, -0.8f, 0.62f, 0.8f, 0.08f)
+            }
+            Glyph.PREV -> {
+                box(-0.9f, -0.7f, -0.6f, 0.7f, 0.08f)
+                shape(0.8f, -0.7f, 0.8f, 0.7f, -0.4f, 0f)
+            }
+            Glyph.NEXT -> {
+                box(0.6f, -0.7f, 0.9f, 0.7f, 0.08f)
+                shape(-0.8f, -0.7f, -0.8f, 0.7f, 0.4f, 0f)
+            }
+            Glyph.REW30, Glyph.FWD30 -> {
+                // 3/4 圈箭头。之前画的是 110° 的小半圆 + 一个三角，
+                // 缩到 26px 就成了一个逗号——图标在真机上必须按最终尺寸验。
+                val cw = kind == Glyph.FWD30
+                val start = if (cw) 60f else 300f
+                val sweep = if (cw) 260f else -260f
+                canvas.drawArc(
+                    RectF(ux(-0.72f), uy(-0.72f), ux(0.72f), uy(0.72f)), start, sweep, false, stroke
+                )
+                head(start + sweep, 0.72f, if (cw) 1f else -1f)
+            }
+            Glyph.SLIDERS -> {
+                // 设置用「滑杆」而不是齿轮：齿轮 8 颗齿缩到 22px 就成太阳，
+                // 和「亮度」撞车（V2.13 已经踩过）。滑杆在任何尺寸都是「可调」。
+                val us = floatArrayOf(-0.3f, 0.28f, -0.08f)
+                for (i in 0 until 3) {
+                    val v = -0.58f + i * 0.58f
+                    line(-0.78f, v, 0.78f, v)
+                    canvas.drawCircle(ux(us[i]), uy(v), 0.19f * s, fill)
+                }
+            }
+            Glyph.MORE -> {
+                for (i in -1..1) canvas.drawCircle(ux(i * 0.5f), cy, 0.13f * s, fill)
+            }
+        }
+        stroke.strokeCap = Paint.Cap.BUTT
+        stroke.strokeJoin = Paint.Join.MITER
+    }
+
 
     // ── 文件名 → 人能读的身份（V2.13） ───────────────────────────────
     private data class Stamp(val date: String, val time: String)
