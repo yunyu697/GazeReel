@@ -9,7 +9,6 @@ import com.gazereel.vr.core.DistortionComposer
 import com.gazereel.vr.core.Eye
 import com.gazereel.vr.core.EyeParams
 import com.gazereel.vr.core.Optics
-import com.gazereel.vr.core.PoseMath
 import com.gazereel.vr.core.RotationBlend
 import com.gazereel.vr.core.TriggerEvent
 import com.gazereel.vr.core.TriggerKind
@@ -184,23 +183,6 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
         triggerListener?.invoke(TriggerEvent(kind, SystemClock.elapsedRealtime()))
     }
 
-    /**
-     * V2.39：俯仰反向。
-     *
-     * V2.37 只在 SensorHeadsetProvider 上实现了它，接口这里是默认空实现——
-     * 一旦哪天真的走 SDK 路径（`sdkActive = true`），开关就会静默失效。
-     * 现在两件事都做：转发给 fallback，并在自己的姿态上同样套一次。
-     */
-    @Volatile
-    private var flipPitch = false
-
-    override fun setFlipPitch(enabled: Boolean) {
-        flipPitch = enabled
-        fallback.setFlipPitch(enabled)
-    }
-
-    override fun isFlipPitch(): Boolean = flipPitch
-
     override fun headRotation(): FloatArray {
         if (viewLocked) return synchronized(lock) { frozen.copyOf() }
         if (!ready) return fallback.headRotation()
@@ -362,8 +344,6 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
         // SDK 输出 = head view（世界 → 头）；工程接口要 pose（设备 → 世界）→ 转置 3×3。
         val pose = FloatArray(16)
         transposeRotation(headView, pose)
-        // V2.39：SDK 路径也要吃这个开关，否则「换条路就静默失效」。
-        if (flipPitch) System.arraycopy(PoseMath.flipPitch(pose), 0, pose, 0, 16)
         var established = false
         var stableMs = 0L
         synchronized(lock) {

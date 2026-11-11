@@ -12,7 +12,6 @@ import android.view.WindowManager
 import com.gazereel.vr.core.Eye
 import com.gazereel.vr.core.EyeParams
 import com.gazereel.vr.core.Optics
-import com.gazereel.vr.core.PoseMath
 import com.gazereel.vr.core.PoseTrace
 import com.gazereel.vr.core.RotationBlend
 import com.gazereel.vr.core.TriggerEvent
@@ -57,28 +56,6 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     private var viewLocked = false
     private val frozen = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
 
-    /** V2.37：俯仰反向开关（真机现场校准用，见 [flipPitchOf]）。 */
-    @Volatile
-    private var flipPitch = false
-
-    /** V2.39：翻转后需要在下一帧重定（见 [setFlipPitch]）。 */
-    @Volatile
-    private var pendingFlipRecenter = false
-
-    /**
-     * V2.39：开关一变，就在**下一帧姿态生效之后**重定一次。
-     *
-     * 不能在这里直接 recenter()：`rotation` 还是上一帧（未翻转）的姿态，
-     * 拿它算出来的参考系与随后的翻转姿态对不上，用户会看到画面纵向跳一下。
-     * 所以只置一个待办，由传感器线程在写完新姿态的那一帧里就地重定。
-     */
-    override fun setFlipPitch(enabled: Boolean) {
-        if (flipPitch == enabled) return
-        flipPitch = enabled
-        pendingFlipRecenter = true
-    }
-
-    override fun isFlipPitch(): Boolean = flipPitch
 
     // V2.19 / B5：缓转重定基准。起点/终点都是「参考系偏移」，中间走球面插值。
     private var easing = false
@@ -330,19 +307,13 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         val deviceToWorld = FloatArray(9)
         SensorManager.getRotationMatrixFromVector(deviceToWorld, event.values)
         val screenPose = screenPoseOf(deviceToWorld)
-        val matrix = if (flipPitch) flipPitchOf(screenPose) else screenPose
+        val matrix = screenPose
         val crossLen = lastCrossLen
         val branch = lastBranch
         // 参考系的「上」= 偏移矩阵作用在世界天顶上，即它的第三列。
         val refUp = FloatArray(3)
         synchronized(lock) {
             System.arraycopy(matrix, 0, rotation, 0, 16)
-            // V2.39：翻转刚生效的这一帧就地重定，避免纵向跳一下。
-            if (pendingFlipRecenter) {
-                pendingFlipRecenter = false
-                recenterLocked()
-                RunLog.append("pose", "俯仰反向已切换 · 已按新约定重定基准")
-            }
             if (pendingInitialRecenter) {
                 val now = SystemClock.elapsedRealtime()
                 val still = hasLastRawPose && poseDelta(matrix, lastRawPose) < STILL_RAD
@@ -430,19 +401,6 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         lastBranch = 1
         return out
     }
-
-    /**
-     * V2.37 / V2.39：只把**俯仰**取反，偏航与横滚原样保留。
-     *
-     * 真机（2026-11-11）：「抬头整个视频画面应该下移才能看到天花板，低头画面上移
-     * 才能看到地板，现在是反的；左右正常。」——画面没倒、左右没反，只有俯仰反。
-     *
-     * V2.39 把这段数学搬进 `core/PoseMath`：不依赖 `android.opengl`，于是能在 JVM 上
-     * 用 `tools/run-pose-check.sh` 逐例验「俯仰精确反号、偏航横滚一位不差」。
-     * V2.37 用 `Matrix.rotateM` 拼的那一版在真机上「打开开关没有任何变化」，
-     * 而那条路径在开发机上跑不了，只能推演——不再靠推演。
-     */
-    private fun flipPitchOf(c: FloatArray): FloatArray = PoseMath.flipPitch(c)
 
     /**
      * 屏幕坐标 → 设备坐标，按 `Display.getRotation()`。

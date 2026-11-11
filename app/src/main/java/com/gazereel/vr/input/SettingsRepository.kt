@@ -24,13 +24,13 @@ class SettingsRepository(context: Context) {
         // 首次读到旧值时 ×2 迁到半毫米，并夹进合法范围；新值一律走 `ipd_half_mm`。
         ipdHalfMm = prefs.getInt("ipd_half_mm", legacyIpdHalf()),
         consoleTimeoutMs = 8_000L,
+        // V2.41：球面画面上下翻转。视频纹理的 v 方向与球面网格差一个号时，表现就是
+        // 「抬头看到地板、低头看到天花板」，而左右与画面本身都是正的——这一项只改
+        // 内容采样、不碰姿态，所以不可能再出现「一动头画面就转」。
+        flipVertical = prefs.getBoolean("flip_vertical", false),
         lockView = prefs.getBoolean("lock_view", false),
         subtitlesEnabled = prefs.getBoolean("subtitles", true),
         cursorEnabled = prefs.getBoolean("cursor", true),
-        flipPitch = prefs.getBoolean("flip_pitch", false),
-        // V2.39：方向自检问过一次就不再问；老安装视为「没问过」，
-        // 升级后第一次播放会主动问一次——那正是这次要修的「没人知道有这个开关」。
-        pitchChecked = prefs.getBoolean("pitch_checked", false),
         // V2.38：旧安装没有这一项，默认 10 秒；读到的值一律夹进合法范围，
         // 免得某次写坏了（0 秒 / 999 秒）让倒计时变成「立刻定」或「永远不定」。
         alignCountdownMs = prefs.getLong("align_countdown_ms", 10_000L).coerceIn(
@@ -61,8 +61,7 @@ class SettingsRepository(context: Context) {
             .putBoolean("lock_view", next.lockView)
             .putBoolean("subtitles", next.subtitlesEnabled)
             .putBoolean("cursor", next.cursorEnabled)
-            .putBoolean("flip_pitch", next.flipPitch)
-            .putBoolean("pitch_checked", next.pitchChecked)
+            .putBoolean("flip_vertical", next.flipVertical)
             .putLong("align_countdown_ms", next.alignCountdownMs)
             .apply()
         return next

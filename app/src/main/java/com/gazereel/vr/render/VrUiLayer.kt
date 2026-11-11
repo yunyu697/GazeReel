@@ -219,14 +219,10 @@ class VrUiLayer(
         // 此时用户正在靠转头摆姿态，任何可点的东西都会被顺眼扫到。
         val countdown = state.alignCountdown
         val postureUp = state.gazeArmed && state.postureCandidate != null
-        // V2.39：方向自检卡与姿态确认卡同级——都是一次性的打断，都独占画布。
-        val pitchUp = state.gazeArmed && state.pitchCheck
         if (countdown != null) {
             drawAlignCountdown(countdown)
         } else if (postureUp) {
             drawPosturePrompt(state)
-        } else if (pitchUp) {
-            drawPitchCheck()
         } else {
             when (state.overlay) {
                 VrOverlay.FORMAT -> drawFormat(state)
@@ -748,43 +744,6 @@ class VrUiLayer(
         label("按一下触发键也行 · 不按就走完收起", 856f, 408f, 17f, C_MUTED, Paint.Align.RIGHT)
     }
 
-    /**
-     * V2.39：方向自检卡。
-     *
-     * 一句话说清要做什么：抬头，然后告诉 App 看到的是天花板还是地板。
-     * 为什么值得占用一次打断：上一版把同一件事做成了手机设置里的一个开关，
-     * 结果是「和原来一样，没有任何变化」——问题不在开关本身，在没有人在那个位置找它。
-     */
-    private fun drawPitchCheck() {
-        val card = RectF(140f, 76f, 884f, 404f)
-        fill.color = 0xF00B1626.toInt()
-        canvas.drawRoundRect(card, 26f, 26f, fill)
-        stroke.color = C_ACCENT
-        stroke.strokeWidth = 2.5f
-        canvas.drawRoundRect(card, 26f, 26f, stroke)
-
-        heading("抬头看一下：画面里是什么？", 142f)
-        centerText("把头往上抬 30° 左右，像平时看天花板那样。画面里应该是天花板 / 天空。", 186f, 20f, C_MUTED)
-        centerText("如果看到的是地板 / 地面，说明上下方向反了，选右边那一项。", 216f, 20f, C_MUTED)
-
-        // 与姿态卡同一套位置：两按钮对称，中间留 32px（496–528）缝，
-        // 准星静止时压不到任何一个。
-        button(
-            "pitchNormal", "是天花板",
-            RectF(168f, 244f, 496f, 352f), VrAction.PitchIsNormal,
-            highlighted = true, sub = "保持现状"
-        )
-        button(
-            "pitchFlip", "是地板 · 反了",
-            RectF(528f, 244f, 856f, 352f), VrAction.PitchIsFlipped,
-            sub = "立刻上下翻转"
-        )
-
-        small.textSize = 17f
-        label("只问这一次 · 之后可在手机「设置 → 画面上下方向」里改", 856f, 384f, 17f, C_MUTED, Paint.Align.RIGHT)
-        small.textSize = 18f
-    }
-
     // ── 柜子层（V2.18 / B2）────────────────────────────────────────────
     /**
      * 换柜子整层：一屏摆出全部片源，凝视一次换整柜。
@@ -1012,18 +971,15 @@ class VrUiLayer(
             Triple("锁定视角", s.lockView, "lockView"),
             Triple("字幕", s.subtitlesEnabled, "subtitles"),
             Triple("虚拟光标", s.cursorEnabled, "cursor"),
-            Triple("挪到这里", false, "align")
+            Triple("画面上下", s.flipVertical, "flipVertical")
         )
         toggles.forEachIndexed { i, (label, enabled, key) ->
             val col = i % 3
             val row = i / 3
             val x = 110f + col * 270f
             val y = 286f + row * 48f
-            val action: VrAction = when (key) {
-                "align" -> VrAction.AlignForward
-                else -> VrAction.ToggleOption(key)
-            }
-            val isAction = key == "align"
+            val action: VrAction = VrAction.ToggleOption(key)
+            val isAction = false
             button(
                 "toggle$i", label + if (isAction) "" else if (enabled) " · 开" else " · 关",
                 RectF(x, y, x + 250f, y + 46f), action,

@@ -797,28 +797,20 @@ class SetupActivity : AppCompatActivity() {
         view.ipdPlus.setOnClickListener { apply(half + VrSettings.IPD_FINE_HALF) }
         view.ipdReset.setOnClickListener { apply(VrSettings.IPD_DEFAULT_HALF) }
 
-        // V2.37：俯仰反向。和瞳距一样走 SettingsRepository，
-        // VrActivity.onCreate 会重新 new 一份并在建 headset 时下发，不用重启。
-        val flip = repo.current.flipPitch
-        view.flipSwitch.isChecked = flip
+        // V2.41：画面上下翻转。**不再是姿态开关**——姿态那条路已经整段删除，
+        // 因为它物理上做不到（「只反俯仰」是镜像不是旋转，一动头画面就转）。
+        // 这里改的是球面采样，戴上之后也能在 VR 控制台「设置 → 画面上下」当场拨。
+        val flipV = repo.current.flipVertical
+        view.flipSwitch.isChecked = flipV
         view.flipSwitch.text = getString(
-            if (flip) R.string.settings_flip_on else R.string.settings_flip_off
+            if (flipV) R.string.settings_flip_on else R.string.settings_flip_off
         )
         view.flipSwitch.setOnCheckedChangeListener { _, checked ->
-            repo.update { it.copy(flipPitch = checked) }
+            repo.update { it.copy(flipVertical = checked) }
             view.flipSwitch.text = getString(
                 if (checked) R.string.settings_flip_on else R.string.settings_flip_off
             )
-            RunLog.append("pose", "俯仰方向 · ${if (checked) "上下反向" else "正常"}")
-        }
-
-        // V2.39：自检只在「第一次播放」问一次，答错了得能重来。
-        // 这里清掉已问标记，下次播放会再问一次——比让用户自己去猜方向靠得住。
-        view.pitchRecheck.setOnClickListener {
-            repo.update { it.copy(pitchChecked = false) }
-            RunLog.append("pose", "重新自检 · 下次播放时再问一次方向")
-            view.pitchRecheck.text = getString(R.string.settings_pitch_recheck_done)
-            view.pitchRecheck.isEnabled = false
+            RunLog.append("pose", "球面上下翻转 · ${if (checked) "开" else "关"}")
         }
 
         view.settingsDone.setOnClickListener { dialog.dismiss() }

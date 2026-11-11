@@ -220,15 +220,15 @@ class VrActivity : AppCompatActivity() {
         // V2.30：头追整体交给官方 Cardboard SDK（EKF 融合、陀螺零偏估计、50ms 姿态预测、
         // 显示空间旋转补偿、neck model）。手写 TYPE_ROTATION_VECTOR 链路一件都没有，
         // 这是「转头拖尾 / 平躺慢慢歪 / 方向反」的根源。缺 AAR 或缺 native so 时自动降级。
-        headset = createHeadset().also { it.setFlipPitch(settings.current.flipPitch) }
+        headset = createHeadset()
         // V2.39：把「实际生效」的两项写进日志。
-        // V2.37 的开关在真机上「打开后没有任何变化」，而日志里查不到它到底有没有被打开过——
-        // 一个查不到的开关等于没有这个开关。瞳距同理：记下每眼光轴位移了几度。
+        // V2.41：俯仰翻转那条路已整段删除（见 PoseMath 与 ProjectionMesh 的注释）。
+        // 这里改为记录「实际生效」的两件事：哪条头追路径、球面 v 方向。
         run {
             val s = settings.current
             RunLog.append(
                 this, "pose",
-                "mode=$bootMode · 俯仰反向=${if (headset.isFlipPitch()) "开" else "关"}" +
+                "mode=$bootMode · 球面上下翻转=${if (s.flipVertical) "开" else "关"}" +
                     " · 瞳距 ${VrSettings.ipdLabel(s.ipdHalfMm)}" +
                     "（每眼光轴位移 ${"%.1f".format(Optics.lensShiftDeg(s.ipdMm))}°）"
             )

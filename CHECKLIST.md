@@ -11,9 +11,9 @@
 >    `[设计]` 只有设计、代码没动 · `[已实现]` 代码改了、编译过 · `[真机]` 用户在真机上确认过 · `[回归]` 曾经可用、后来坏了
 > 5. **动任何功能前先核查成熟方案**（官方 SDK / 平台 API / 成熟库 / 行业标准），结论写进《附录 · 成熟方案核查》；自研只做成熟方案不覆盖的那部分，并在裁决记录里写清边界。
 >
-> 最后更新：V2.40 / 1.1.0-alpha27（2026-11-11 晚，**抽帧判布局整条链路删除**：它时对时错，一错就是「正对接缝被当成 360」。识别只剩文件名 > 元数据 > 几何三条确定性判据）
+> 最后更新：V2.41 / 1.1.0-alpha28（2026-11-11 深夜，**「俯仰反向」开关整段删除**——它在数学上就不可能是对的；同时把两个商业播放器（VRTV / SourceVR）拆开核对，确认它们的头追全部来自 Google VR SDK，而我们的 SDK 从来没起来过）
 >
-> **当前基线**：`V2.40 / 1.1.0-alpha27`（上一版 `b881927` / alpha26）；产物 `GazeReel-1.1.0-alpha27.apk`（**未上真机**）。这一版是**减法**：删掉 340 行会「时对时错」的像素判据，换成可断言的确定性规则，**先看「本轮新增（alpha27）」再上机**。
+> **当前基线**：`V2.41 / 1.1.0-alpha28`（上一版 `fc424e2` / alpha27）；产物 `GazeReel-1.1.0-alpha28.apk`（**未上真机**）。这一版继续做减法：删掉「俯仰反向」这条**物理上不成立**的修法（它是镜像不是旋转，真机表现就是「点一下之后抬头低头画面在转」），改为内容侧的球面上下翻转（VR 内可当场拨）；并核清两个参照 App 用的是哪套 SDK。**先看「本轮新增（alpha28）」再上机**。
 
 ---
 
@@ -116,7 +116,63 @@
 
 ## 已知未验证（真机一跑就可能翻案）
 
-**总口径**：当前代码 `V2.40 / 1.1.0-alpha27`。alpha4–alpha27 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+**总口径**：当前代码 `V2.41 / 1.1.0-alpha28`。alpha4–alpha28 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+
+### 本轮新增（alpha28 / V2.41，一次真机都没跑）
+
+**一、把「俯仰反向」整段删掉——它不是「实现得不好」，是「不可能对」**
+
+- 真机原话：「你这个开关做得更是个垃圾，本来只是方向反了，我点了一下反了，结果抬头低头画面在旋转。」
+- 为什么必然如此：「只把俯仰取反、偏航与横滚不动」这一步**关于水平面是镜像**（det = −1），不是旋转。
+  拿分解重建去伪造它，数学上等价于让**整个世界绕视线的横滚轴转 2 倍俯仰角**：
+  `Cᵀ·C' = Rz(−r)·Rx(2p)·Rz(r)`。俯仰 p 越大，画面越歪；只要头有一点横滚 r，就表现为「画面在转」。
+- 顺带查到了 V2.37 那版「打开没有任何变化」的真正原因：`yawPitchRollDeg` 里 `yaw = −atan2(gx,−gz)`，
+  而重建用的是 `rotY(yaw)`——**一个负号对不上**，残余横滚把 2 倍偏航吸了进去。
+  这一处已改成与 `gazeYawDeg` 完全一致（向右为正），并用往返断言锁住。
+- 删除清单：`PoseMath.flipPitch`、`VrHeadsetProvider.setFlipPitch/isFlipPitch`、
+  两个 Provider 里的字段与分支、`VrActivity` 的下发、设置里的 `flip_pitch`/`pitch_checked`、
+  `VrUiState.flipPitch/pitchCheck/pitchChecked`、`VrCoordinator.maybeAskPitchCheck/finishPitchCheck`、
+  `VrAction.PitchIsNormal/PitchIsFlipped`、`VrUiLayer.drawPitchCheck`、设置对话框里的开关与「重新自检」。
+
+**二、两个参照 App 拆包核对（这是本轮唯一「不用猜」的部分）**
+
+| | VRTV 4.1.0 | SourceVR 0.2.3.3 |
+|---|---|---|
+| 头追 | `libgvr.so`（arm64 + armv7）+ `com.google.vr.ndk.base.GvrApi` / `GvrLayout` / `CardboardViewNativeImpl` | 同左（2019 年 Daydream 版，带 `libOVRPlugin`、ijkplayer、`libSkyBoxMediaMetadataRetriever`） |
+| 畸变 / 镜片 | 全部走 SDK：`pref_lensSpacing` / `pref_lensVertDist` / `pref_DisableDist` / `pref_orientationProvider`（RotationVector vs Improved） | 同上，`GvrViewerParams` + `ScreenParams` |
+| 立体识别 | 手选 + 记住 | 读容器 `METADATA_KEY_VIDEO_GOOGLE_STEREO3D_TYPE`、`MEDIA_INFO_VIDEO_ROTATION_CHANGED` |
+
+- 结论一：**两家都没有「俯仰反向」这种东西**。方向在他们的架构里不是可选项，因为姿态来自 SDK 的 EKF。
+- 结论二：我们能直接拿来用的就是**同一套 Google VR SDK**，而且工程里已经躺着一份（`app/libs/cardboard-sdk.aar`）。
+- 结论三（关键，凭证据）：**这份 AAR 装不起来，从来就没起来过**。
+  - `Initialize` 的静态块是 `System.loadLibrary("cardboard_sdk_jni")`；
+  - AAR 里只有 `libGfxPluginCardboard.so`，动态符号表里全是 `CardboardHeadTracker_create` / `Cardboard_initializeAndroid` 这类 **C API**，
+    Java 侧需要的 `Java_com_google_cardboard_sdk_Initialize_nativeInitialize`、`HeadTracker_nativeHeadTrackerCreate` **一个都没有**；
+  - 也就是说它构建的是 **Unity 插件的 C-API 版**，不是 Java `sdk` 模块。
+  - 于是 `Initialize.initialize()` 抛 `UnsatisfiedLinkError` → `sdkActive=false` → 永远回退手写传感器链路。
+  - VRTV 的 `libgvr.so` 也救不了：它导出的是 `Java_com_google_vr_ndk_base_GvrApi_*`（120 个），属于老 Daydream API，与 `com.google.cardboard.sdk.*` 不兼容。
+
+**三、这一版给的方向修法：改成内容侧，与姿态彻底解耦**
+
+- 新增 `VrSettings.flipVertical`（键 `flip_vertical`）：只把**球面网格的 v** 取补（球顶从 v=1 变 v=0），
+  姿态、投影、双眼、准星一律不动。它是「内容镜像」，与头怎么动没有任何耦合，**不可能再出现画面旋转**。
+- 入口两个：手机「设置」对话框（原「俯仰方向」那一行改成「画面上下翻转」）+
+  **VR 内控制台 → 设置 → 画面上下**（当场拨、立刻生效，不用取手机）。
+- 默认关（= 维持现状），因为「球面 v 方向对不对」取决于视频纹理的 ST 矩阵，不能凭推演拍板。
+
+**四、离线自检（`tools/run-pose-check.sh`，28 条全过）**
+
+- 姿态分解往返一致 9 例、合法旋转 9 例（det = +1，专门锁死「镜像式修法」再溜回来）、抬头/向右符号 1 例；
+- 球面网格 6 例：正前方 u=0.5（接缝那条命根子）、球顶 v=1、flipV 时球顶 v=0、左右不镜像（右 u>0.5、左 u<0.5）；
+- 瞳距 3 例（幅度、左右反向、离轴视锥外偏）。
+- 自检当场抓到 2 个真实问题：`poseOf` 的 yaw 符号与 `gazeYawDeg` 相反（已对齐）；我最初把「向右看该落在 u<0.5」写反了（等距柱状里 u 随偏航单调增，已在断言里改正并写清依据）。
+
+**五、仍然没解决 / 下一步**
+
+- 「抬头看地板」若在**拨开「画面上下」之后依然存在**，那就只剩一个解释：姿态链路本身有镜像级的错误。
+  那时唯一可靠的修法是把 SDK 的 native 层补正（重新构建 OSS 的 `java_api` 得到 `libcardboard_sdk_jni.so`），
+  而不是继续在应用层做数学——这一条已经有明确证据，见结论三。
+- 瞳距（离轴视锥）效果、俯仰方向，本版仍**未上真机**。
 
 ### 本轮新增（alpha27 / V2.40，一次真机都没跑）
 
@@ -428,6 +484,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| V2.41 | **版本号 1.1.0-alpha28**（`versionCode 101000028`）。删除「俯仰反向」整段（`PoseMath.flipPitch`、Provider 的 `setFlipPitch/isFlipPitch`、`flip_pitch`/`pitch_checked`、方向自检卡与 `VrAction.PitchIs*`）：它是关于水平面的镜像（det=−1），重建后的效果是世界绕横滚轴转 2p，真机即「点一下之后画面在转」。修正 `yawPitchRollDeg` 的 yaw 符号（与 `gazeYawDeg` 统一为向右为正，这是 V2.37「开关没反应」的成因）。新增 `VrSettings.flipVertical` + `ProjectionMesh.curved(flipV)`：只翻球面 v，与姿态解耦；入口为手机设置 + VR 内「设置 → 画面上下」。拆包核对 VRTV / SourceVR：头追与畸变全部来自 Google VR SDK（`libgvr.so`），两家均无「俯仰反向」；并查明 `app/libs/cardboard-sdk.aar` 是 Unity C-API 版（无 `libcardboard_sdk_jni.so`、无 `Java_com_google_cardboard_sdk_*` 符号），`Initialize` 必抛 `UnsatisfiedLinkError`，这就是 SDK 从未生效的原因。验证：`run-pose-check.sh` 28/28（新增球面 u/v 断言）、`run-format-check.sh` 30/30、`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 63 文件 / 15206 行）。**未上真机**。 |
 | V2.40 | **版本号 1.1.0-alpha27**（`versionCode 101000027`）。**删除抽帧判布局整条链路**（`core/StereoFrameJudge.kt`、`VrRenderer` 的离屏 FBO + 192×96 读回 + `onFrameSample`、`VrCoordinator.onFrameVerdict` 与 4 个专用字段、`FormatDetector` 的 `frame` 参数、`tools/StereoJudgeCheck.kt` + `run-stereo-check.sh`）。识别改为**文件名 > 容器元数据 > 几何**三条确定性判据：新增宽高比反解 `hypotheses()`（已知视场则布局唯一；二义时 2:1 取 SBS、1:1 取 MONO），2:1 裸流默认 180 SBS；文件名 `180/360` 改数字边界匹配并支持 `VR180`/`180x180`，新增显式 `mono`。`FormatDetector.Result.source` 记证据来源并写入 `[fmt]` 日志。`MEMORY_VERSION` 4 → 5 清空被抽帧污染的旧记忆。新增 `tools/FormatDetectorCheck.kt` + `run-format-check.sh`（30 条断言，含 200 次确定性；当场抓到「16:9 误判全景」「1:1 误判 TAB」两个回归并修复）。验证：`run-format-check.sh` 30/30、`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 63 文件 / 15412 行）。**未上真机**。 |
 | V2.39 | **版本号 1.1.0-alpha26**（`versionCode 101000026`）。俯仰翻转改用纯 Kotlin 实现（`core/PoseMath.flipPitch`，显式 `Ry·Rx(−pitch)·Rz(roll)`），新增 `tools/PoseMathCheck.kt` + `tools/run-pose-check.sh`（21 条断言）；`CardboardHeadsetProvider` 补 `setFlipPitch/isFlipPitch` 并转发 fallback，`refreshRotation` 里也套翻转；`SensorHeadsetProvider` 新增 `pendingFlipRecenter`（翻转下一帧就地重定）；`VrHeadsetProvider.isFlipPitch()`；首次播放弹「抬头看到什么」自检卡（`VrUiState.pitchCheck` + `VrAction.PitchIsNormal/PitchIsFlipped` + `VrSettings.pitchChecked` + `pitch_checked` 持久化），手机设置加「重新自检一次」并整体套 `ScrollView`。瞳距改离轴视锥：新增 `core/Optics.kt`（63mm 参考、1.2°/mm、±9° 上限、`frustumLeftRight`），两个 Provider 的 `eyeParams` 都换，调节条与日志显示「每眼 X.X°」。验证：`run-pose-check.sh` 21/21、`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 64 文件 / 16091 行）。**未上真机**。 |
 | V2.38 | **版本号 1.1.0-alpha25**（`versionCode 101000025`）。重定「正前方」改口径：**看哪儿，哪儿就是正前方**，不再要求瞄准按钮。新增 `AlignCountdown`（`VrUiState`）+ `VrSettings.alignCountdownMs`（默认 10s / 3–20s）+ 持久化 `align_countdown_ms`；`VrCoordinator` 新增 `startAlignCountdown / updatePosture（改为驱动倒计时）/ applyAlign / confirmAlignNow / cancelAlign / recenterNow`，`updatePosture` 每帧算视线角速度（≤8°/s 累计 0.5s 算稳住）与「已调整 N°」，归零时 `recenterTo(当前姿态)`；倒计时期间独占输入（单击定 / 长按取消 / 其余吞掉）、`touch()` 不点控制台、`disarmGaze()` 作废倒计时、`GestureRecognizer` 整段停用；`VrUiLayer.panelSpec` 让面板朝向跟视线走 + 新增 `drawAlignCountdown`（环 + 秒数 + 状态行，不注册目标）；`VrRenderer.uiSignature` 把倒计时纳入脏标记；`TriggerDispatcher` 双击 → `RecenterNow`（调瞳距时仍是结束）。`VrAction` 新增 `RecenterNow / ConfirmAlign / CancelAlign`。手机端 `dialog_settings.xml` 加重定倒计时 ± 1 秒与说明、`SetupActivity` 绑定并写 `[pose]` 日志。验证：`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 62 文件 / 15690 行）。**未上真机**。 |

@@ -223,20 +223,6 @@
         android:lineSpacingExtra="2dp"
         android:textColor="@color/setup_muted" />
 
-    <TextView
-        android:id="@+id/pitchRecheck"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp"
-        android:gravity="end"
-        android:text="@string/settings_pitch_recheck"
-        android:textSize="12sp"
-        android:textColor="@color/setup_cyan"
-        android:clickable="true"
-        android:focusable="true" />
-
     <!--
       V2.38：重定「正前方」的倒计时时长。
       它是「在限定的时间内调整并稳定姿态」里的那个限定时间，所以要能调：

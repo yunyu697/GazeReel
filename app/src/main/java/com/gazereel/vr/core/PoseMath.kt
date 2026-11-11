@@ -12,7 +12,13 @@ import kotlin.math.sin
  * 为什么从 `android.opengl.Matrix` 搬出来：上一版（V2.37）用 `Matrix.rotateM`
  * 拼 `Ry·Rx·Rz`，真机上「开关打开后没有任何变化」。那条路径没法在开发机上跑，
  * 只能靠推演——而推演已经错过一次了。这里改成不依赖 Android 的显式 3×3 运算，
- * 于是可以用 `tools/run-pose-check.sh` 在 JVM 上直接验证「翻转真的翻了几度」。
+ * 于是可以用 `tools/run-pose-check.sh` 在 JVM 上直接验证姿态数学。
+ *
+ * V2.41：**删掉了 `flipPitch`**。
+ * 「只反俯仰」在数学上不是旋转（它是关于水平面的镜像，det = −1）。
+ * 用分解重建去伪造它，得到的是 `Rz(−r)·Rx(2p)·Rz(r)`——即「世界绕视线的横滚轴
+ * 转 2 倍俯仰角」。所以真机上一点开关，抬头低头画面就在转。这条路上没有解，
+ * 只能删掉，别再加回来。
  *
  * 约定与 [VrHeadsetProvider.headRotation] 一致：列主序 4×4，
  * 第 0/1/2 列 = 屏幕的右 / 上 / 后在世界中的方向，`-第 2 列` 即视线。
@@ -20,34 +26,7 @@ import kotlin.math.sin
 object PoseMath {
 
     /**
-     * 只把**俯仰**取反，偏航与横滚原样保留。
-     *
-     * 做法：把 C 按 `Ry(yaw)·Rx(pitch)·Rz(roll)` 分解，再把 pitch 换成 -pitch 乘回去。
-     *
-     * 为什么不能图省事「给世界做个 y 镜像」：那不是一个旋转（行列式 −1），
-     * 画面上等价于把整个世界上下翻过来，用户看到的是「画面倒了」，不是「方向反了」。
-     * 分解重建则是一次合法旋转：俯仰反、偏航和横滚一位不差。
-     */
-    fun flipPitch(pose: FloatArray): FloatArray {
-        val gx = -pose[8].toDouble()
-        val gy = (-pose[9]).toDouble().coerceIn(-1.0, 1.0)
-        val gz = -pose[10].toDouble()
-        // 视线 = -第三列 = (-sin yaw·cos p, sin p, -cos yaw·cos p)
-        val yaw = -atan2(gx, -gz)
-        val pitch = asin(gy)
-
-        val c = toMat3(pose)
-        val c0 = mul(rotY(yaw), rotX(pitch))
-        // 残余 = C0ᵀ·C 应当正好是绕视线轴的横滚。
-        val m = mul(transpose3(c0), c)
-        val roll = atan2(m[3], m[0])
-
-        val out = mul(mul(rotY(yaw), rotX(-pitch)), rotZ(roll))
-        return toPose(out)
-    }
-
-    /**
-     * 分解成 `[yaw, pitch, roll]`（度），与 [flipPitch] 用的是同一套约定。
+     * 分解成 `[yaw, pitch, roll]`（度），只用于日志与自检。
      *
      * 日志用它记「用户实际看到的朝向」；自检用它验证翻转之后 roll 没被动过。
      */
@@ -55,9 +34,12 @@ object PoseMath {
         val gx = -pose[8].toDouble()
         val gy = (-pose[9]).toDouble().coerceIn(-1.0, 1.0)
         val gz = -pose[10].toDouble()
-        val yaw = -atan2(gx, -gz)
+        // V2.41：这里的符号必须与 [gazeYawDeg] **完全一致**（向右为正）。
+        // 旧版这里多了个负号，而重建用的是 `rotY(yaw)`——一个符号对不上，
+        // 残余横滚就把这 2 倍偏航吸进去，于是「点一下开关，抬头低头画面在转」。
+        val yaw = atan2(gx, -gz)
         val pitch = asin(gy)
-        val m = mul(transpose3(mul(rotY(yaw), rotX(pitch))), toMat3(pose))
+        val m = mul(transpose3(mul(rotY(-yaw), rotX(pitch))), toMat3(pose))
         val roll = atan2(m[3], m[0])
         return floatArrayOf(
             Math.toDegrees(yaw).toFloat(),
@@ -148,12 +130,18 @@ object PoseMath {
         return out
     }
 
-    /** 自检用：按 `Ry(yaw)·Rx(pitch)·Rz(roll)` 造一个姿态（列主序 4×4）。 */
+    /**
+     * 自检用：按 `Ry(−yaw)·Rx(pitch)·Rz(roll)` 造一个姿态（列主序 4×4）。
+     *
+     * 为什么是 −yaw：`rotY(θ)` 在右手系里把 +X 转向 −Z，正角是**向左**转；
+     * 而全工程（[gazeYawDeg]、准星、日志）用的是「向右为正」。
+     * 这里对齐到后者，否则自检会拿一套符号去验另一套符号，永远验不出真问题。
+     */
     fun poseOf(yawDeg: Float, pitchDeg: Float, rollDeg: Float): FloatArray =
         toPose(
             mul(
                 mul(
-                    rotY(Math.toRadians(yawDeg.toDouble())),
+                    rotY(-Math.toRadians(yawDeg.toDouble())),
                     rotX(Math.toRadians(pitchDeg.toDouble()))
                 ),
                 rotZ(Math.toRadians(rollDeg.toDouble()))

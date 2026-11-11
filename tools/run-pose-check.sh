@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 俯仰翻转 / 瞳距光学位移的离线自检（只用 JVM，不需要设备、不需要 Gradle）。
+# 姿态数学 / 球面网格 / 瞳距光学位移的离线自检（只用 JVM，不需要设备、不需要 Gradle）。
 #
-# 编的是 app 里那份真代码（core/PoseMath.kt、core/Optics.kt），不是副本。
+# 编的是 app 里那份真代码（PoseMath / Optics / ProjectionMesh），不是副本。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -28,6 +28,10 @@ java -cp "$COMPILER:$STDLIB:$COROUTINES:$TROVE:$ANNOT" org.jetbrains.kotlin.cli.
   -d "$OUT/classes" \
   app/src/main/java/com/gazereel/vr/core/PoseMath.kt \
   app/src/main/java/com/gazereel/vr/core/Optics.kt \
+  app/src/main/java/com/gazereel/vr/core/VrFormat.kt \
+  app/src/main/java/com/gazereel/vr/core/VrHeadsetProvider.kt \
+  app/src/main/java/com/gazereel/vr/core/DistortionComposer.kt \
+  app/src/main/java/com/gazereel/vr/render/ProjectionMesh.kt \
   tools/PoseMathCheck.kt
 
-java -cp "$OUT/classes:$STDLIB" check.PoseMathCheckKt
+java -Dfile.encoding=UTF-8 -cp "$OUT/classes:$STDLIB" check.PoseMathCheckKt

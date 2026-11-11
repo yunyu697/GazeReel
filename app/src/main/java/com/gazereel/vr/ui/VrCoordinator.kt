@@ -483,8 +483,6 @@ class VrCoordinator(
             VrAction.CloseCabinets -> uiState = uiState.copy(cabinetsOpen = false)
             is VrAction.SwitchCabinet -> switchCabinet(action.sourceId)
             // V2.19：姿态闭环
-            VrAction.PitchIsNormal -> finishPitchCheck(false)
-            VrAction.PitchIsFlipped -> finishPitchCheck(true)
             VrAction.ConfirmPosture -> confirmPosture()
             VrAction.DismissPosture -> dismissPosture()
             // V2.38：「正前方」= 开始跟着视线走的倒计时；双击触发键 = 立刻重定。
@@ -990,49 +988,11 @@ class VrCoordinator(
                 "autoFade" -> current.copy(autoFade = !current.autoFade)
                 "subtitles" -> current.copy(subtitlesEnabled = !current.subtitlesEnabled)
                 "cursor" -> current.copy(cursorEnabled = !current.cursorEnabled)
+                "flipVertical" -> current.copy(flipVertical = !current.flipVertical)
                 else -> current
             }
         }
         uiState = uiState.copy(settings = next)
-    }
-
-    /**
-     * V2.39：方向自检。
-     *
-     * 起因很直白：V2.37 把「俯仰反向」做成手机设置里的一项，默认关；真机反馈是
-     * 「和原来一样，没有任何变化」。症状出现在**戴上之后**，开关却藏在**戴镜之前**，
-     * 没人会想到去那里找——所以这次不再指望用户找到开关，而是在第一次播放时
-     * 直接把问题摆到眼前：抬头看到的是天花板，还是地板？
-     *
-     * 为什么只能问：3DOF 只有姿态，App 无法知道用户以为自己在看哪一边。
-     * 这个问题用户 2 秒就能答，比任何推断都可靠。
-     */
-    private fun maybeAskPitchCheck() {
-        if (uiState.pitchCheck) return
-        if (settings.current.pitchChecked) return
-        if (uiState.screen != VrScreen.PLAYER) return
-        uiState = uiState.copy(pitchCheck = true, consoleVisible = false)
-        RunLog.append("pose", "方向自检 · 首次播放，问一次「抬头看到的是不是天花板」")
-    }
-
-    /** 回答「是天花板」：保持现状，只记下已经问过。 */
-    private fun finishPitchCheck(flip: Boolean) {
-        val next = settings.update { it.copy(flipPitch = flip, pitchChecked = true) }
-        // 立刻生效：不等下一次进 VR。3DOF 的姿态是每帧从 Provider 取的，
-        // 翻转只是把之后的姿态换一种约定，所以这里改完下一帧就是新方向。
-        headset.setFlipPitch(flip)
-        uiState = uiState.copy(settings = next, pitchCheck = false)
-        if (flip) {
-            // 重定由 Provider 在自己那一帧做完（见 SensorHeadsetProvider.setFlipPitch）：
-            // 在这里直接 recenter() 会用到上一帧还**没翻转**的姿态，反而跳一下。
-            showMessage("已上下翻转 · 再抬一次头试试", 3_000L)
-        } else {
-            showMessage("方向正常 · 之后可在手机设置里改", 2_600L)
-        }
-        RunLog.append(
-            "pose",
-            "方向自检结果 · ${if (flip) "上下反向" else "正常"} · 已写盘（flip_pitch=$flip）"
-        )
     }
 
     fun onPlaybackState(state: PlaybackState) {
@@ -1048,7 +1008,6 @@ class VrCoordinator(
         )
         // V2.39：第一次真的播起来时问一次方向。放在这里而不是进 VR 时，
         // 是因为「抬头看到什么」必须有画面才能判断。
-        if (state.playing && error == null) maybeAskPitchCheck()
     }
 
     /**
