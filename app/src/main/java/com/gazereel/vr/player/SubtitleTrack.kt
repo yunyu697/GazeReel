@@ -7,42 +7,115 @@ import java.io.ByteArrayOutputStream
 
 data class SubtitleCue(val startMs: Long, val endMs: Long, val text: String)
 
-/** SRT 与 WebVTT 共用一套时间轴解析，忽略 VTT cue settings 与内联标签。 */
+/**
+ * SRT / WebVTT 共用的轻量解析器。
+ *
+ * 不接入 Media3 的 SubtitleParser：1.5.1 的解析入口是「Format + 异步
+ * Consumer<CuesWithTiming>」或 parseToLegacySubtitle，产出 androidx Cue /
+ * CuesWithTiming，与本类对上层承诺的扁平 (startMs, endMs, text) 列表并不一致；
+ * 工厂按 sampleMimeType 分派、需要从字节里嗅探 srt/vtt，且属于 @UnstableApi，
+ * 又不能改动 PlayerController（本轮禁止）。接入收益低、牵动面大，故保留手写
+ * 并增强健壮性（见下）。
+ *
+ * 覆盖：UTF-8 BOM、CRLF/CR、可选序号、时间轴含逗号或点号、WebVTT 无小时的
+ * MM:SS.mmm、行尾 cue settings、<c>/<v>/<b> 等内联标签与 HTML 实体、以及
+ * 「没空行分隔」的紧凑 cue。cueAt 对重叠时间轴合并同屏多行文本。
+ */
 object SubtitleParser {
-    private val TIME = Regex(
-        """(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})"""
+    /** 时间戳：H:M:S,ms / H:M:S.ms 或 M:S.ms（可含 1~3 位毫秒）。 */
+    private val TS = """\d{1,3}:\d{1,3}:\d{2}[,.]\d{1,3}|\d{1,3}:\d{2}[,.]\d{1,3}"""
+    /** 时间轴行：允许行首空白、两端逗号/点号、行尾 cue settings（忽略）。 */
+    private val TIME = Regex("""^\s*($TS)\s*-->\s*($TS)""")
+    private val TAG = Regex("""<[^>]*>""")
+    private val ENTITY = Regex(
+        """&(nbsp|amp|lt|gt|quot|apos|lrm|rlm|#\d+|#x[0-9a-fA-F]+);""",
+        RegexOption.IGNORE_CASE
     )
-    private val TAG = Regex("""<[^>]*>|&nbsp;|&amp;|&lt;|&gt;""")
 
     fun parse(bytes: ByteArray): List<SubtitleCue> {
-        val raw = String(bytes, Charsets.UTF_8)
-            .replace("\uFEFF", "")
-            .replace("\r\n", "\n")
-            .replace('\r', '\n')
+        val lines = decode(bytes).split('\n')
         val cues = mutableListOf<SubtitleCue>()
-        for (block in raw.split(Regex("""\n{2,}"""))) {
-            val lines = block.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
-            if (lines.isEmpty()) continue
-            val timeIndex = lines.indexOfFirst { TIME.containsMatchIn(it) }
-            if (timeIndex < 0) continue
-            val match = TIME.find(lines[timeIndex]) ?: continue
-            val (h1, m1, s1, ms1, h2, m2, s2, ms2) = match.destructured
-            val start = toMs(h1, m1, s1, ms1)
-            val end = toMs(h2, m2, s2, ms2)
-            val text = lines.drop(timeIndex + 1)
-                .joinToString("\n") { TAG.replace(it, "") }
-                .trim()
-            if (text.isNotEmpty() && end > start) cues += SubtitleCue(start, end, text)
+        var i = 0
+        while (i < lines.size) {
+            val match = TIME.find(lines[i].trim())
+            if (match == null) {
+                i++
+                continue
+            }
+            val start = toMs(match.groupValues[1])
+            val end = toMs(match.groupValues[2])
+            val textLines = mutableListOf<String>()
+            var j = i + 1
+            while (j < lines.size) {
+                val line = lines[j]
+                if (line.isBlank() || TIME.find(line.trim()) != null) break
+                textLines += cleanLine(line)
+                j++
+            }
+            val text = textLines.joinToString("\n").trim()
+            if (text.isNotEmpty() && end > start) {
+                cues += SubtitleCue(start, end, text)
+            }
+            i = j
         }
-        return cues.sortedBy { it.startMs }
+        return cues.sortedWith(compareBy<SubtitleCue> { it.startMs }.thenBy { it.endMs })
     }
 
+    /** 同一时刻命中多条 cue（重叠时间轴）时合并为多行文本，而不是只取第一条。 */
     fun cueAt(cues: List<SubtitleCue>, positionMs: Long): String? =
-        cues.firstOrNull { positionMs >= it.startMs && positionMs < it.endMs }?.text
+        cues.filter { positionMs >= it.startMs && positionMs < it.endMs }
+            .map { it.text }
+            .distinct()
+            .joinToString("\n")
+            .takeIf { it.isNotBlank() }
 
-    private fun toMs(h: String, m: String, s: String, ms: String): Long {
-        val millis = ms.padEnd(3, '0').take(3).toLongOrNull() ?: 0L
-        return (h.toLong() * 3_600L + m.toLong() * 60L + s.toLong()) * 1_000L + millis
+    private fun decode(bytes: ByteArray): String {
+        // 去掉开头的 UTF-8 BOM（EF BB BF），只去开头，避免误删正文里的 U+FEFF。
+        var start = 0
+        if (bytes.size >= 3 &&
+            (bytes[0].toInt() and 0xFF) == 0xEF &&
+            (bytes[1].toInt() and 0xFF) == 0xBB &&
+            (bytes[2].toInt() and 0xFF) == 0xBF
+        ) start = 3
+        return String(bytes, start, bytes.size - start, Charsets.UTF_8)
+            .trimStart('\uFEFF')
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+    }
+
+    private fun cleanLine(line: String): String =
+        decodeEntities(TAG.replace(line, "")).trim()
+
+    private fun decodeEntities(s: String): String = ENTITY.replace(s) { m ->
+        when (val e = m.groupValues[1].lowercase()) {
+            "nbsp" -> "\u00A0"
+            "amp" -> "&"
+            "lt" -> "<"
+            "gt" -> ">"
+            "quot" -> "\""
+            "apos" -> "'"
+            "lrm" -> "\u200E"
+            "rlm" -> "\u200F"
+            else -> {
+                val n = when {
+                    e.startsWith("#x") -> e.drop(2).toIntOrNull(16)
+                    e.startsWith("#") -> e.drop(1).toIntOrNull()
+                    else -> null
+                }
+                n?.takeIf { it in 1..0xFFFF }?.toChar()?.toString() ?: m.value
+            }
+        }
+    }
+
+    /** 同时接受 HH:MM:SS,mmm / HH:MM:SS.mmm 与 WebVTT 的 MM:SS.mmm。 */
+    private fun toMs(ts: String): Long {
+        val parts = ts.trim().split(Regex("""[:,.]"""))
+        if (parts.size < 3) return 0L
+        val millis = parts.last().padEnd(3, '0').take(3).toLongOrNull() ?: 0L
+        val sec = parts[parts.size - 2].toLongOrNull() ?: 0L
+        val min = parts[parts.size - 3].toLongOrNull() ?: 0L
+        val hour = if (parts.size >= 4) parts[parts.size - 4].toLongOrNull() ?: 0L else 0L
+        return (hour * 3_600L + min * 60L + sec) * 1_000L + millis
     }
 }
 

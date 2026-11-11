@@ -1065,16 +1065,23 @@ class VrUiLayer(
      * 真机反馈「片库的文件名非常杂乱」。用户自己的视频本来就长这样：
      * `VID_20260712_143022.mp4`、`PXL_20260712_143022123.mp4`、`GOPR0231.MP4`。
      * 把日期时间抽出来显示成 `2026-07-12 14:30`，比原样堆在卡片上清楚得多；
-     * 认不出的名字才退回「下划线换空格」。
+     * 认不出的名字按原样显示（不再去掉第二层扩展名、不再把下划线换成空格）。
      */
     private fun prettyName(raw: String): String {
-        val base = raw.substringBeforeLast('.').ifBlank { raw }
-        val stamp = Regex("(\\d{4})(\\d{2})(\\d{2})[_-](\\d{2})(\\d{2})").find(base)
+        // V2.29：传进来的 title 在扫描 / 列举时已经去掉过一次真实扩展名，
+        // 这里再 substringBeforeLast('.') 就是**二次去扩展名** ——
+        // "Avengers.Endgame.2024" 会被切成 "Avengers.Endgame"，
+        // 中文名里带点的版本 / 集数也一起被切掉。去掉这一步。
+        // 同理不再把 '_' 换成空格：用户自己起的名字、中文名要原样显示，
+        // 对标参考应用按文件名如实呈现，不擅自改写。
+        val name = raw.trim()
+        val stamp = Regex("(\\d{4})(\\d{2})(\\d{2})[_-](\\d{2})(\\d{2})").find(name)
         if (stamp != null) {
             val (y, mo, d, h, mi) = stamp.destructured
             return "$y-$mo-$d $h:$mi"
         }
-        return base.replace('_', ' ').replace(Regex("\\s+"), " ").trim()
+        // 只折叠多余空白，不改字符本身。
+        return name.replace(Regex("\\s+"), " ").trim()
     }
 
     /** 超宽就截断加省略号，绝不让文字越过卡片边界。 */

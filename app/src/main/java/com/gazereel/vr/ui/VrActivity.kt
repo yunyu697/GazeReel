@@ -267,8 +267,8 @@ class VrActivity : AppCompatActivity() {
             runOnUiThread { showFailure(t) }
         }
         // V2.20 / C1：抽帧判立体布局。GL 线程回调，结论要回主线程落地。
-        renderer.onFrameSample = { verdict ->
-            handler.post { coordinator.onFrameVerdict(verdict) }
+        renderer.onFrameSample = { mediaId, verdict ->
+            handler.post { coordinator.onFrameVerdict(mediaId, verdict) }
         }
 
         stage("surface")

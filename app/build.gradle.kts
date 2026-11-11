@@ -137,6 +137,7 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.datasource)
     implementation(libs.media3.common)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // SMB2/SMB3 随机读（PRD 6.3）。0.13.0 提供 File.read(buffer, fileOffset, ...) 与 File.getLength()。
     implementation(libs.smbj)

@@ -23,8 +23,12 @@ class LibraryRepository(private val db: AppDatabase) {
          * V2.20 → 3：判据顺序换了（先定布局再算视场），并引入抽帧。
          * 之前那批「SBS 被记成 Mono」的结论必须清掉，否则新规则一条都用不上——
          * 这是 A4 那条最贵的教训：**自动记住的结论比 bug 更顽固**。
+         *
+         * V2.31 → 4：抽帧曾经可以单方面把 SBS 降级成 MONO 并写回这张表，
+         * 于是「打开就正对接缝」被记忆固化、几乎每部片都中招。规则已改成
+         * 「抽帧只许升级、不许降级」，但被污染的旧记录不会自己消失，升版清一次。
          */
-        const val MEMORY_VERSION = 3
+        const val MEMORY_VERSION = 4
         const val MEMORY_VERSION_KEY = "format_memory_version"
     }
 

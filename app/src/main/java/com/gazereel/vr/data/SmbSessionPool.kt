@@ -13,7 +13,11 @@ import com.hierynomus.smbj.share.DiskShare
 import com.hierynomus.smbj.share.File
 import com.hierynomus.smbj.share.Share
 import java.util.EnumSet
+import java.util.concurrent.Callable
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 data class SmbCredentials(val user: String, val password: String, val domain: String = "")
 
@@ -51,6 +55,51 @@ fun parseUnc(address: String): Pair<String, String> {
 }
 
 /**
+ * V2.29：进程内扫描缓存（共享列表 + 已枚举目录）。
+ *
+ * 配置页与 VR 各 new 一个 [SmbSessionPool]，跨界面不共享连接，但扫描结果
+ * 理应共享：反复进出 / 反复「重扫」不该把同一棵目录树重新枚举一遍。
+ * 做成进程级单例，缓存 key 含 host / share / 凭据标识（见 [credKey]），
+ * 不同账号拿到的列表互不串味。
+ *
+ * 失效走两条：TTL 到期惰性丢弃；[bump] 递增版本号，让所有旧条目一次性失效，
+ * 供用户显式「重扫」强制刷新，不必逐条删，也不会误删别人的缓存。
+ */
+internal object SmbScanCache {
+    private const val TTL_MS = 60_000L
+    private val version = AtomicLong(0)
+    private val map = ConcurrentHashMap<String, Entry>()
+
+    private data class Entry(val version: Long, val at: Long, val value: Any)
+
+    /** 用户显式「重扫」时调用：版本号一变，旧条目全部过期。 */
+    fun bump() {
+        version.incrementAndGet()
+    }
+
+    private fun alive(entry: Entry): Boolean =
+        entry.version == version.get() && System.currentTimeMillis() - entry.at < TTL_MS
+
+    @Suppress("UNCHECKED_CAST")
+    fun <T> get(key: String): T? {
+        val entry = map[key] ?: return null
+        if (!alive(entry)) {
+            map.remove(key)
+            return null
+        }
+        return entry.value as? T
+    }
+
+    fun put(key: String, value: Any) {
+        map[key] = Entry(version.get(), System.currentTimeMillis(), value)
+    }
+}
+
+/** 缓存 key 里的「凭据标识」：不落明文密码，又能把不同账号区分开，避免串味。 */
+private fun credKey(credentials: SmbCredentials): String =
+    "${credentials.user}|${credentials.domain}|${credentials.password.hashCode()}"
+
+/**
  * PRD 6.3：会话复用，避免每次 seek 重新打开连接。
  * 断线时由 SmbRandomAccessSource 调用 invalidate() 后按指数退避重建。
  *
@@ -61,6 +110,10 @@ fun parseUnc(address: String): Pair<String, String> {
  * V2.12：试连名单永远凑不全（用户 NAS 上叫「影片」的共享根本试不到），
  * 改成先走 IPC$ + srvsvc 的 NetrShareEnum 让设备自己报；只有设备不支持时才
  * 退回试连，并把「为什么不是完整列表」写进 ShareListing.reason。
+ *
+ * V2.29：不再整方法 @Synchronized。只在「建连 / 取 share」的临界区用
+ * synchronized(this)（与 [close] 的 @Synchronized 是同一把锁），
+ * 真正的 list / openFile IO 在 [withShare] 里、锁外执行，不同共享因此能并行。
  */
 class SmbSessionPool {
     companion object {
@@ -74,6 +127,11 @@ class SmbSessionPool {
             "影片", "电影", "共享", "家庭", "照片"
         )
 
+        /** V2.29：兜底共享名并发试连的上限；别把 NAS 打爆，也别串行试 38 次。 */
+        private const val PROBE_WORKERS = 8
+        /** 试连整体预算；设备不应答时不让「加片库」无限等。 */
+        private const val PROBE_TIMEOUT_MS = 6_000L
+
         /** Windows 自己也不显示的隐藏共享（IPC$ / C$ / ADMIN$ / print$…）。 */
         fun isHiddenShare(name: String): Boolean = name.endsWith("$")
     }
@@ -84,7 +142,8 @@ class SmbSessionPool {
     // V2.7.5：以前只有一个 share 槽位，换个共享就把旧 DiskShare 关掉，
     // 而另一个还在读的 SmbRandomAccessSource 手里正握着它 —— 真机崩溃
     // 「DiskShare has already been closed」就是这么来的。改成按 key 各留一个。
-    private val shares = HashMap<String, DiskShare>()
+    // V2.29：换成 ConcurrentHashMap，配合只在建连处持锁的策略。
+    private val shares = ConcurrentHashMap<String, DiskShare>()
     private var currentSessionKey: String = ""
 
     private fun authentication(credentials: SmbCredentials): AuthenticationContext =
@@ -96,55 +155,76 @@ class SmbSessionPool {
             credentials.domain
         )
 
-    @Synchronized
-    private fun session(host: String, credentials: SmbCredentials): Session {
+    /**
+     * V2.29：只在「建连」这一小段临界区加锁。全局只维持一条到 host 的连接，
+     * 并发进来不能各自 connect() 再互相覆盖 client / connection / session 字段。
+     * 锁与 [close] 的 @Synchronized、[diskShare]、[evictShare] 共用同一个 this 监视器。
+     */
+    private fun session(host: String, credentials: SmbCredentials): Session = synchronized(this) {
         val key = "$host|${credentials.user}|${credentials.domain}"
-        session?.let { if (currentSessionKey == key) return it }
-        closeQuietly()
-        val config = SmbConfig.builder()
-            .withSoTimeout(30, TimeUnit.SECONDS)
-            .withTimeout(30, TimeUnit.SECONDS)
-            .build()
-        val newClient = SMBClient(config)
-        val newConnection = newClient.connect(host)
-        // V2.15：登录失败时这条连接还没挂到字段上，不主动关就是每次失败漏一个 socket。
-        // 「点一台共享设备先用空账号试一次」会让登录失败变成常态，必须收拾干净。
-        val newSession = runCatching { newConnection.authenticate(authentication(credentials)) }
-            .getOrElse { error ->
-                runCatching { newConnection.close() }
-                throw error
-            }
-        client = newClient
-        connection = newConnection
-        session = newSession
-        currentSessionKey = key
-        return newSession
-    }
-
-    @Synchronized
-    fun diskShare(ref: MediaRef, credentials: SmbCredentials): DiskShare {
-        val key = "${ref.host}|${ref.share}|${credentials.user}"
-        shares[key]?.let { return it }
-        val newShare = runCatching {
-            session(ref.host, credentials).connectShare(ref.share) as DiskShare
-        }.getOrElse {
-            // 会话可能已经半死（连接还在、树连接已断）。整条连接重建一次再试。
+        val cached = session
+        if (cached != null && currentSessionKey == key) {
+            cached
+        } else {
+            val started = System.currentTimeMillis()
             closeQuietly()
-            session(ref.host, credentials).connectShare(ref.share) as DiskShare
+            val config = SmbConfig.builder()
+                .withSoTimeout(30, TimeUnit.SECONDS)
+                .withTimeout(30, TimeUnit.SECONDS)
+                .build()
+            val newClient = SMBClient(config)
+            val newConnection = newClient.connect(host)
+            // V2.15：登录失败时这条连接还没挂到字段上，不主动关就是每次失败漏一个 socket。
+            val newSession = runCatching { newConnection.authenticate(authentication(credentials)) }
+                .getOrElse { error ->
+                    runCatching { newConnection.close() }
+                    throw error
+                }
+            client = newClient
+            connection = newConnection
+            session = newSession
+            currentSessionKey = key
+            val account = if (credentials.user.isBlank()) "guest" else credentials.user
+            RunLog.append(
+                "smb",
+                "建连 · $host · 账号=$account · 耗时 ${System.currentTimeMillis() - started}ms"
+            )
+            newSession
         }
-        shares[key] = newShare
-        return newShare
-    }
-
-    /** 只丢弃指定共享，其余片源的连接不受影响。重连时用它，不要用 invalidate()。 */
-    @Synchronized
-    fun evictShare(ref: MediaRef, credentials: SmbCredentials) {
-        val key = "${ref.host}|${ref.share}|${credentials.user}"
-        shares.remove(key)?.let { runCatching { it.close() } }
     }
 
     /**
-     * V2.28：所有 SMB 操作都从这里过一道。
+     * 只在「取 / 建 share」的临界区加锁；真正的 list / openFile IO 在 [withShare]
+     * 里、锁外执行，所以不同共享的读写能并行。缓存命中时这里只做一次查表。
+     */
+    fun diskShare(ref: MediaRef, credentials: SmbCredentials): DiskShare = synchronized(this) {
+        val key = "${ref.host}|${ref.share}|${credentials.user}"
+        val cached = shares[key]
+        if (cached != null) {
+            cached
+        } else {
+            val newShare = runCatching {
+                session(ref.host, credentials).connectShare(ref.share) as DiskShare
+            }.getOrElse {
+                // 会话可能已经半死（连接还在、树连接已断）。整条连接重建一次再试。
+                closeQuietly()
+                session(ref.host, credentials).connectShare(ref.share) as DiskShare
+            }
+            shares[key] = newShare
+            newShare
+        }
+    }
+
+    /** 只丢弃指定共享，其余片源的连接不受影响。重连时用它，不要用 invalidate()。 */
+    fun evictShare(ref: MediaRef, credentials: SmbCredentials) {
+        synchronized(this) {
+            val key = "${ref.host}|${ref.share}|${credentials.user}"
+            shares.remove(key)?.let { runCatching { it.close() } }
+        }
+    }
+
+    /**
+     * V2.28：所有 SMB 操作都从这里过一道（**自愈逻辑原样保留**）。
      *
      * `shares` 里可能躺着一个「已经关掉」的 DiskShare：服务端单方面断开、
      * 别的路径 evict 过、或者退出界面时 close() 与 diskShare() 撞在一起。
@@ -153,8 +233,8 @@ class SmbSessionPool {
      *
      * 只重试一次，且只针对「连接已死」这一类异常。权限不足、路径不存在等
      * 真实错误原样抛出，不会被吞掉，也不会反复重连。
-     * 这样列文件夹、补封面、打开片源和扫描四条路径都有同样的自愈能力，
-     * 不再只有 MediaIndexer.scan 的外层重试能救。
+     * V2.29：diskShare() 只在临界区持锁，operation（真正的网络 IO）在锁外，
+     * 因此列文件夹、补封面、打开片源和扫描四条路径能并行跑。
      */
     private inline fun <T> withShare(
         ref: MediaRef,
@@ -187,37 +267,78 @@ class SmbSessionPool {
      * 只填 IP 后的第一层「共享」。
      *
      * 先让设备自己报（IPC$ + srvsvc），这一步给出的是完整列表；
-     * 设备不支持或账号没权限时才退回试连常见共享名，并带上原因。
+     * 设备不支持或账号没权限时才退回并发试连常见共享名，并带上原因。
+     * V2.29：加缓存（key 含 host + 凭据标识）；RPC 与试连都放在锁外，
+     * 避免一次慢枚举把其它 SMB 操作全堵住。失败 / 空探测结果不缓存，
+     * 免得把一次网络抖动固化成 60 秒的「设备没共享」。
      */
-    @Synchronized
     fun listShares(host: String, credentials: SmbCredentials): ShareListing {
+        val cacheKey = "shares|$host|${credKey(credentials)}"
+        SmbScanCache.get<ShareListing>(cacheKey)?.let {
+            RunLog.append("smb", "共享列表命中缓存 · $host · ${it.names.size} 个")
+            return it
+        }
+        val started = System.currentTimeMillis()
         val active = session(host, credentials)
         val viaRpc = runCatching { SrvsvcShareEnum.list(active, host) }
         val names = viaRpc.getOrNull()
-        if (names != null) {
-            return ShareListing(
-                names = names.filterNot { isHiddenShare(it) }.distinct(),
-                authoritative = true
+        val result = if (names != null) {
+            RunLog.append(
+                "smb",
+                "共享枚举成功 · $host · ${names.size} 个 · 耗时 ${System.currentTimeMillis() - started}ms"
             )
+            ShareListing(names.filterNot { isHiddenShare(it) }.distinct(), true)
+        } else {
+            val probed = probeCommon(active, host)
+            ShareListing(probed, false, describe(viaRpc.exceptionOrNull()))
         }
-        return ShareListing(
-            names = probeCommon(active),
-            authoritative = false,
-            reason = describe(viaRpc.exceptionOrNull())
-        )
+        // 枚举成功（哪怕真的是空列表）或试连有命中才缓存；整条失败不缓存。
+        if (result.authoritative || result.names.isNotEmpty()) {
+            SmbScanCache.put(cacheKey, result)
+        }
+        return result
     }
 
-    /** 设备不支持枚举时的兜底：逐个 TREE_CONNECT 试连常见共享名。 */
-    private fun probeCommon(active: Session): List<String> {
-        val found = LinkedHashSet<String>()
-        for (name in COMMON_SHARES) {
-            val candidate: Share = runCatching { active.connectShare(name) }.getOrNull() ?: continue
-            if (candidate is DiskShare) found += name
-            runCatching { candidate.close() }
+    /**
+     * 设备不支持枚举时的兜底：V2.29 改为有上限的并发 TREE_CONNECT 试连。
+     * 末尾不再 invalidate() —— 试连失败是「这个共享名不存在」的正常结果，
+     * 探测用的临时 Share 也从没进 shares 缓存，没有「失败的那条」要 evict；
+     * 真把会话弄坏了，后续操作由 [withShare] 自愈重建即可。
+     */
+    private fun probeCommon(active: Session, host: String): List<String> {
+        val started = System.currentTimeMillis()
+        val workers = Executors.newFixedThreadPool(PROBE_WORKERS) { runnable ->
+            Thread(runnable, "smb-probe-common").apply { isDaemon = true }
         }
-        // 试连失败可能让会话处于半断开状态，清掉缓存让下一次重新建连。
-        invalidate()
-        return found.toList()
+        val found = HashSet<String>()
+        try {
+            val tasks = COMMON_SHARES.map { name ->
+                Callable {
+                    val candidate: Share? = runCatching { active.connectShare(name) }.getOrNull()
+                    if (candidate == null) {
+                        null
+                    } else {
+                        val isDisk = candidate is DiskShare
+                        runCatching { candidate.close() }
+                        if (isDisk) name else null
+                    }
+                }
+            }
+            // 整体限时：设备不应答时不让 38 个试连把整次扫描拖死。
+            workers.invokeAll(tasks, PROBE_TIMEOUT_MS, TimeUnit.MILLISECONDS).forEach { future ->
+                runCatching { future.get() }.getOrNull()?.let { found += it }
+            }
+        } finally {
+            workers.shutdownNow()
+        }
+        // 按名单原序输出，保序比 HashSet 的迭代顺序稳定。
+        val ordered = COMMON_SHARES.filter { it in found }
+        RunLog.append(
+            "smb",
+            "共享探测 · $host · 并发 $PROBE_WORKERS · 命中 ${ordered.size}/${COMMON_SHARES.size} · " +
+                "耗时 ${System.currentTimeMillis() - started}ms"
+        )
+        return ordered
     }
 
     /** 把协议栈的异常翻成用户能照着做的一句话。 */
@@ -240,7 +361,6 @@ class SmbSessionPool {
         }
     }
 
-    @Synchronized
     fun openFile(ref: MediaRef, credentials: SmbCredentials): File {
         val relativePath = ref.path.trim().replace('/', '\\').trimStart('\\')
             .removePrefix("${ref.share}\\")
@@ -256,9 +376,13 @@ class SmbSessionPool {
         }
     }
 
-    @Synchronized
-    fun list(ref: MediaRef, credentials: SmbCredentials, folder: String): List<SmbEntry> =
-        withShare(ref, credentials) { share ->
+    fun list(ref: MediaRef, credentials: SmbCredentials, folder: String): List<SmbEntry> {
+        val cacheKey = "dir|${ref.host}|${ref.share}|${credKey(credentials)}|$folder"
+        SmbScanCache.get<List<SmbEntry>>(cacheKey)?.let {
+            RunLog.append("smb", "目录命中缓存 · ${ref.share}/$folder · ${it.size} 项")
+            return it
+        }
+        val result = withShare(ref, credentials) { share ->
             share.list(folder).mapNotNull { info ->
                 val name = info.fileName
                 if (name == "." || name == "..") return@mapNotNull null
@@ -270,8 +394,10 @@ class SmbSessionPool {
                 )
             }
         }
+        SmbScanCache.put(cacheKey, result)
+        return result
+    }
 
-    @Synchronized
     fun invalidate() {
         closeQuietly()
     }
@@ -284,26 +410,30 @@ class SmbSessionPool {
      * 进出几次之后设备那边的并发连接被占满，下一次扫描就连不上，
      * 用户看到的是「必须完全退出 App 重开才能扫描」。
      *
-     * 必须和 [diskShare] / [list] / [openFile] 用同一把锁：否则退出时的
+     * 必须和 [diskShare] / [list] / [openFile] 的临界区用同一把锁：否则退出时的
      * `closeQuietly()` 可能正好夹在别人「新建 share 放进 map」与「关连接」
-     * 之间，留下一个挂在已关闭连接上、却仍被缓存复用的僵尸 DiskShare ——
-     * 之后每一次 SMB 操作都会报 "DiskShare has already been closed"。
+     * 之间，留下一个挂在已关闭连接上、却仍被缓存复用的僵尸 DiskShare。
+     * V2.29：**保留 @Synchronized**，其它临界区统一改用 synchronized(this)，
+     * 仍是同一个 this 监视器，互斥语义不变。
      */
     @Synchronized
     fun close() {
         closeQuietly()
     }
 
+    /** 自身带锁，供 [close] / [invalidate] / [session] / [diskShare] 重入调用。 */
     private fun closeQuietly() {
-        // README 官方示例以 try-with-resources 关闭的正是这两个对象；
-        // 其余引用随 Connection 一起释放，避免依赖未公开的 close() 签名。
-        shares.values.forEach { runCatching { it.close() } }
-        shares.clear()
-        runCatching { connection?.close() }
-        session = null
-        connection = null
-        client = null
-        currentSessionKey = ""
+        synchronized(this) {
+            // README 官方示例以 try-with-resources 关闭的正是这两个对象；
+            // 其余引用随 Connection 一起释放，避免依赖未公开的 close() 签名。
+            shares.values.forEach { runCatching { it.close() } }
+            shares.clear()
+            runCatching { connection?.close() }
+            session = null
+            connection = null
+            client = null
+            currentSessionKey = ""
+        }
     }
 }
 

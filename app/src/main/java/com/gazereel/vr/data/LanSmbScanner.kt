@@ -24,7 +24,11 @@ import java.util.concurrent.TimeUnit
  * 这里换成直接问网络：本机所在的 /24 网段里，谁在 445 端口上等连接。
  * 扫到之后再问一次 NetBIOS 名称，界面上就能写「客厅的群晖」而不是「192.168.1.10」。
  */
-class LanSmbScanner(private val context: Context? = null) {
+class LanSmbScanner(
+    private val context: Context? = null,
+    /** V2.29：按 host 找回用户已经保存的 SMB 凭据；没配过就返回 null 走 guest。 */
+    private val credentialProvider: (String) -> SmbCredentials? = { null }
+) {
 
     data class Host(val address: String, val name: String = "") {
         /** 有名字就用名字；没问到就老老实实显示 IP，不要编一个假名字。 */
@@ -47,6 +51,14 @@ class LanSmbScanner(private val context: Context? = null) {
          */
         private const val NBNS_TIMEOUT_MS = 900
         private const val NBNS_ATTEMPTS = 2
+        /**
+         * V2.29：名字解析的**整体预算**。
+         * 原来第二遍是一台一台串行问，每台把 NBSTAT(2×900ms) → 反向 DNS(400ms)
+         * → guest 连接(1.4s) 的超时叠加起来，两台设备就能拖到十几秒。
+         * 现在「每台 × 每种方法」全部并发摊平，整个阶段最多等这么多毫秒，
+         * 不管有几台设备、哪一路卡住，都不会超过这个数。
+         */
+        private const val NAME_BUDGET_MS = 2_600L
     }
 
     /** 反向 DNS 专用：缓存池，被卡住的线程不会拖住后面的查询。 */
@@ -66,7 +78,11 @@ class LanSmbScanner(private val context: Context? = null) {
         val mdns = HashMap<String, String>()
         val mdnsThread = Thread {
             val ctx = context ?: return@Thread
-            runCatching { mdns.putAll(MdnsNames(ctx).discover(2_500)) }
+            // V2.29：写入也走同一把锁，join 超时后读端不会撞上并发写。
+            runCatching {
+                val found = MdnsNames(ctx).discover(2_500)
+                synchronized(mdns) { mdns.putAll(found) }
+            }
         }.apply {
             isDaemon = true
             start()
@@ -87,25 +103,78 @@ class LanSmbScanner(private val context: Context? = null) {
         }
         runCatching { mdnsThread.join(2_600) }
 
-        // 第二遍：等端口扫描彻底安静下来，再一个一个问名字。
-        // 顺序是 mDNS → NetBIOS → 反向 DNS；都没有就显示 IP，不编名字。
-        val hosts = alive.map { ip ->
-            val name = synchronized(mdns) { mdns[ip] }
-                ?: netbiosName(ip)
-                ?: reverseName(ip)
-                // V2.18：Windows 默认不应答 137，也不注册 mDNS，前三条对它全断。
-                // 但 445 是开着的，所以顺着这条已经通了的路问它自己叫什么。
-                // 放在最后，只有前面全失败才多花一次连接（通常只有 PC 会走到这里）。
-                ?: smbName(ip)
-                ?: ""
-            Host(ip, name)
+        // V2.29 第二遍：名字解析**并发 + 整体预算**。
+        // 把「每台 × 每种方法」摊平成一批任务一起跑，不再一台一台串行、
+        // 也不再让多个超时叠加；invokeAll 的 timeout 是**整个阶段**的上限，
+        // 超时的任务被取消，取不到就老老实实显示 IP，绝不编名字。
+        // 汇总时按 mDNS > NetBIOS > 反向 DNS > srvsvc 的优先级挑一个。
+        val nameStarted = System.currentTimeMillis()
+        val namePool = Executors.newCachedThreadPool { runnable ->
+            Thread(runnable, "lan-name").apply { isDaemon = true }
         }
+        // nameTasks 与 nameMeta 一一对应：任务只返回名字，宿主 ip / 优先级靠下标对齐，
+        // 不必在并发任务里写共享 Map。
+        val nameTasks = mutableListOf<Callable<String?>>()
+        val nameMeta = mutableListOf<Pair<String, Int>>()
+        for (ip in alive) {
+            val md = synchronized(mdns) { mdns[ip] }.orEmpty()
+            if (md.isNotBlank()) {
+                nameMeta += ip to 0
+                nameTasks += Callable { md }
+            }
+            nameMeta += ip to 1
+            nameTasks += Callable { netbiosName(ip) }
+            nameMeta += ip to 2
+            nameTasks += Callable { reverseName(ip) }
+            // V2.18：Windows 默认不应答 137、不注册 mDNS、家用路由没有 PTR，
+            // 前三条对它全断，但 445 通着，所以顺着它问自己叫什么。
+            // V2.29：这一路优先用已保存的凭据（需账号的 NAS 才能问出来）。
+            nameMeta += ip to 3
+            nameTasks += Callable { smbName(ip) }
+        }
+        // best[ip] = (优先级, 名字)，优先级数字小的胜出。
+        val best = HashMap<String, Pair<Int, String>>()
+        try {
+            val futures = namePool.invokeAll(nameTasks, NAME_BUDGET_MS, TimeUnit.MILLISECONDS)
+            for (index in futures.indices) {
+                if (index >= nameMeta.size) break
+                val name = runCatching { futures[index].get() }.getOrNull() ?: continue
+                val (ip, priority) = nameMeta[index]
+                val current = best[ip]
+                if (current == null || priority < current.first) best[ip] = priority to name
+            }
+        } finally {
+            namePool.shutdownNow()
+        }
+        for ((ip, picked) in best) {
+            val source = when (picked.first) {
+                0 -> "mDNS"
+                1 -> "NetBIOS"
+                2 -> "反向DNS"
+                else -> "srvsvc"
+            }
+            RunLog.append("smb", "设备名 · $ip · ${picked.second} · 来源=$source")
+        }
+        val hosts = alive.map { ip -> Host(ip, best[ip]?.second.orEmpty()) }
+        RunLog.append(
+            "smb",
+            "名字解析 · ${alive.size} 台 · 并发 ${nameTasks.size} 路 · 命中 ${best.size} 台 · " +
+                "整体耗时 ${System.currentTimeMillis() - nameStarted}ms（预算 ${NAME_BUDGET_MS}ms）"
+        )
         return hosts.sortedBy { numeric(it.address) }
     }
 
-    /** srvsvc 的 NetrWkstaGetInfo：不依赖 137，只要 445 通就能拿到计算机名。 */
-    private fun smbName(ip: String): String? =
-        runCatching { sanitize(SmbNameProbe.machineName(ip).orEmpty()) }.getOrNull()
+    /**
+     * srvsvc 的 NetrWkstaGetInfo：不依赖 137，只要 445 通就能拿到计算机名。
+     * V2.29：把已保存的凭据递给 [SmbNameProbe]，需账号的 NAS 用已认证会话
+     * 才肯答；guest 匿名只作为最后的兜底（名称来源由 SmbNameProbe 记日志）。
+     */
+    private fun smbName(ip: String): String? {
+        val credentials = runCatching { credentialProvider(ip) }.getOrNull()
+        return runCatching {
+            sanitize(SmbNameProbe.machineName(ip, credentials).orEmpty())
+        }.getOrNull()
+    }
 
     private fun reachable(ip: String): Boolean = runCatching {
         Socket().use { socket ->

@@ -12,6 +12,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * PRD 6.4 / NET-05 / FR-09：按 SourceType 分派目录扫描，分页写入 Room。
@@ -30,12 +33,29 @@ class MediaIndexer(
         private const val PAGE_SIZE = 100
         private const val MAX_SCAN_DIRS = 300
         private const val MAX_SCAN_ENTRIES = 20_000
+        /** V2.29：同层目录并发枚举的上限，别把 NAS 打爆。 */
+        private const val ENUM_WORKERS = 6
+        /** 单层整体预算；某台设备不应答时不让整次扫描挂死。 */
+        private const val ENUM_LEVEL_TIMEOUT_MS = 20_000L
     }
 
     private val posters = PosterRepository(context.applicationContext)
     private val dlna = DlnaScanner(context.applicationContext)
+
+    /**
+     * V2.29：已保存 SMB 凭据的 host → 账号快照（key 统一小写）。
+     * 名字解析跑在普通线程里，不能在那儿调 Room 的 suspend DAO，
+     * 所以由 [lanScan] 在挂起上下文一次性读好，provider 只做内存查表。
+     */
+    @Volatile
+    private var knownSmbCredentials: Map<String, SmbCredentials> = emptyMap()
+
     // V2.17：名字解析要用系统的 mDNS，所以把 Context 递进去。
-    private val smbHosts = LanSmbScanner(context.applicationContext)
+    // V2.29：再递一个「按 host 找回已保存凭据」的回调，让设备名探测
+    // 能用已认证会话（需账号的 NAS 才肯报名字），而不是只显示 IP。
+    private val smbHosts = LanSmbScanner(context.applicationContext) { host ->
+        knownSmbCredentials[host.lowercase()]
+    }
     // V2.7：手机视频走 MediaStore，不再用 File 单层遍历。
     private val local = LocalVideoScanner(context.applicationContext)
 
@@ -52,6 +72,14 @@ class MediaIndexer(
      * 不会因为多扫一遍端口让用户多等。
      */
     suspend fun lanScan(): LanScan = coroutineScope {
+        val started = System.currentTimeMillis()
+        // 在挂起上下文里读一次凭据快照；名字解析线程随后只读这张内存表。
+        knownSmbCredentials = try {
+            savedSmbCredentials()
+        } catch (t: Throwable) {
+            RunLog.append("smb", "读取已保存凭据失败 · ${t.message}")
+            emptyMap<String, SmbCredentials>()
+        }
         val dlna = async(Dispatchers.IO) {
             runCatching { this@MediaIndexer.dlna.discoverDetailed() }.getOrNull()
         }
@@ -59,9 +87,15 @@ class MediaIndexer(
             runCatching { smbHosts.scan() }.getOrDefault(emptyList())
         }
         val found = dlna.await()
+        val smbList = smb.await()
+        RunLog.append(
+            "smb",
+            "局域网发现 · SMB ${smbList.size} 台 · DLNA ${found?.servers.orEmpty().size} 台 · " +
+                "耗时 ${System.currentTimeMillis() - started}ms"
+        )
         LanScan(
             servers = found?.servers.orEmpty(),
-            smbHosts = smb.await(),
+            smbHosts = smbList,
             responders = found?.responders ?: 0
         )
     }
@@ -75,9 +109,19 @@ class MediaIndexer(
      * 真机反馈「反复进出 VR 之后再回配置页扫描，扫描不成功」，而重启 App 就好了 ——
      * 这是连接半死的典型症状（服务端限流、树连接已断、会话被回收）。
      * 与其让用户去重启，不如自己把整条连接丢掉重来一次。
+     *
+     * V2.29：新增 [forceRefresh]（**默认 false，既有调用点全部不变**）。
+     * 用户显式点「重扫」时把它置 true，递增 [SmbScanCache] 版本号，
+     * 让共享列表 / 已枚举目录的缓存一次性失效，真正做到重新枚举；
+     * 普通扫描仍吃缓存，重复重扫不再重复枚举。
      */
-    suspend fun scan(source: SourceEntity): Int = withContext(Dispatchers.IO) {
-        try {
+    suspend fun scan(source: SourceEntity, forceRefresh: Boolean = false): Int = withContext(Dispatchers.IO) {
+        val started = System.currentTimeMillis()
+        if (forceRefresh) {
+            SmbScanCache.bump()
+            RunLog.append("smb", "重扫 · ${source.address} · 强制刷新共享/目录缓存")
+        }
+        val result = try {
             scanOnce(source)
         } catch (first: Exception) {
             RunLog.append("scan", "扫描失败，重建连接后重试：${first.message}")
@@ -85,6 +129,28 @@ class MediaIndexer(
             delay(500)
             scanOnce(source)
         }
+        RunLog.append(
+            "smb",
+            "扫描完成 · ${source.address} · 变更 $result 项 · 耗时 ${System.currentTimeMillis() - started}ms"
+        )
+        result
+    }
+
+    /**
+     * 名字解析用的「已认证凭据」：从已保存的 SMB 片库里按 host 找回账号。
+     * 参考应用不能输凭据，我们能——这里正是把这个优势接到设备名显示上。
+     * 只在 [lanScan] 的挂起上下文调用一次（Room 的 all() 是 suspend）。
+     */
+    private suspend fun savedSmbCredentials(): Map<String, SmbCredentials> {
+        val byHost = LinkedHashMap<String, SmbCredentials>()
+        for (source in db.sourceDao().all()) {
+            if (source.type != SourceType.SMB.name || source.credentialRef.isBlank()) continue
+            val host = parseUncFull(source.address).first
+            if (host.isBlank() || byHost.containsKey(host.lowercase())) continue
+            val credentials = decodeCredentials(credentialStore.get(source.credentialRef))
+            if (credentials.user.isNotBlank()) byHost[host.lowercase()] = credentials
+        }
+        return byHost
     }
 
     private suspend fun scanOnce(source: SourceEntity): Int {
@@ -191,8 +257,11 @@ class MediaIndexer(
      * V2.17：SMB 片源的列举。**浏览只列一层，扫描才递归**——
      * 浏览时递归会把整棵树摊平，用户就没法一层层点进去了。
      *
-     * 递归带两道闸：最多 [MAX_SCAN_DIRS] 个目录、最多 [MAX_SCAN_ENTRIES] 个条目。
-     * 一个共享根下几十万个文件时宁可少收，也不能让「添加片库」卡死。
+     * V2.29：递归改成**按层并发**。原来是单线程 BFS，下一个目录要等上一个
+     * 的 SMB 往返回来才开始；现在同一层最多 [ENUM_WORKERS] 个目录同时列，
+     * 层与层之间仍逐层推进（子目录要先列出来才能知道下一层），
+     * 两道闸 [MAX_SCAN_DIRS] / [MAX_SCAN_ENTRIES] 与目录级缓存照旧，
+     * 既快又不会把 NAS 打爆。起点这一层单独列，失败照旧冒泡报错。
      */
     private fun smbEntries(
         source: SourceEntity,
@@ -201,35 +270,83 @@ class MediaIndexer(
     ): List<IndexEntry> {
         val (host, share, folder) = parseUncFull(source.address)
         val ref = MediaRef(source.id, SourceType.SMB, host, share, path = "")
-        val result = mutableListOf<IndexEntry>()
-        val queue = ArrayDeque<String>()
-        queue.addLast(folder)
-        var dirs = 0
-        while (queue.isNotEmpty() && dirs < MAX_SCAN_DIRS && result.size < MAX_SCAN_ENTRIES) {
-            val current = queue.removeFirst()
-            dirs++
-            // 起点这一层列不出来必须报错（否则用户以为片库是空的）；
-            // 下层某个子文件夹没权限就跳过，不能因为一个目录让整次扫描失败。
-            val listing = if (current == folder) {
-                pool.list(ref, credentials, current)
-            } else {
-                runCatching { pool.list(ref, credentials, current) }.getOrNull() ?: continue
-            }
-            for (entry in listing) {
-                // path 必须是 share 内的完整相对路径，否则选中子目录后播放会打不开文件。
-                val relative = if (current.isBlank()) entry.name else "$current\\${entry.name}"
-                if (entry.isDirectory) {
-                    if (recursive) queue.addLast(relative)
-                }
-                result += IndexEntry(
-                    path = relative,
-                    title = if (entry.isDirectory) entry.name
-                    else entry.name.substringBeforeLast('.'),
-                    sizeBytes = entry.sizeBytes,
-                    isDirectory = entry.isDirectory
-                )
-            }
+        val started = System.currentTimeMillis()
+
+        // 起点这一层列不出来必须报错（否则用户以为片库是空的）；
+        // 不放进并发任务里，免得异常被 getOrNull() 吞掉。
+        val (rootEntries, rootChildren) = expand(folder, pool.list(ref, credentials, folder))
+        val result = rootEntries.toMutableList()
+        var dirs = 1
+        if (!recursive || rootChildren.isEmpty() || dirs >= MAX_SCAN_DIRS) {
+            return finishSmbEntries(host, share, result, dirs, started)
         }
+
+        val workers = Executors.newFixedThreadPool(ENUM_WORKERS) { runnable ->
+            Thread(runnable, "smb-enum").apply { isDaemon = true }
+        }
+        var frontier: List<String> = rootChildren
+        try {
+            while (frontier.isNotEmpty() && dirs < MAX_SCAN_DIRS && result.size < MAX_SCAN_ENTRIES) {
+                val batch = frontier.take(MAX_SCAN_DIRS - dirs)
+                val tasks = batch.map { current ->
+                    Callable {
+                        // 下层某个子文件夹没权限就跳过，不能因为一个目录让整次扫描失败。
+                        val listing = runCatching { pool.list(ref, credentials, current) }.getOrNull()
+                        if (listing == null) Level(emptyList(), emptyList())
+                        else expand(current, listing)
+                    }
+                }
+                // 单层整体限时；超时的目录被取消并跳过（宁可少收，不能卡死）。
+                val futures = workers.invokeAll(tasks, ENUM_LEVEL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                val next = mutableListOf<String>()
+                for (future in futures) {
+                    val level = runCatching { future.get() }.getOrNull() ?: continue
+                    result += level.entries
+                    next += level.children
+                }
+                dirs += batch.size
+                frontier = next
+            }
+        } finally {
+            workers.shutdownNow()
+        }
+        return finishSmbEntries(host, share, result, dirs, started)
+    }
+
+    /** 一层目录的结果：可见条目 + 可继续下钻的子目录。 */
+    private data class Level(val entries: List<IndexEntry>, val children: List<String>)
+
+    /** 把一层 SMB 条目转成 IndexEntry，并挑出子目录；浏览与扫描共用同一套命名。 */
+    private fun expand(current: String, listing: List<SmbEntry>): Level {
+        val entries = ArrayList<IndexEntry>(listing.size)
+        val children = ArrayList<String>()
+        for (entry in listing) {
+            // path 必须是 share 内的完整相对路径，否则选中子目录后播放会打不开文件。
+            val relative = if (current.isBlank()) entry.name else "$current\\${entry.name}"
+            if (entry.isDirectory) children += relative
+            entries += IndexEntry(
+                path = relative,
+                title = if (entry.isDirectory) entry.name
+                else entry.name.substringBeforeLast('.'),
+                sizeBytes = entry.sizeBytes,
+                isDirectory = entry.isDirectory
+            )
+        }
+        return Level(entries, children)
+    }
+
+    private fun finishSmbEntries(
+        host: String,
+        share: String,
+        result: List<IndexEntry>,
+        dirs: Int,
+        started: Long
+    ): List<IndexEntry> {
+        RunLog.append(
+            "smb",
+            "目录枚举 · $host/$share · 并发 $ENUM_WORKERS · $dirs 个目录 · ${result.size} 项 · " +
+                "耗时 ${System.currentTimeMillis() - started}ms"
+        )
         return result
     }
 }

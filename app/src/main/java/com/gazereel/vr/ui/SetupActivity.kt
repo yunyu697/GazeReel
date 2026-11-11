@@ -982,9 +982,11 @@ class SetupActivity : AppCompatActivity() {
 
     private fun rescan(source: SourceEntity) {
         setBusy(true, "正在重新扫描「${source.displayName}」…")
+        // V2.29：用户显式点「重扫」= 强制刷新共享列表 / 目录缓存，重新枚举一次。
+        RunLog.append("smb", "重扫 · ${source.address} · 强制刷新缓存")
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { indexer.scan(source) }.getOrElse { error ->
+                runCatching { indexer.scan(source, forceRefresh = true) }.getOrElse { error ->
                     RunLog.append("scan", "重扫失败 · ${source.address} · ${error.message}")
                     -1
                 }

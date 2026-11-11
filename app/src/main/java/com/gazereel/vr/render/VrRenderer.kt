@@ -1,10 +1,12 @@
 package com.gazereel.vr.render
 
+import android.graphics.PointF
 import android.graphics.SurfaceTexture
 import android.opengl.GLES11Ext
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
+import android.os.SystemClock
 import android.view.Surface
 import com.gazereel.vr.core.Eye
 import com.gazereel.vr.core.Projection
@@ -49,8 +51,10 @@ class VrRenderer(
      * V2.20 / C1：抽帧判立体布局的结论。
      *
      * 回调在 **GL 线程**上触发，落地要自己切回主线程。
+     * V2.31：第一个参数是**产生这帧的 mediaId**。结论回到主线程时可能已经切了片，
+     * 带上 id 才能把过期结论丢掉，避免上一部片的像素改掉这一部片的格式。
      */
-    var onFrameSample: ((StereoFrameJudge.Verdict) -> Unit)? = null
+    var onFrameSample: ((Long, StereoFrameJudge.Verdict) -> Unit)? = null
 
     private val mesh = ProjectionMesh()
     private val stMatrix = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
@@ -74,6 +78,10 @@ class VrRenderer(
     private var width = 1
     private var height = 1
     @Volatile private var frameAvailable = false
+
+    // V2.31：UI 位图的脏标记与上次上传时间，见 [uiSignature]。
+    private var lastUiKey = 0
+    private var lastUiUploadMs = 0L
 
     // V2.20 / C1：抽帧判立体布局的离屏靶。
     private var sampleFbo = 0
@@ -166,10 +174,13 @@ class VrRenderer(
             RunLog.append(
                 "gl",
                 "几何 ${state.format.projection}/${state.format.layout} " +
+                    "每眼区域 左=(${fmt(left.xScale)},${fmt(left.xOffset)}) " +
+                    "右=(${fmt(right.xScale)},${fmt(right.xOffset)}) " +
                     "正前方采样 左=(${fmt(0.5f * left.xScale + left.xOffset)}," +
                     "${fmt(0.5f * left.yScale + left.yOffset)}) " +
                     "右=(${fmt(0.5f * right.xScale + right.xOffset)}," +
-                    "${fmt(0.5f * right.yScale + right.yOffset)})"
+                    "${fmt(0.5f * right.yScale + right.yOffset)}) · " +
+                    "STx=${fmt(stMatrix[0])} STdx=${fmt(stMatrix[12])}"
             )
         }
 
@@ -177,7 +188,18 @@ class VrRenderer(
         // V2.14：光标画在真实视线落点上，由这里算好交给绘制层——
         // 绘制层拿不到头部姿态，而准星钉在画布正中正是「定位不准」的根源。
         val cursor = uiLayer.gazePoint(headset.headRotation(), state)
-        GlUtils.uploadBitmap(uiTextureId, uiLayer.render(state, gazeId, gazeProgress, cursor))
+        // V2.31：UI 是 1024×512 的 ARGB_8888，全量 render + texSubImage2D 每帧要
+        // 重画并上传 2MB。看片时画面几乎不变，这笔开销却每帧都在，直接挤占解码
+        // 与 SMB 读取的时间。改成「内容签名 + 静止时最多 10fps」按需上传：签名一变
+        // 立刻更新（按钮、格式、消息、准星都不延迟），静止时靠 100ms 量化时间
+        // 推动淡出动画，200ms 兜底刷新。
+        val nowMs = SystemClock.elapsedRealtime()
+        val uiKey = uiSignature(state, gazeId, gazeProgress, cursor, nowMs)
+        if (uiKey != lastUiKey || nowMs - lastUiUploadMs >= UI_MAX_INTERVAL_MS) {
+            lastUiKey = uiKey
+            lastUiUploadMs = nowMs
+            GlUtils.uploadBitmap(uiTextureId, uiLayer.render(state, gazeId, gazeProgress, cursor))
+        }
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         val panel = uiLayer.panelSpec(state)
@@ -234,6 +256,53 @@ class VrRenderer(
         GlUtils.checkError("onDrawFrame")
     }
 
+    /**
+     * V2.31：只取真正会出现在 UI 位图里的字段，并把高频量量化：
+     * 播放进度按秒、倒计时/淡出按 50ms、准星按 1/10 画布、凝视进度按 5%。
+     *
+     * 不能直接用 `state.hashCode()`：主线程 tick 会更新 positionMs / lastActivityMs，
+     * 那样签名每帧都变，脏标记等于没做。反过来也不能只做纯时间节流——
+     * 用户选中一个按钮、弹出一条消息都必须当帧生效，等 100ms 会被感觉成「不跟手」。
+     */
+    private fun uiSignature(
+        state: VrUiState,
+        gazeId: String?,
+        progress: Float,
+        cursor: PointF?,
+        nowMs: Long
+    ): Int {
+        var h = state.screen.ordinal
+        h = 31 * h + state.overlay.ordinal
+        h = 31 * h + state.page
+        h = 31 * h + state.selectedIndex
+        h = 31 * h + state.format.hashCode()
+        h = 31 * h + state.suggestedFormat.hashCode()
+        h = 31 * h + (state.message?.hashCode() ?: 0)
+        h = 31 * h + (state.feedback?.hashCode() ?: 0)
+        h = 31 * h + (state.postureCandidate?.hashCode() ?: 0)
+        h = 31 * h + (state.postureRemainingMs / 100L).hashCode()
+        h = 31 * h + state.consoleVisible.hashCode()
+        h = 31 * h + state.gazeArmed.hashCode()
+        h = 31 * h + state.items.size
+        h = 31 * h + state.stacks.size
+        h = 31 * h + (state.activeStack?.hashCode() ?: 0)
+        h = 31 * h + state.cabinetsOpen.hashCode()
+        h = 31 * h + state.cabinet.hashCode()
+        h = 31 * h + state.settings.hashCode()
+        h = 31 * h + state.subtitles.size
+        h = 31 * h + state.currentTitle.hashCode()
+        h = 31 * h + (state.positionMs / 1000L).hashCode()
+        h = 31 * h + state.durationMs.hashCode()
+        h = 31 * h + state.playing.hashCode()
+        h = 31 * h + state.progress.size
+        h = 31 * h + (gazeId?.hashCode() ?: 0)
+        h = 31 * h + (progress * 20f).toInt()
+        h = 31 * h + ((cursor?.x ?: 0f) * 0.1f).toInt()
+        h = 31 * h + ((cursor?.y ?: 0f) * 0.1f).toInt()
+        h = 31 * h + (nowMs / 100L).toInt()
+        return h
+    }
+
     private fun drawGeometry(
         program: GlProgram,
         geometry: ProjectionMesh.Geometry,
@@ -281,7 +350,7 @@ class VrRenderer(
      * V2.27：旧版只在开播后 0.17–2 秒里试 12 次，没凑够三个样本就 **永久判死**
      * （`judged = true`），而很多片子的片头黑场 / Logo 就长达 2–5 秒。这类片永远
      * 退回 MONO：整幅 SBS 铺满球面，正前方 u=0.5 正好压在两幅的接缝上。
-     * 现在起点后移到约 1.5 秒、间隔 0.5 秒、持续观察最多约 60 秒；
+     * 现在起点约 0.5 秒、之后每 0.33 秒一次、持续观察最多约 60 秒；
      * 三帧不一致也只是清空本轮样本再观察，不再把「暂时看不出」当成「判死了」。
      * 判据本身（相关系数、三帧一致）一个字没改，只放宽了放弃条件。
      */
@@ -312,7 +381,7 @@ class VrRenderer(
             if (combined != null) {
                 judged = true
                 RunLog.append("fmt", combined.describe())
-                onFrameSample?.invoke(combined)
+                onFrameSample?.invoke(mediaId, combined)
                 return
             }
             // 三帧说法不一，只是这一轮运气不好（片头渐入 / 切场），不是结论。
@@ -438,11 +507,11 @@ class VrRenderer(
         private const val SAMPLE_W = 192
         private const val SAMPLE_H = 96
 
-        /** 起播后先等约 1.5 秒：片头黑场 / 常要 2–5 秒，第 10 帧抽到的一定是黑的。 */
-        private const val FIRST_SAMPLE_FRAMES = 90
+        /** 起播后先等约 0.5 秒：躲开解码器吐出的第一帧黑屏，又别让接缝停太久。 */
+        private const val FIRST_SAMPLE_FRAMES = 30
 
-        /** 之后约每 0.5 秒抽一次，不每帧读像素。 */
-        private const val SAMPLE_INTERVAL_FRAMES = 30
+        /** 之后约每 0.33 秒抽一次，不每帧读像素。 */
+        private const val SAMPLE_INTERVAL_FRAMES = 20
 
         /** 三个样本一致才落地：单帧误判会把对的画面切成两半，代价比慢一秒大得多。 */
         private const val SAMPLE_COUNT = 3
@@ -455,5 +524,8 @@ class VrRenderer(
 
         /** 整幅纹理区域（不切半幅）。 */
         private val FULL_REGION = floatArrayOf(1f, 1f, 0f, 0f)
+
+        /** UI 位图的兜底刷新间隔：render 内部有淡出 / 超时动画，不能完全停更。 */
+        private const val UI_MAX_INTERVAL_MS = 200L
     }
 }

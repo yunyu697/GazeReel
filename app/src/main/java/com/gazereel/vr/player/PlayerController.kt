@@ -11,6 +11,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.gazereel.vr.core.MediaRef
@@ -37,7 +38,25 @@ class PlayerController(
     private val onStateChanged: (PlaybackState) -> Unit
 ) {
     private val appContext = context.applicationContext
-    private val player: ExoPlayer = ExoPlayer.Builder(appContext).build()
+    // 只显式调缓冲策略：不设 RenderersFactory、不改 Surface 链路 → 仍是 MediaCodec 硬解。
+    // 网络片源（SMB/WebDAV/HTTP）抖动大：min/max 缓冲调大做 cushion，起播门槛保持低值，
+    // prioritizeTimeOverSizeThresholds 让高码率 4K 不被字节上限提前掐断，backBuffer 便于回退 seek。
+    private val player: ExoPlayer = ExoPlayer.Builder(appContext)
+        .setLoadControl(
+            DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    MIN_BUFFER_MS,
+                    MAX_BUFFER_MS,
+                    BUFFER_FOR_PLAYBACK_MS,
+                    BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
+                )
+                // 默认 false：高码率片源会被按码率估算的字节上限提前掐断加载，
+                // 时间阈值优先才堆得起 cushion（vrplayer:// 归为 streaming）。
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .setBackBuffer(BACK_BUFFER_MS, true)
+                .build()
+        )
+        .build()
     private val handler = Handler(Looper.getMainLooper())
     private val ioScope = CoroutineScope(Dispatchers.IO)
     private val ticker = object : Runnable {
@@ -257,5 +276,16 @@ class PlayerController(
                 error = error
             )
         )
+    }
+
+    companion object {
+        // Media3 1.5.1 对非本地 scheme（本工程是 vrplayer://，按 streaming 处理）的默认值：
+        // min/max=50s、起播=1s、rebuffer 后=2s、backBuffer=0、prioritizeTime=false。
+        // 针对 SMB 这种「带宽够但延迟抖动大」的随机读，做如下调整：
+        private const val MIN_BUFFER_MS = 60_000                        // 60s（默认 50s，调大常驻 cushion）
+        private const val MAX_BUFFER_MS = 90_000                        // 90s（默认 50s，调大上限）
+        private const val BUFFER_FOR_PLAYBACK_MS = 1_000                // 1s 低值快速起播（默认已 1s，不再下调以免起播即卡）
+        private const val BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 5_000 // 5s（默认 2s，卡顿后多垫再恢复，避免反复起停）
+        private const val BACK_BUFFER_MS = 20_000                       // 默认 0 → 20s，回退 seek 不重连
     }
 }

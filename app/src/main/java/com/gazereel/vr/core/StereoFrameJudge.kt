@@ -113,8 +113,17 @@ object StereoFrameJudge {
                 Verdict(StereoLayout.SBS, confidenceOf(sbs.corr), sbs.corr, tab.corr, luma)
             tab.corr >= SAME_CORR && tab.corr - sbs.corr >= MARGIN ->
                 Verdict(StereoLayout.TAB, confidenceOf(tab.corr), sbs.corr, tab.corr, luma)
+            // V2.31：「两半不像」是**弱证据**。片头 Logo / 字幕 / 淡入、左右视差偏大的
+            // 真立体片、2D 转制片，相关系数都会掉到 0.8 以下。旧实现却给它 0.85 的
+            // 高置信，FormatDetector.resolveLayout 的门槛是 0.70，于是抽帧能盖掉
+            // 文件名 / 容器 / 格式记忆里本来正确的 SBS，把布局降级成 MONO ——
+            // 整幅 SBS 铺满球面，正前方 u=0.5 正好压在两幅画面的接缝上。
+            //
+            // 反过来「两半几乎一样」(corr ≥ 0.95) 才是硬证据。所以这里给 MONO 一个
+            // 低于门槛的置信度：**抽帧只许把 MONO 升级成 SBS/TAB，不许把 SBS/TAB
+            // 降级成 MONO**。宁可维持现状，也不要把对的改成错的（本类开头的原则）。
             sbs.corr < DIFFERENT_CORR && tab.corr < DIFFERENT_CORR ->
-                Verdict(StereoLayout.MONO, 0.85f, sbs.corr, tab.corr, luma)
+                Verdict(StereoLayout.MONO, 0.55f, sbs.corr, tab.corr, luma)
             else -> Verdict(StereoLayout.MONO, 0f, sbs.corr, tab.corr, luma)
         }
     }

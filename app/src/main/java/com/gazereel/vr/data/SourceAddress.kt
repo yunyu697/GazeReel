@@ -78,13 +78,11 @@ object SourceAddress {
     /** 片库卡片的默认名字；用户仍可在「改」里重命名。 */
     fun displayName(type: SourceType, address: String): String = when (type) {
         SourceType.SMB -> {
+            // V2.29：旧版在层级 >= 3 时只留「首 · 尾」，把共享名和中间层级
+            // 全丢了 —— 用户在同一台 NAS 的两个文件夹建片库，卡片会撞名。
+            // 现在按原顺序把 host / share / 各层文件夹都写出来（中文照原样保留）。
             val parts = address.trimStart('\\').split(SEP).filter { it.isNotBlank() }
-            when {
-                parts.isEmpty() -> "网络共享"
-                parts.size == 1 -> parts[0]
-                parts.size == 2 -> "${parts[0]} · ${parts[1]}"
-                else -> "${parts[0]} · ${parts.last()}"
-            }
+            parts.joinToString(" · ").ifBlank { "网络共享" }
         }
         SourceType.WEBDAV, SourceType.HTTP -> runCatching {
             val url = URL(address)

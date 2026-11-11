@@ -38,9 +38,14 @@ internal fun hasVideoExtension(value: String): Boolean {
 internal fun titleOf(urlOrPath: String): String {
     val clean = urlOrPath.substringBefore('?').substringBefore('#')
         .trimEnd('/').substringAfterLast('/')
-    return runCatching { URLDecoder.decode(clean, "UTF-8") }.getOrDefault(clean)
-        .substringBeforeLast('.')
-        .ifBlank { clean }
+    // V2.29：URLDecoder 是 application/x-www-form-urlencoded 语义，会把 '+'
+    // 解成空格；但 URL path 里的 '+' 是字面量（"A+B.mp4" 不能变成 "A B"）。
+    // 先把 '+' 保护成 %2B 再解码：%XX（含中文 %E4%B8%AD）仍正确还原，
+    // '+' 保持原样，中文可读不丢。只改函数体，HTTP 客户端调用一律不碰。
+    val decoded = runCatching {
+        URLDecoder.decode(clean.replace("+", "%2B"), "UTF-8")
+    }.getOrDefault(clean)
+    return decoded.substringBeforeLast('.').ifBlank { clean }
 }
 
 /**

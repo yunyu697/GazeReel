@@ -5,6 +5,7 @@ import com.gazereel.vr.core.FormatDetector
 import com.gazereel.vr.core.InputChannel
 import com.gazereel.vr.core.MediaRef
 import com.gazereel.vr.core.SourceType
+import com.gazereel.vr.core.StereoLayout
 import com.gazereel.vr.core.StereoFrameJudge
 import com.gazereel.vr.core.VrAction
 import com.gazereel.vr.core.VrHeadsetProvider
@@ -201,6 +202,13 @@ class VrCoordinator(
      */
     private var pendingProbe: com.gazereel.vr.core.SphericalMetadata.Probe? = null
     private var pendingItem: MediaItemEntity? = null
+
+    /**
+     * V2.31：上面两份证据是**属于某一次打开**的。旧实现从不清空，切到下一部片后
+     * 抽帧结论回来，会拿上一部片的文件名 / 宽高 / 容器去重算「当前片」的格式，
+     * 用户看到的就是「切换时画面突然回正一下又乱掉」。
+     */
+    private var pendingProbeMediaId: Long = 0L
 
     /** 用户在这次播放里自己选过格式：抽帧不许覆盖他，他的话最硬。 */
     private var userPickedFormat = false
@@ -420,6 +428,7 @@ class VrCoordinator(
             val ref = buildRef(item) ?: return@launch
             userPickedFormat = false
             pendingItem = item
+            pendingProbeMediaId = item.id
             val resolution = resolveFormatFor(item, ref)
             pendingOpen = Triple(item, ref, resolution.format)
             uiState = uiState.copy(
@@ -464,6 +473,9 @@ class VrCoordinator(
         val pending = pendingOpen ?: return
         pendingOpen = null
         val (item, ref, format) = pending
+        // V2.31：把「这次打开的证据」钉死在这部片上，供抽帧结论回来时核对。
+        pendingItem = item
+        pendingProbeMediaId = item.id
         uiState = uiState.copy(
             screen = VrScreen.PLAYER,
             overlay = VrOverlay.NONE,
@@ -512,22 +524,54 @@ class VrCoordinator(
      *
      * 与现有结论一致就什么都不做（绝大多数片子走这条），
      * 不一致才当场改：只换每眼采样区域，不重开片源、不打断播放。
+     *
+     * V2.31：这里曾经是「打开就正对接缝」的落点。抽帧结论可以单方面把已经判对的
+     * SBS 降级成 MONO，还会把 MONO 写进格式记忆，下次打开命中缓存直接起播、连纠正
+     * 的机会都没有。现在三条硬约束：**结论必须属于当前片**、**只许升级不许降级**、
+     * **抽帧判出的 MONO 不写记忆**。参考应用 VRTV 干脆不自动判定、只认用户显式
+     * 选的 videoType，从根上没有这个「判定正确但首帧没裁切」的窗口；我们保留自动
+     * 判定，就用这三条把窗口关上。
      */
-    fun onFrameVerdict(verdict: StereoFrameJudge.Verdict) {
+    fun onFrameVerdict(mediaId: Long, verdict: StereoFrameJudge.Verdict) {
+        // 抽帧在 GL 线程、结论回主线程，中间可能已经切了片。
+        // 丢掉过期结论，否则上一部片的像素会被算到这一部头上。
+        if (mediaId == 0L || mediaId != uiState.currentMediaId) {
+            RunLog.append(
+                "fmt",
+                "抽帧结论过期（属于 $mediaId，当前 ${uiState.currentMediaId}）· 丢弃"
+            )
+            return
+        }
         if (userPickedFormat) {
             RunLog.append("fmt", "抽帧结论 ${verdict.layout.name} 未采用：用户本片已手选")
             return
         }
-        val item = pendingItem
-            ?: uiState.items.firstOrNull { it.id == uiState.currentMediaId }
+        // 证据必须和结论同属一部片。旧实现优先用从不清理的 pendingItem，
+        // 切换视频后它会残留上一部片的文件名 / 宽高 / 容器。
+        val item = uiState.items.firstOrNull { it.id == mediaId }
+            ?: pendingItem?.takeIf { it.id == mediaId }
             ?: return
         val ref = buildRef(item) ?: return
-        val w = pendingProbe?.width?.takeIf { it > 0 } ?: item.width
-        val h = pendingProbe?.height?.takeIf { it > 0 } ?: item.height
+        val probe = pendingProbe?.takeIf { pendingProbeMediaId == mediaId }
+        val w = probe?.width?.takeIf { it > 0 } ?: item.width
+        val h = probe?.height?.takeIf { it > 0 } ?: item.height
 
-        val redo = FormatDetector().detect(item.path, w, h, pendingProbe, verdict.evidence())
+        val redo = FormatDetector().detect(item.path, w, h, probe, verdict.evidence())
         if (redo.format == uiState.format) {
             RunLog.append("fmt", "抽帧与现有判据一致：${redo.format.label}")
+            return
+        }
+        // 把 SBS / TAB 降级成 MONO 会让整幅 SBS 铺满球面，正前方 u=0.5 正好压在
+        // 两幅画面的接缝上。抽帧的 MONO 只是「这一帧两半不像」，证据远弱于
+        // 文件名 / 容器 / 用户选择，不许它推翻已有的立体布局。
+        if (uiState.format.layout != StereoLayout.MONO &&
+            redo.format.layout == StereoLayout.MONO
+        ) {
+            RunLog.append(
+                "fmt",
+                "抽帧想把 ${uiState.format.layout.name} 降级为 MONO · 拒绝（" +
+                    verdict.describe() + "）"
+            )
             return
         }
         val before = uiState.format
@@ -536,7 +580,10 @@ class VrCoordinator(
             suggestedFormat = redo.format,
             overlay = VrOverlay.NONE
         )
-        scope.launch(Dispatchers.IO) { runCatching { library.rememberFormat(ref, redo.format) } }
+        // 抽帧得出的 MONO 不写进记忆：它证据最弱，写进去就会把「接缝」固化到片库里。
+        if (redo.format.layout != StereoLayout.MONO) {
+            scope.launch(Dispatchers.IO) { runCatching { library.rememberFormat(ref, redo.format) } }
+        }
         RunLog.append("fmt", "抽帧校正 ${before.label} → ${redo.format.label}（${verdict.describe()}）")
         showMessage("已按画面判为 ${redo.format.label}", 2_600L)
     }
@@ -552,6 +599,11 @@ class VrCoordinator(
             val ref = buildRef(next) ?: return@launch
             val resolution = resolveFormatFor(next, ref)
             pendingOpen = Triple(next, ref, resolution.format)
+            // V2.31：自动连播也是一次「新打开」，上一部片的手选标记不能带过来，
+            // 否则抽帧会被永久屏蔽，新片判错了也没人纠正。
+            userPickedFormat = false
+            pendingItem = next
+            pendingProbeMediaId = next.id
             uiState = uiState.copy(
                 selectedIndex = uiState.items.indexOfFirst { it.id == next.id }.coerceAtLeast(0),
                 format = resolution.format,
