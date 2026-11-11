@@ -31,17 +31,38 @@ app/build.gradle.kts 检测到本目录存在 cardboard-sdk.aar 时会：
 VrActivity 通过反射尝试实例化 CardboardHeadsetProvider，失败（例如 x86 模拟器缺 native 库）
 则回落 SensorHeadsetProvider，两者实现同一个 VrHeadsetProvider 接口。
 
-已绑定的 SDK 能力
-----------------
-Initialize.initialize、HeadTracker.getPose（含屏幕旋转补偿）、
-LensDistortion.getEyeFromHeadMatrix / getEyeProjectionMatrix（每眼 FOV 与 IPD）、
-QrCode.getSavedDeviceParams（未扫码回落 Cardboard V1 参数）。
+当前接入状态（V2.30 起）
+------------------------
+头追已整体切到 SDK：VrActivity.createHeadset() 用反射实例化 CardboardHeadsetProvider，
+读它的 sdkActive；缺 AAR / 缺 native so / SDK 初始化失败都自动回落 SensorHeadsetProvider。
+两者实现同一个 VrHeadsetProvider 接口，运行日志会写 `[headset] mode=cardboard|sensor`。
+
+已绑定：Initialize.initialize、HeadTracker.getPose（EKF 融合 / 陀螺零偏 / 50ms 预测 /
+显示空间旋转补偿 / neck model）、重定正前方、视角锁定、触发键注入。
+
+三个必须遵守的约定（当初没敢启用就是栽在这三处，逐条对照官方源码核实过）
+----------------------------------------------------------------------
+1. getPose 的第 1 个参数是「相对当前时刻的 delta」，不是绝对时间。
+   java_api/src/main/jni/cardboard_jni.cc:382 内部是
+   `timestamp_ns = GetBootTimeNano() + delta_time_ns`。
+   官方 CardboardViewApi 默认 50_000_000 ns。传 System.nanoTime() 会让 EKF
+   按角速度外推到极远未来，姿态彻底失控。
+2. SDK 四元数转出来的矩阵是 head view（世界→头），不是设备姿态。
+   hellocardboard-android/.../hello_cardboard_app.cc:181 直接 `head_view_ = GetPose()`；
+   CardboardView.java:1056 把它塞进 headTransform.getHeadView()。
+   工程接口 VrHeadsetProvider.headRotation() 要 pose（设备→世界），必须转置一次。
+3. deviceOrientation 参数是 CardboardViewportOrientation 枚举，数值与
+   Surface.ROTATION_* 不同：ROTATION_0→2、90→0、180→3、270→1
+   （见 CardboardViewApi.setDeviceOrientation 与 include/cardboard.h:46-67）。
 
 尚未绑定
 --------
-LensDistortion.getDistortionMesh / DistortionRenderer（桶形畸变预补偿）。当前为自绘分屏，
-画面几何正确但未做畸变矫正，属阶段二工作；所有 SDK 调用集中在
-src/cardboard/java/com/example/cardboardvr/render/CardboardHeadsetProvider.kt 一个文件内。
+- LensDistortion.getEyeFromHeadMatrix / getEyeProjectionMatrix：适配层里已实现，
+  但 USE_SDK_OPTICS 默认 false。它会改变现有球面网格的取景范围，必须与
+- LensDistortion.getDistortionMesh / DistortionRenderer（桶形畸变预补偿）
+  一起做专项校准，不能单独打开。当前为自绘分屏直出，画面几何零变化。
+所有 SDK 调用集中在 src/cardboard/java/com/gazereel/vr/render/CardboardHeadsetProvider.kt
+一个文件内。
 
 注意
 ----

@@ -1,6 +1,7 @@
 package com.gazereel.vr.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -83,6 +84,43 @@ class VrActivity : AppCompatActivity() {
         bootStage = name
         CrashLog.markBooting(this, bootMode, name)
         RunLog.append(this, "vr", "stage=$name mode=$bootMode")
+    }
+
+    /**
+     * V2.30：优先用官方 Cardboard SDK 的头追。
+     *
+     * 用反射而不是直接 new：app/build.gradle.kts 只在 `libs/cardboard-sdk.aar`
+     * 存在时才把 `src/cardboard/java` 并入 sourceSet，直接引用会让「没放 AAR」的
+     * 机器编译不过。反射同时能兜住 arm64 之外的 ABI 缺 native 库、以及 SDK
+     * 自己初始化失败的情况——这些都退回原来那套纯传感器实现，不会白屏。
+     */
+    private fun createHeadset(): VrHeadsetProvider {
+        val sdk = runCatching {
+            Class.forName("com.gazereel.vr.render.CardboardHeadsetProvider")
+                .getConstructor(Context::class.java)
+                .newInstance(this) as VrHeadsetProvider
+        }.onFailure {
+            RunLog.append(
+                this, "headset",
+                "SDK 不可用，回退传感器：${it.javaClass.simpleName}: ${it.message?.take(120)}"
+            )
+        }.getOrNull()
+
+        if (sdk != null) {
+            val active = runCatching {
+                sdk.javaClass.getMethod("getSdkActive").invoke(sdk) as? Boolean ?: false
+            }.getOrDefault(false)
+            if (active) {
+                bootMode = "cardboard"
+                RunLog.append(this, "headset", "mode=cardboard · 官方 SDK 头追")
+                return sdk
+            }
+            RunLog.append(this, "headset", "SDK 初始化未成功，改用传感器头追")
+            runCatching { sdk.stop() }
+        }
+        bootMode = "sensor"
+        RunLog.append(this, "headset", "mode=sensor · 传感器头追")
+        return SensorHeadsetProvider(this)
     }
 
     private val tick = object : Runnable {
@@ -177,18 +215,11 @@ class VrActivity : AppCompatActivity() {
         // V2.7.6：播放前读一次容器里的球面声明与真实宽高，不再靠文件名猜格式。
         val prober = FormatProber(sourceFactory, this)
 
-        // V2.7.3：暂时固定用纯传感器实现。
-        //
-        // Cardboard 的 HeadTracker 走 native，姿态在世界坐标系里的约定（up 轴、
-        // 手性）我没法在没有真机日志的情况下验证；而「头一动画面就转」这件事
-        // 必须一次修到位，不能再猜。传感器路径的姿态数学现在完全在工程里：
-        // 视线取 -设备z，up 用重力钉在世界竖直上，横放竖放都能推出来。
-        //
-        // CardboardHeadsetProvider 保留在 src/cardboard/java，等做桶形畸变专项
-        // （需要 LensDistortion 的畸变网格）时再切回来并真机校准。
-        bootMode = "sensor"
+        // V2.30：头追整体交给官方 Cardboard SDK（EKF 融合、陀螺零偏估计、50ms 姿态预测、
+        // 显示空间旋转补偿、neck model）。手写 TYPE_ROTATION_VECTOR 链路一件都没有，
+        // 这是「转头拖尾 / 平躺慢慢歪 / 方向反」的根源。缺 AAR 或缺 native so 时自动降级。
+        headset = createHeadset()
         stage("headset")
-        headset = SensorHeadsetProvider(this)
         stage("player")
         val dispatcher = ActionDispatcher { action, channel -> coordinator.handle(action, channel) }
         player = PlayerController(this, dataSourceFactory, library) { state ->
@@ -251,9 +282,9 @@ class VrActivity : AppCompatActivity() {
             runOnUiThread { trigger.onTrigger(event) }
         }
         headset.start()
-        // 正前方由 Provider 在第一帧传感器数据到达时自动定基准（pendingInitialRecenter）。
-        // 这里不能直接调 recenter()：此刻还没收到过数据，rotation 仍是单位矩阵，
-        // 拿它当基准等于没设，第一帧真数据一到画面就跳到手机的绝对朝向。
+        // 正前方由 Provider 在「姿态稳定后」自动定一次基准（SDK 与传感器路径都是）。
+        // 这里不能直接调 recenter()：此刻还没收到过姿态数据，rotation 仍是单位矩阵，
+        // 第一帧真数据一到画面就跳到手机的绝对朝向。
         player.onEnded = { mediaId -> coordinator.autoPlayNext(mediaId) }
         player.onError = { message -> coordinator.showMessage(message) }
 
