@@ -11,6 +11,8 @@ import android.view.Surface
 import android.view.WindowManager
 import com.gazereel.vr.core.Eye
 import com.gazereel.vr.core.EyeParams
+import com.gazereel.vr.core.Optics
+import com.gazereel.vr.core.PoseMath
 import com.gazereel.vr.core.PoseTrace
 import com.gazereel.vr.core.RotationBlend
 import com.gazereel.vr.core.TriggerEvent
@@ -59,9 +61,24 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     @Volatile
     private var flipPitch = false
 
+    /** V2.39：翻转后需要在下一帧重定（见 [setFlipPitch]）。 */
+    @Volatile
+    private var pendingFlipRecenter = false
+
+    /**
+     * V2.39：开关一变，就在**下一帧姿态生效之后**重定一次。
+     *
+     * 不能在这里直接 recenter()：`rotation` 还是上一帧（未翻转）的姿态，
+     * 拿它算出来的参考系与随后的翻转姿态对不上，用户会看到画面纵向跳一下。
+     * 所以只置一个待办，由传感器线程在写完新姿态的那一帧里就地重定。
+     */
     override fun setFlipPitch(enabled: Boolean) {
+        if (flipPitch == enabled) return
         flipPitch = enabled
+        pendingFlipRecenter = true
     }
+
+    override fun isFlipPitch(): Boolean = flipPitch
 
     // V2.19 / B5：缓转重定基准。起点/终点都是「参考系偏移」，中间走球面插值。
     private var easing = false
@@ -298,9 +315,13 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         // 导致头向左转画面也向左转，方向反且幅度加倍）。
         val view = FloatArray(16)
         Matrix.multiplyMM(view, 0, translated, 0, viewRotationOf(headRotation()), 0)
-        val projection = FloatArray(16)
+        // V2.39：瞳距的真正作用是「让每只眼的画面落在镜片中心」，所以作用在**光轴**上
+        // （离轴视锥），不是相机间距——后者在半径 10 的球面上只有 0.04° 的视差，
+        // 这正是「界面能拖、画面毫无变化」的原因。见 core/Optics 的推导。
         val near = 0.1f
-        Matrix.frustumM(projection, 0, -near * aspect, near * aspect, -near, near, near, 50f)
+        val bounds = Optics.frustumLeftRight(eye == Eye.LEFT, aspect, ipdMeters * 1000f, near)
+        val projection = FloatArray(16)
+        Matrix.frustumM(projection, 0, bounds[0], bounds[1], -near, near, near, 50f)
         return EyeParams(view, projection)
     }
 
@@ -316,6 +337,12 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         val refUp = FloatArray(3)
         synchronized(lock) {
             System.arraycopy(matrix, 0, rotation, 0, 16)
+            // V2.39：翻转刚生效的这一帧就地重定，避免纵向跳一下。
+            if (pendingFlipRecenter) {
+                pendingFlipRecenter = false
+                recenterLocked()
+                RunLog.append("pose", "俯仰反向已切换 · 已按新约定重定基准")
+            }
             if (pendingInitialRecenter) {
                 val now = SystemClock.elapsedRealtime()
                 val still = hasLastRawPose && poseDelta(matrix, lastRawPose) < STILL_RAD
@@ -405,52 +432,17 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     }
 
     /**
-     * V2.37：只把**俯仰**取反，偏航与横滚原样保留。
+     * V2.37 / V2.39：只把**俯仰**取反，偏航与横滚原样保留。
      *
      * 真机（2026-11-11）：「抬头整个视频画面应该下移才能看到天花板，低头画面上移
      * 才能看到地板，现在是反的；左右正常。」——画面没倒、左右没反，只有俯仰反。
      *
-     * 做法是按 `C = Ry(yaw)·Rx(pitch)·Rz(roll)` 分解，把 pitch 换成 -pitch 再乘回去。
-     * 不要图省事写成「共轭一个 y 镜像」：那等价于把世界上下翻，整个画面会倒过来，
-     * 用户看到的就不只是「方向反」而是「画面倒了」。
-     *
-     * 分解用视线方向取 yaw/pitch（`视线 = -第三列`，与 [headRotation] 的约定一致），
-     * roll 由 `Rx(pitch)ᵀ·Ry(yaw)ᵀ·C` 的第一列取出——不用叉乘，接近天顶时也不退化。
+     * V2.39 把这段数学搬进 `core/PoseMath`：不依赖 `android.opengl`，于是能在 JVM 上
+     * 用 `tools/run-pose-check.sh` 逐例验「俯仰精确反号、偏航横滚一位不差」。
+     * V2.37 用 `Matrix.rotateM` 拼的那一版在真机上「打开开关没有任何变化」，
+     * 而那条路径在开发机上跑不了，只能推演——不再靠推演。
      */
-    private fun flipPitchOf(c: FloatArray): FloatArray {
-        val fx = -c[8]
-        val fy = (-c[9]).coerceIn(-1f, 1f)
-        val fz = -c[10]
-        // C = Ry(yaw)·Rx(pitch)·Rz(roll) 时，视线水平分量是 (-sin yaw·cos p, ·, -cos yaw·cos p)
-        val yaw = -kotlin.math.atan2(fx.toDouble(), (-fz).toDouble()).toFloat()
-        val pitch = kotlin.math.asin(fy.toDouble()).toFloat()
-
-        val c0 = FloatArray(16)
-        Matrix.setIdentityM(c0, 0)
-        Matrix.rotateM(c0, 0, Math.toDegrees(yaw.toDouble()).toFloat(), 0f, 1f, 0f)
-        Matrix.rotateM(c0, 0, Math.toDegrees(pitch.toDouble()).toFloat(), 1f, 0f, 0f)
-
-        val m = FloatArray(16)
-        Matrix.multiplyMM(m, 0, transpose3x3(c0), 0, c, 0)
-        val roll = kotlin.math.atan2(m[1].toDouble(), m[0].toDouble()).toFloat()
-
-        val out = FloatArray(16)
-        Matrix.setIdentityM(out, 0)
-        Matrix.rotateM(out, 0, Math.toDegrees(yaw.toDouble()).toFloat(), 0f, 1f, 0f)
-        Matrix.rotateM(out, 0, Math.toDegrees(-pitch.toDouble()).toFloat(), 1f, 0f, 0f)
-        Matrix.rotateM(out, 0, Math.toDegrees(roll.toDouble()).toFloat(), 0f, 0f, 1f)
-        return out
-    }
-
-    /** 3×3 部分转置，平移列清零；只用于姿态矩阵。 */
-    private fun transpose3x3(src: FloatArray): FloatArray {
-        val out = FloatArray(16)
-        out[0] = src[0]; out[1] = src[4]; out[2] = src[8]
-        out[4] = src[1]; out[5] = src[5]; out[6] = src[9]
-        out[8] = src[2]; out[9] = src[6]; out[10] = src[10]
-        out[15] = 1f
-        return out
-    }
+    private fun flipPitchOf(c: FloatArray): FloatArray = PoseMath.flipPitch(c)
 
     /**
      * 屏幕坐标 → 设备坐标，按 `Display.getRotation()`。

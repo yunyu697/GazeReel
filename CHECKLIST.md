@@ -11,9 +11,9 @@
 >    `[设计]` 只有设计、代码没动 · `[已实现]` 代码改了、编译过 · `[真机]` 用户在真机上确认过 · `[回归]` 曾经可用、后来坏了
 > 5. **动任何功能前先核查成熟方案**（官方 SDK / 平台 API / 成熟库 / 行业标准），结论写进《附录 · 成熟方案核查》；自研只做成熟方案不覆盖的那部分，并在裁决记录里写清边界。
 >
-> 最后更新：V2.38 / 1.1.0-alpha25（2026-11-11 晚，重定「正前方」改成两种都不用瞄准的做法：跟着视线走的倒计时 + 双击触发键立刻重定）
+> 最后更新：V2.39 / 1.1.0-alpha26（2026-11-11 晚，两件真机问题：α24 的俯仰开关「打开没变化」、瞳距「能拖但画面不动」——都查到了具体原因并给出可验证的修法）
 >
-> **当前基线**：`V2.38 / 1.1.0-alpha25`（tag `v1.1.0-alpha25`；上一版是 `9d209ad` / alpha24）；产物 `GazeReel-1.1.0-alpha25.apk`（**未上真机**）。本轮把「重定正前方」从「凝视按钮再确认」改成「跟着视线走的倒计时 / 双击立刻重定」，**先看「本轮新增（alpha25）」再上机**。
+> **当前基线**：`V2.39 / 1.1.0-alpha26`（tag `v1.1.0-alpha26`；上一版是 `e3309ef` / alpha25）；产物 `GazeReel-1.1.0-alpha26.apk`（**未上真机**）。本轮只修两件真机报回来的事：俯仰开关无效、瞳距无效果，**先看「本轮新增（alpha26）」再上机**（首次播放会弹一次「抬头看到什么」的自检卡，那是预期的）。
 
 ---
 
@@ -116,7 +116,38 @@
 
 ## 已知未验证（真机一跑就可能翻案）
 
-**总口径**：当前代码 `V2.38 / 1.1.0-alpha25`。alpha4–alpha25 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+**总口径**：当前代码 `V2.39 / 1.1.0-alpha26`。alpha4–alpha26 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+
+### 本轮新增（alpha26 / V2.39，一次真机都没跑）
+
+**一、俯仰开关「打开后没有任何变化」→ 换掉实现，并把问题摆到眼前**
+
+- 真机事实（2026-11-11 22:00）：「alpha24 并没有解决方向反的问题，现在抬头低头和原来一样是反的，没有任何变化。」
+- 两条可能，都成立且都必须修：
+  ① **实现路径不可靠**：V2.37 的 `flipPitchOf` 用 `android.opengl.Matrix.rotateM` 拼 `Ry·Rx·Rz`，那条路径在开发机上跑不了，只能推演；推演已经错过一次。
+  ② **入口不可达**：开关在「手机设置」对话框里，而症状出现在戴上之后；这个对话框是 `wrap_content` 的竖排布局，小屏上「画面上下方向」这一块会被挤到屏幕外——**一个看不见的开关等于没有**。
+- 改法：
+  - 数学搬进 `core/PoseMath.kt`（纯 Kotlin，不依赖 Android），`flipPitch()` 显式构造 `Ry(yaw)·Rx(−pitch)·Rz(roll)`；新增 `tools/run-pose-check.sh` + `tools/PoseMathCheck.kt`，用 Gradle 缓存里的 Kotlin 编译器直接编**工程里那份真代码**，21 条断言全过：俯仰精确反号（含 85°）、偏航与横滚一位不差、翻两次回原位（误差 1.5e-8）、翻转不是恒等（元素差 0.68）、正交且右手。
+  - `CardboardHeadsetProvider` 补上 `setFlipPitch`（V2.37 只写在 Sensor 上，接口默认空实现——一旦真走 SDK 路径就会静默失效），并转发给 fallback。
+  - 翻转**下一帧就地重定**（`pendingFlipRecenter`），在传感器线程写完新姿态的那一帧做，避免「用上一帧还没翻的姿态算参考系」造成的纵向跳动。
+  - 新增 `VrHeadsetProvider.isFlipPitch()`，进 VR 时写一行 `[pose] mode=… · 俯仰反向=开/关` ——上一版查不到开关到底有没有生效。
+- 入口改成**不用找**：第一次播放时弹一张卡（`VrAction.PitchIsNormal` / `PitchIsFlipped`），直接问「抬头看到的是天花板还是地板」。回答写盘（`pitch_checked`），以后不再问；手机设置里保留开关 + 「重新自检一次」。
+- 手机设置对话框外面套 `ScrollView`，最底下的项与「完成」不再被挤出屏幕。
+
+**二、瞳距「界面能拖、画面没有任何变化」→ 换成离轴视锥**
+
+- 真机事实：「调节界面可以操作，但是操作了没有任何效果，画面没有任何变化」。
+- 根因（可算）：旧实现把瞳距当**相机间距**，每眼沿 x 平移 ±IPD/2。片源铺在半径 10 的球面上，62mm→75mm 只挪 6.5mm，对应视差 `atan(0.0065/10) ≈ 0.04°`。**0.04° 在头显里等于没有。** 那条代码数学上没错，视觉上无效。
+- 改法：瞳距改成作用在**每只眼的光轴**上（离轴视锥）——这正是纸盒里它真正管的事（画面要落在镜片中心）。
+  - `core/Optics.kt`：参考镜距 63mm、1.2°/mm（45mm 焦距 ≈ 1.27°，取保守值），62mm → −0.6°（默认几乎不变）、75mm → 每眼 +7.2°（明显向外）、50mm → −7.8°，上限 ±9°。
+  - `frustumLeftRight()`：`near·tan(θ ∓ 半视角)`，不是两边各加常数（大角度会压扁视场）。左右眼反号，调大瞳距 = 两幅画面各自向外分开。
+  - 两个 Provider（Sensor / Cardboard legacy）都改；调节条上直接显示「每眼 X.X°」，日志也带上度数。
+- 自检：`tools/run-pose-check.sh` 里 3 条瞳距断言（幅度、左右反号、离轴视锥中心外移）全过。
+
+**三、还没解决的问题（必须说清楚）**
+
+- 这一版**没有**证明俯仰反的根因是哪一层。它做的事是：把「翻转」这件事变成一条可验证的、立刻生效的、不用找的路径。
+- 如果回答「是地板 · 反了」之后，方向对了但**画面本身变成倒的**（字是倒的、人是倒的），那说明真正的错在**视频纹理的 v 映射**（`ProjectionMesh` / SurfaceTexture 的 ST 矩阵），不在姿态——那一次回答就能把范围从「姿态 or 纹理」收成「纹理」，下一版改 `ProjectionMesh` 的 `v` 即可，不用再猜。
 
 ### 本轮新增（alpha25 / V2.38，一次真机都没跑）
 
@@ -347,6 +378,11 @@
 | V2.38 / 2026-11-11 | 重定正前方为什么一直差一点 | 重定算法（`recenterTo` 的矩阵推导）有错 | **算法没错，取样时刻错了。** `recenterTo` 的数学在 V2.19c 核对过（`O' = H⁻¹·O`），实测也对得上。错的是「H 从哪来」：旧路径取的是**点按钮那一刻**的朝向，而按钮在面板下方，用户为了点它已经把视线移开十几度。V2.27 的补丁（记住点按钮前的姿态）只是把这个误差从「凝视确认的两跳」缩小到「一跳」，根子没动。 | 
 | V2.38 | 为什么改成跟着视线走的倒计时 | 弹个卡片让用户确认不就行了 | 卡片只要**不跟随**，用户就得转头去找它，而转头就是在改写要确认的方向——这是同一个循环。让面板朝向每帧等于当前姿态（`panelSpec`）之后，卡片永远在眼前，用户全程只需要「看」，不需要「找」。归零那一刻的姿态天然就是他要的方向，因为它就是他正在看的方向。 |
 | V2.38 | 为什么不延长倒计时「等用户稳住」 | 没稳住就再等两秒更稳妥 | **约定比聪明重要。** 倒计时一旦会自己延长，用户就不知道它什么时候结束，会一直盯着数字不敢停。现在的做法是：提前把状态显示出来（最后 2.5 秒还在动就变琥珀色并写「再稳住一下」），时间一到照常结算，日志里记下「结束时已稳住 / 仍在动」。要更从容就把时长调长，那是用户自己的选择。 |
+| V2.39 / 2026-11-11 | alpha24 的俯仰开关「打开没变化」 | 翻转代码算错了 | **两种可能都修了，但没有证据说根因是哪一条**：① `Matrix.rotateM` 那条路径在开发机上跑不了，只能推演，推演已经错过一次 → 换成纯 Kotlin + 21 条 JVM 断言（含「翻转不是恒等」）；② 开关藏在戴镜前的对话框里、小屏上还会被挤到屏幕外 → 改成第一次播放时直接在眼前问。**一个看不见、也查不到的开关等于没有。** |
+| V2.39 | 为什么改成「问用户」而不是自动判断 | 自动检测一次不是更好 | 3DOF 只有姿态，App 没有任何信息能知道**用户以为自己在看哪一边**。要么镜像检测（做不到），要么问一句（2 秒）。问一次写盘，之后不再打扰。 |
+| V2.39 | 为什么翻转后要重定而不是保持原基准 | 翻转只改俯仰，方位角没变，不动就行 | 参考系是**一次矩阵取逆**换来的，翻转过的是姿态、不是那个逆矩阵。不重定，用户会看到画面纵向突然跳一下。且重定**必须等新姿态生效那一帧**，否则拿的是上一帧还没翻的姿态（`pendingFlipRecenter`）。 |
+| V2.39 | 瞳距为什么以前「能拖但没变化」 | 参数没传到渲染层 | **传到了，而且在数学上是正确的**：`eyeParams(eye, aspect, ipdMeters)` 一直在用。无效是因为**用错了地方**——相机间距在半径 10 的球上只有 0.04° 视差。瞳距在纸盒里管的是「画面落在镜片中心」，所以必须作用在光轴（离轴视锥）上。这一条把「参数没接上」和「接了但没用」彻底分开。 |
+| V2.39 | 瞳距为什么以 63mm 为参考 | 应该以纸盒实际镜距为准 | 镜距无从得知（纸盒各异），而**参考点只决定零点，不决定方向**：0 点取 63mm 时，默认 62mm 几乎不动（不改变现有观感），用户往大调就是「画面各自向外」。等真机确认方向反了，把符号翻一次即可。 |
 | V2.38 | 双击为什么让给「立刻重定」，设置去哪了 | 双击一直是打开设置 | 「立刻重定」必须有一个**不经过任何瞄准**的触发方式，而双击是唯一一个：它不落在任何凝视目标上，记下的就是用户此刻看的方向。设置并没有丢入口——片库右上角齿轮、播放控制台「设置」都还在（V2.11 就有），双击那条只是重复的第三条近路。调瞳距时双击仍是「快速结束」，那条没动。 |
 
 ---
@@ -355,6 +391,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| V2.39 | **版本号 1.1.0-alpha26**（`versionCode 101000026`）。俯仰翻转改用纯 Kotlin 实现（`core/PoseMath.flipPitch`，显式 `Ry·Rx(−pitch)·Rz(roll)`），新增 `tools/PoseMathCheck.kt` + `tools/run-pose-check.sh`（21 条断言）；`CardboardHeadsetProvider` 补 `setFlipPitch/isFlipPitch` 并转发 fallback，`refreshRotation` 里也套翻转；`SensorHeadsetProvider` 新增 `pendingFlipRecenter`（翻转下一帧就地重定）；`VrHeadsetProvider.isFlipPitch()`；首次播放弹「抬头看到什么」自检卡（`VrUiState.pitchCheck` + `VrAction.PitchIsNormal/PitchIsFlipped` + `VrSettings.pitchChecked` + `pitch_checked` 持久化），手机设置加「重新自检一次」并整体套 `ScrollView`。瞳距改离轴视锥：新增 `core/Optics.kt`（63mm 参考、1.2°/mm、±9° 上限、`frustumLeftRight`），两个 Provider 的 `eyeParams` 都换，调节条与日志显示「每眼 X.X°」。验证：`run-pose-check.sh` 21/21、`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 64 文件 / 16091 行）。**未上真机**。 |
 | V2.38 | **版本号 1.1.0-alpha25**（`versionCode 101000025`）。重定「正前方」改口径：**看哪儿，哪儿就是正前方**，不再要求瞄准按钮。新增 `AlignCountdown`（`VrUiState`）+ `VrSettings.alignCountdownMs`（默认 10s / 3–20s）+ 持久化 `align_countdown_ms`；`VrCoordinator` 新增 `startAlignCountdown / updatePosture（改为驱动倒计时）/ applyAlign / confirmAlignNow / cancelAlign / recenterNow`，`updatePosture` 每帧算视线角速度（≤8°/s 累计 0.5s 算稳住）与「已调整 N°」，归零时 `recenterTo(当前姿态)`；倒计时期间独占输入（单击定 / 长按取消 / 其余吞掉）、`touch()` 不点控制台、`disarmGaze()` 作废倒计时、`GestureRecognizer` 整段停用；`VrUiLayer.panelSpec` 让面板朝向跟视线走 + 新增 `drawAlignCountdown`（环 + 秒数 + 状态行，不注册目标）；`VrRenderer.uiSignature` 把倒计时纳入脏标记；`TriggerDispatcher` 双击 → `RecenterNow`（调瞳距时仍是结束）。`VrAction` 新增 `RecenterNow / ConfirmAlign / CancelAlign`。手机端 `dialog_settings.xml` 加重定倒计时 ± 1 秒与说明、`SetupActivity` 绑定并写 `[pose]` 日志。验证：`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 62 文件 / 15690 行）。**未上真机**。 |
 | V2.37 | **版本号 1.1.0-alpha24**（`versionCode 101000024`）。C1 真机通过（`KAVR-332-CD1` 自动 180 SBS）。新增「俯仰方向」现场开关：`VrHeadsetProvider.setFlipPitch()`（接口默认空实现）、`SensorHeadsetProvider.flipPitchOf()`（按 `Ry(yaw)·Rx(pitch)·Rz(roll)` 分解，只取反 pitch，yaw/roll 保留，附 `transpose3x3`）、`VrSettings.flipPitch`（默认 false）+ `SettingsRepository` 持久化（`flip_pitch`）、手机端 `dialog_settings.xml` 加 `flipSwitch` 与说明、`SetupActivity` 绑定并写 `[pose]` 日志、`VrActivity` 建 headset 时下发。验证：`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 62 文件 / 15341 行）、分解重建 7 例 Python 数值校验（俯仰精确取反、yaw/roll 不变、正交性 <1e-9、天顶不退化）。**开关本身未上真机**。 |
 | V2.36 | **版本号 1.1.0-alpha23**（`versionCode 101000023`）。C1 抽帧判据重写：`StereoFrameJudge` 从「零位移整幅相关系数（门槛 0.95）」改为「视差补偿后的分块比对」——192×96 判据网格、6×6 块、±10% 半幅宽的位移搜索、峰值独占（`PAIR_MATCH 0.86` / `PEAK_GAP 0.05`）、最宽视差带三条判据（`BAND_RATIO 0.45` / `PAIR_MEAN 0.90` / `BAND_CLUSTER 0.55`），`Verdict` 增加 `sbsBand/tabBand/sbsMean/tabMean/sbsCluster/tabCluster/sbsShift/tabShift`，`describe()` 把「零位移 / 带内 / 均值 / 连片」一起写进 `[fmt]` 日志；`combine()` 三帧一致与「只许升级、不许降级」保持原样。新增离线自检 `tools/StereoJudgeCheck.kt`（10 个合成场景）+ `tools/run-stereo-check.sh`（用 Gradle 缓存里的 Kotlin 编译器编**真代码**）；`tools/build/stereo-check/` 为产物目录。验证：自检 10/10 PASS、`assembleDebug` 通过、`check_structure.py` 通过。**未上真机**。 |

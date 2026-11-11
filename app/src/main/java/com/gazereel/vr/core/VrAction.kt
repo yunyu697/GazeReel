@@ -110,6 +110,17 @@ sealed class VrAction {
     object CancelAlign : VrAction() { override val priority = 2 }
 
     /**
+     * V2.39：方向自检的两个回答。
+     *
+     * 上一版把「上下反向」做成手机设置里的一项、默认关，真机结果是「没有任何变化」——
+     * 症状出现在戴上之后，开关却藏在戴镜之前，谁也不会想到去那里找。
+     * 现在第一次播放时直接在眼前问一句：抬头看到的是天花板，还是地板。
+     */
+    object PitchIsNormal : VrAction() { override val priority = 3 }
+
+    object PitchIsFlipped : VrAction() { override val priority = 3 }
+
+    /**
      * V2.16：播放中调出片库之后，一个动作回到正在看的那一部。
      *
      * 原来从播放页按「片库」只有长按触发键或重新凝视那一格才能回去，

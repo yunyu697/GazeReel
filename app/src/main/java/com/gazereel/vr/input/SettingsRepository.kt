@@ -28,6 +28,9 @@ class SettingsRepository(context: Context) {
         subtitlesEnabled = prefs.getBoolean("subtitles", true),
         cursorEnabled = prefs.getBoolean("cursor", true),
         flipPitch = prefs.getBoolean("flip_pitch", false),
+        // V2.39：方向自检问过一次就不再问；老安装视为「没问过」，
+        // 升级后第一次播放会主动问一次——那正是这次要修的「没人知道有这个开关」。
+        pitchChecked = prefs.getBoolean("pitch_checked", false),
         // V2.38：旧安装没有这一项，默认 10 秒；读到的值一律夹进合法范围，
         // 免得某次写坏了（0 秒 / 999 秒）让倒计时变成「立刻定」或「永远不定」。
         alignCountdownMs = prefs.getLong("align_countdown_ms", 10_000L).coerceIn(
@@ -59,6 +62,7 @@ class SettingsRepository(context: Context) {
             .putBoolean("subtitles", next.subtitlesEnabled)
             .putBoolean("cursor", next.cursorEnabled)
             .putBoolean("flip_pitch", next.flipPitch)
+            .putBoolean("pitch_checked", next.pitchChecked)
             .putLong("align_countdown_ms", next.alignCountdownMs)
             .apply()
         return next

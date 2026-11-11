@@ -812,6 +812,15 @@ class SetupActivity : AppCompatActivity() {
             RunLog.append("pose", "俯仰方向 · ${if (checked) "上下反向" else "正常"}")
         }
 
+        // V2.39：自检只在「第一次播放」问一次，答错了得能重来。
+        // 这里清掉已问标记，下次播放会再问一次——比让用户自己去猜方向靠得住。
+        view.pitchRecheck.setOnClickListener {
+            repo.update { it.copy(pitchChecked = false) }
+            RunLog.append("pose", "重新自检 · 下次播放时再问一次方向")
+            view.pitchRecheck.text = getString(R.string.settings_pitch_recheck_done)
+            view.pitchRecheck.isEnabled = false
+        }
+
         view.settingsDone.setOnClickListener { dialog.dismiss() }
 
         // V2.38：重定「正前方」的倒计时时长。它是「在限定时间内调整并稳定姿态」里的

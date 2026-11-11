@@ -89,13 +89,16 @@
     <string name="settings_ipd_minus">− 0.5 mm</string>
     <string name="settings_ipd_plus">+ 0.5 mm</string>
     <string name="settings_ipd_reset">恢复默认 62.0 mm</string>
-    <string name="settings_ipd_note">两眼瞳孔中心的距离。左右画面合不上、看久了发酸，先拖这条粗调，再点 ± 修 0.5mm。它不是纸盒的透镜间距，两者别混。</string>
+    <string name="settings_ipd_note">两眼瞳孔中心的距离。左右画面合不上、看久了发酸，先拖这条粗调，再点 ± 修 0.5mm。它会改变每只眼的画面位置（不是相机间距），所以在球面视频上也看得见变化。</string>
     <string name="settings_done">完成</string>
     <!-- V2.37：俯仰方向。措辞按「现象 → 动作」写，不解释原理。 -->
     <string name="settings_flip_title">俯仰方向</string>
     <string name="settings_flip_off">正常</string>
     <string name="settings_flip_on">上下反向</string>
-    <string name="settings_flip_note">正常是「抬头看天花板、低头看地板」。如果戴上后正相反（抬头看到地板、低头看到天花板），把这项打开；打开后反而乱，说明原来就是对的，关掉即可。左右方向不受影响。</string>
+    <string name="settings_flip_note">正常是「抬头看天花板、低头看地板」。第一次播放时 App 会自己问一次，答完就不用管这里了；要改随时拨这个开关，立刻生效、不用重启。左右方向不受影响。</string>
+    <string name="settings_pitch_recheck">重新自检一次 ›</string>
+    <string name="settings_pitch_recheck_done">已安排 · 下次播放时再问</string>
+    <string name="settings_ipd_effect">瞳距改变的是「每只眼的画面朝镜片中心挪多少」：调大 = 两幅画面各自向外分开。每 1mm 约 0.6°。</string>
 
     <!-- V2.38：重定「正前方」的倒计时时长。 -->
     <string name="settings_align_title">重定「正前方」倒计时</string>

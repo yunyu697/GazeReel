@@ -72,6 +72,15 @@ interface VrHeadsetProvider {
     fun setFlipPitch(enabled: Boolean) {}
 
     /**
+     * V2.39：开关当前生效值。
+     *
+     * 加这个只为一件事：进 VR 时把「实际生效的是哪一档」写进运行日志。
+     * 上一版开关在真机上「没有任何变化」，而日志里查不到它到底有没有被打开过——
+     * 一个查不到的开关等于没有这个开关。现在每次进 VR 都会记一行。
+     */
+    fun isFlipPitch(): Boolean = false
+
+    /**
      * V2.19 / B5：把「正前方」在 [durationMs] 内**缓转**到当前姿态，而不是瞬跳。
      *
      * 瞬跳在头显里是典型的晕动触发源：整个视界在一帧里平移几十度。

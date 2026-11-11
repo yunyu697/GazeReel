@@ -10,9 +10,20 @@
   凭空长出一堆开关会让「第一屏只有两个动作」的约定被稀释。
   后续真要加别的戴镜前设置，往这个对话框里加区块即可。
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+  V2.39：外面套一层 ScrollView。
+  对话框是 wrap_content 的竖排 LinearLayout，而这一版又多了「画面上下方向」与「重定倒计时」
+  两块；小屏上最底下的「完成」会被挤到屏幕外。真机反馈「打开开关没有任何变化」，
+  一个很可能的原因就是这个开关根本没被看见——它能滚到屏幕外，说明入口本身不合格。
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:fillViewport="true">
+
+<LinearLayout
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -156,6 +167,15 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="@string/settings_ipd_effect"
+        android:textSize="11sp"
+        android:lineSpacingExtra="2dp"
+        android:textColor="@color/setup_muted" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
         android:text="@string/settings_ipd_note"
         android:textSize="11sp"
@@ -202,6 +222,20 @@
         android:textSize="11sp"
         android:lineSpacingExtra="2dp"
         android:textColor="@color/setup_muted" />
+
+    <TextView
+        android:id="@+id/pitchRecheck"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:gravity="end"
+        android:text="@string/settings_pitch_recheck"
+        android:textSize="12sp"
+        android:textColor="@color/setup_cyan"
+        android:clickable="true"
+        android:focusable="true" />
 
     <!--
       V2.38：重定「正前方」的倒计时时长。
@@ -292,3 +326,4 @@
         app:backgroundTint="@color/setup_cyan" />
 
 </LinearLayout>
+</ScrollView>

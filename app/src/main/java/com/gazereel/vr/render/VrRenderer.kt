@@ -338,6 +338,7 @@ class VrRenderer(
         } ?: 0)
         h = 31 * h + state.consoleVisible.hashCode()
         h = 31 * h + state.gazeArmed.hashCode()
+        h = 31 * h + state.pitchCheck.hashCode()
         h = 31 * h + state.items.size
         h = 31 * h + state.stacks.size
         h = 31 * h + (state.activeStack?.hashCode() ?: 0)
