@@ -24,10 +24,9 @@ class SettingsRepository(context: Context) {
         // 首次读到旧值时 ×2 迁到半毫米，并夹进合法范围；新值一律走 `ipd_half_mm`。
         ipdHalfMm = prefs.getInt("ipd_half_mm", legacyIpdHalf()),
         consoleTimeoutMs = 8_000L,
-        // V2.41：球面画面上下翻转。视频纹理的 v 方向与球面网格差一个号时，表现就是
-        // 「抬头看到地板、低头看到天花板」，而左右与画面本身都是正的——这一项只改
-        // 内容采样、不碰姿态，所以不可能再出现「一动头画面就转」。
-        flipVertical = prefs.getBoolean("flip_vertical", false),
+        // V2.43：俯仰响应反向。旧键 flip_vertical 是「内容上下镜像」，
+        // 真机会把整个画面倒过来，已废弃且不再读取；用新键，默认开（真机实测）。
+        invertPitch = prefs.getBoolean("invert_pitch", true),
         lockView = prefs.getBoolean("lock_view", false),
         subtitlesEnabled = prefs.getBoolean("subtitles", true),
         cursorEnabled = prefs.getBoolean("cursor", true),
@@ -61,7 +60,8 @@ class SettingsRepository(context: Context) {
             .putBoolean("lock_view", next.lockView)
             .putBoolean("subtitles", next.subtitlesEnabled)
             .putBoolean("cursor", next.cursorEnabled)
-            .putBoolean("flip_vertical", next.flipVertical)
+            .putBoolean("invert_pitch", next.invertPitch)
+            .remove("flip_vertical")
             .putLong("align_countdown_ms", next.alignCountdownMs)
             .apply()
         return next

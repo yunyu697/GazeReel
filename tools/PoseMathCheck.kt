@@ -7,16 +7,17 @@ import com.gazereel.vr.render.ProjectionMesh
 import kotlin.math.abs
 
 /**
- * V2.41：姿态与球面几何的离线自检。
+ * V2.43：姿态与球面几何的离线自检（只编工程里的真代码，不需要设备）。
  *
- * 变化的原因：V2.37–V2.40 这里验的是 `PoseMath.flipPitch`，而那个函数在数学上
- * 就不是旋转（「只反俯仰」= 关于水平面的镜像，det = −1），真机上表现为
- * 「点一下反了，抬头低头画面在旋转」。它已经被整段删除，自检也随之改向：
+ * 这一版验的核心是 `PoseMath.withInvertedPitch`：真机「抬头看到地板」要改的是
+ * **姿态的俯仰响应**，不是画面内容。V2.41 曾把它判成「镜像不可能实现」，
+ * 又把修法挪到球面 v 取补上，结果真机「整个画面都倒过来了」。这里把结论钉死：
  *
- * 1. 姿态的分解/重建必须自洽（日志里的 yaw/pitch/roll 才可信）；
- * 2. 任何姿态都必须是合法旋转（det = +1），这条能挡住任何「镜像式」修法再溜回来；
- * 3. 球面网格的两条命根子：正前方落在 u = 0.5（SBS 接缝那个坑）、球顶落在
- *    v = 1 且「上下翻转」正好把它变成 v = 0（只差一个符号，不产生旋转）。
+ * 1. 分解/重建自洽（yaw 符号与 gazeYawDeg 一致）；
+ * 2. 翻转后仍是合法旋转（det = +1）——这一条直接排除倒像与画面旋转；
+ * 3. yaw 与 roll 逐度不变、pitch 精确取反，连 89° 俯仰都不退化；
+ * 4. 翻转两次回到原姿态；
+ * 5. 球面网格不再有翻转参数：正前方 u = 0.5、球顶 v = 1、左右不镜像。
  */
 private var pass = 0
 private var fail = 0
@@ -53,7 +54,7 @@ fun main() {
     }
 
     // 2) 任何姿态都必须是右手正交（det = +1）。
-    //    「只反俯仰」那种镜像修法会在这一条上现原形，所以它被永久锁在这里。
+    //    这条能挡住「直接改矩阵元素」的镜像式修法，也保证画面不倒、不 roll。
     for ((yaw, pitch, roll) in angles) {
         val pose = PoseMath.poseOf(yaw, pitch, roll)
         check(
@@ -95,30 +96,83 @@ fun main() {
     }
 
     val mesh = ProjectionMesh()
-    for (flip in listOf(false, true)) {
-        val geo = mesh.build(Projection.HALF_SPHERE_180, flip)
+    run {
+        val geo = mesh.build(Projection.HALF_SPHERE_180)
         val front = vertexNearest(geo, 0f, 0f, -1f)
         check(
-            "180 半球正前方 u=0.5（flipV=$flip）",
+            "180 半球正前方 u=0.5（接缝判据）",
             near(front[3], 0.5f, 0.02f),
             "u=${String.format(java.util.Locale.US, "%.3f", front[3])}"
         )
         val top = vertexNearest(geo, 0f, 1f, 0f)
-        val wantV = if (flip) 0f else 1f
         check(
-            "180 半球球顶 v=$wantV（flipV=$flip）",
-            near(top[4], wantV, 0.02f),
+            "180 半球球顶 v=1（不再有内容翻转）",
+            near(top[4], 1f, 0.02f),
             "v=${String.format(java.util.Locale.US, "%.3f", top[4])}"
         )
-        // 左右：等距柱状里 u 随偏航单调增，所以「向右看」必须落在 u > 0.5，
-        // 「向左看」必须落在 u < 0.5。反了就是左右镜像，接缝问题会以另一种形式回来。
+        val bottom = vertexNearest(geo, 0f, -1f, 0f)
+        check(
+            "180 半球球底 v=0",
+            near(bottom[4], 0f, 0.02f),
+            "v=${String.format(java.util.Locale.US, "%.3f", bottom[4])}"
+        )
+        // 等距柱状里 u 随偏航单调增：向右看 u>0.5、向左看 u<0.5。
         val rightDir = vertexNearest(geo, 1f, 0f, 0f)
         val leftDir = vertexNearest(geo, -1f, 0f, 0f)
         check(
-            "180 半球左右不镜像（flipV=$flip）",
+            "180 半球左右不镜像",
             rightDir[3] > 0.5f && leftDir[3] < 0.5f,
             "右 u=${String.format(java.util.Locale.US, "%.3f", rightDir[3])} · " +
                 "左 u=${String.format(java.util.Locale.US, "%.3f", leftDir[3])}"
+        )
+    }
+
+    // 4b) 俯仰响应反向：这是 V2.43 的核心断言。
+    //     上一版判断「只反俯仰是镜像、做不到」是错的：Ry(y)·Rx(−p)·Rz(r)
+    //     是三个旋转的乘积，det 恒 +1。真机「画面在转」的真因是 yaw 符号，
+    //     不是这个操作。下面逐条锁死，防止再被错误结论带偏。
+    val flipCases = listOf(
+        Triple(0f, 0f, 0f), Triple(0f, 30f, 0f), Triple(0f, -30f, 0f),
+        Triple(40f, 25f, 0f), Triple(-40f, 25f, 15f), Triple(40f, -25f, 15f),
+        Triple(120f, 50f, 20f), Triple(0f, 30f, 30f),
+        Triple(0f, 85f, 10f), Triple(0f, -85f, 10f), Triple(90f, 45f, 0f)
+    )
+    for ((yaw, pitch, roll) in flipCases) {
+        val pose = PoseMath.poseOf(yaw, pitch, roll)
+        val flipped = PoseMath.withInvertedPitch(pose)
+        val a = PoseMath.yawPitchRollDeg(flipped)
+        check(
+            "俯仰反向 yaw=$yaw p=$pitch r=$roll",
+            near(a[0], yaw, 0.05f) && near(a[1], -pitch, 0.05f) &&
+                near(a[2], roll, 0.05f) && PoseMath.isProperRotation(flipped),
+            "yaw ${deg(a[0])} · pitch ${deg(a[1])} · roll ${deg(a[2])} · det=+1"
+        )
+        val twice = PoseMath.withInvertedPitch(flipped)
+        var maxErr = 0f
+        for (k in 0 until 16) maxErr = maxOf(maxErr, abs(twice[k] - pose[k]))
+        check(
+            "反两次回到原姿态 yaw=$yaw p=$pitch",
+            maxErr < 0.002f,
+            "maxErr=$maxErr"
+        )
+    }
+
+    // 4c) 连续抬头序列：roll 必须恒定，不能随 pitch 漂移。
+    //     真机「抬头低头画面在旋转」就是 roll 在动，这条专门盯它。
+    run {
+        var maxRollErr = 0f
+        var allProper = true
+        for (p in -60..60 step 3) {
+            val pose = PoseMath.poseOf(20f, p.toFloat(), 8f)
+            val f = PoseMath.withInvertedPitch(pose)
+            val a = PoseMath.yawPitchRollDeg(f)
+            maxRollErr = maxOf(maxRollErr, abs(a[2] - 8f), abs(a[0] - 20f))
+            allProper = allProper && PoseMath.isProperRotation(f)
+        }
+        check(
+            "连续抬头 41 帧 · 姿态不滚不偏",
+            maxRollErr < 0.05f && allProper,
+            "yaw/roll 最大偏差 ${deg(maxRollErr)}° · 全部 det=+1"
         )
     }
 

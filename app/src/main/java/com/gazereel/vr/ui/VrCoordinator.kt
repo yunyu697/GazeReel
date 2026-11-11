@@ -988,11 +988,14 @@ class VrCoordinator(
                 "autoFade" -> current.copy(autoFade = !current.autoFade)
                 "subtitles" -> current.copy(subtitlesEnabled = !current.subtitlesEnabled)
                 "cursor" -> current.copy(cursorEnabled = !current.cursorEnabled)
-                "flipVertical" -> current.copy(flipVertical = !current.flipVertical)
+                "invertPitch" -> current.copy(invertPitch = !current.invertPitch)
                 else -> current
             }
         }
         uiState = uiState.copy(settings = next)
+        // V2.43：俯仰响应作用在姿态源头，只改 uiState 不会生效——
+        // 必须当场推给 Provider，否则「戴着拨了没反应」又会出现一次。
+        if (key == "invertPitch") headset.setInvertPitch(next.invertPitch)
     }
 
     fun onPlaybackState(state: PlaybackState) {

@@ -14,12 +14,13 @@ class ProjectionMesh {
     data class Geometry(val vertices: FloatBuffer, val vertexCount: Int)
 
     /**
-     * @param flipV 球面画面上下翻转（V2.41）。只对球面生效：2D 银幕那一层
-     *   已经用 `flipV = true` 对了自己的 v 轴，两条路径各自独立。
+     * V2.43：不再有 `flipV` 参数。把球面 v 取补等于把画面上下镜像贴上去，
+     * 真机 2026-11-12 确认「整个画面都倒过来了」——方向问题必须在姿态侧解决。
+     * 2D 银幕那一层仍用自己的 `flipV = true` 对齐外部纹理，两条路径互不相关。
      */
-    fun build(projection: Projection, flipV: Boolean = false): Geometry = when (projection) {
-        Projection.SPHERE_360 -> curved(fullSphere = true, flipV = flipV)
-        Projection.HALF_SPHERE_180 -> curved(fullSphere = false, flipV = flipV)
+    fun build(projection: Projection): Geometry = when (projection) {
+        Projection.SPHERE_360 -> curved(fullSphere = true)
+        Projection.HALF_SPHERE_180 -> curved(fullSphere = false)
         // 视频用平面与 UI 用平面的 v 轴方向相反：外部纹理（SurfaceTexture）的
         // v=0 是画面**底部**，而 Bitmap 上传的 2D 纹理 v=0 是**顶部**。
         Projection.PLANE_2D -> plane(distance = 2f, width = 2.4f, height = 1.35f, centerY = 0f, flipV = true)
@@ -108,7 +109,7 @@ class ProjectionMesh {
         return toGeometry(out)
     }
 
-    private fun curved(fullSphere: Boolean, flipV: Boolean = false): Geometry {
+    private fun curved(fullSphere: Boolean): Geometry {
         val latBands = 32
         val lonBands = if (fullSphere) 64 else 40
         val radius = 10f
@@ -128,9 +129,8 @@ class ProjectionMesh {
         fun emit(phi: Double, theta: Double) {
             val p = point(phi, theta)
             val u = (0.5 - theta / span).toFloat()
-            // V2.41：默认 v = phi/π + 0.5（球顶 = v 1）。flipV 时取补，
-            // 球顶变成 v 0——两套约定只差这一个符号，症状就是上下反、左右正常。
-            val v = (if (flipV) 0.5 - phi / PI else phi / PI + 0.5).toFloat()
+            // 球顶 = v 1、球底 = v 0。方向反不要动这一行：动它就是内容倒像。
+            val v = (phi / PI + 0.5).toFloat()
             out.add(p[0]); out.add(p[1]); out.add(p[2]); out.add(u); out.add(v)
         }
 

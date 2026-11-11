@@ -181,14 +181,23 @@ PAL = [(40, 86, 106), (76, 48, 94), (100, 64, 34), (38, 76, 62), (90, 42, 48),
 
 
 def poster(im, d, box, seed, r=9):
+    """假视频帧：一层远景 + 柔和光斑。别画纯白硬边方块——那会被误读成 UI 控件。"""
     top = PAL[seed % len(PAL)]
     grad(im, box, top, tuple(int(c * 0.32) for c in top), r)
-    cx = (box[0] + box[2]) / 2 + ((seed * 41) % 46) - 23
-    cy = (box[1] + box[3]) / 2 + ((seed * 17) % 20) - 10
-    rr(d, (cx - 16, cy - 10, cx + 16, cy + 10), 10, fill=(238, 238, 228))
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+    dark = tuple(int(c * 0.55) for c in top)
+    rr(d, (x0 + w * 0.08, y0 + h * 0.60, x0 + w * 0.92, y0 + h * 0.92), 6, fill=dark)
+    cx = x0 + w * 0.5 + ((seed * 41) % 46) - 23
+    cy = y0 + h * 0.38 + ((seed * 17) % 20) - 10
+    for k, a in ((26, 0.10), (17, 0.16), (9, 0.26)):
+        col = tuple(int(c + (240 - c) * a) for c in top)
+        d.ellipse([(cx - k) * S, (cy - k * 0.62) * S,
+                   (cx + k) * S, (cy + k * 0.62) * S], fill=col)
 
 
 def card(im, d, box, title, seed, hover=False, badge=None, prog=None):
+    nominal_bottom = box[3]
     x0, y0 = box[0], box[1]
     w = box[2] - box[0]
     th = w * 9 / 16
@@ -210,49 +219,56 @@ def card(im, d, box, title, seed, hover=False, badge=None, prog=None):
     rr(d, (x0, y0, x0 + w, y0 + th), 10,
        outline=ACCENT if hover else BORDER, width=2 if hover else 1)
     # 名字在卡片**外面**：压在海报上会和画面抢对比度，这是最大的可读性差别
-    tx(d, (x0 + w / 2, y0 + th + 7), title, 16 if hover else 15,
-       TEXT if hover else MUTED, "center", bold=hover)
+    # 名字基线钉在**名义 rect** 下方，不随 5% 放大漂移（实现里命中区同理）
+    tx(d, (box[0] + (box[2] - box[0]) / 2, nominal_bottom + 8), title,
+       16 if hover else 15, TEXT if hover else MUTED, "center", bold=hover)
 
 
 def rail(im, d):
     rr(d, (8, 8, 196, 504), 20, fill=PANEL, outline=BORDER)
-    tx(d, (28, 24), "片 库", 10, DIM)
-    items = [("全部片", "grid"), ("集合", "folder"), ("最近播放", "clock"), ("网络", "globe")]
-    for i, (name, kind) in enumerate(items):
-        y = 50 + i * 54
-        on = i == 0
+    tx(d, (28, 20), "片  库", 15, DIM)
+    tx(d, (28, 44), "KAVR 共享", 15, MUTED)
+
+    # 不做「选中高亮」：这些是动作不是视图，实现里也没有 active 态。
+    # 画一个假高亮等于画一个点了没反应的东西，稿子必须和实现一致。
+    items = [
+        ("全部集合", "grid", False), ("换片库", "more", True),
+        ("上一页", "chevL", True), ("下一页", "chevR", True),
+        ("返回播放", "play", True),
+    ]
+    for i, (name, kind, on) in enumerate(items):
+        y = 78 + i * 52
+        ic(d, kind, 40, y + 22, 18, TEXT if on else DIM)
+        tx(d, (62, y + 15), name, 16, TEXT if on else DIM)
         if on:
-            rr(d, (16, y - 6, 188, y + 34), 10, fill=PANEL2)
-            rr(d, (16, y - 1, 20, y + 29), 2, fill=ACCENT)
-        ic(d, kind, 40, y + 14, 18, ACCENT if on else MUTED)
-        tx(d, (60, y + 4), name, 15, TEXT if on else MUTED, bold=on)
-        ic(d, "chevR", 176, y + 14, 11, DIM)
-    d.line([(24 * S, 424 * S), (180 * S, 424 * S)], fill=BORDER, width=max(1, S))
-    for i, (name, kind) in enumerate([("设置", "gear"), ("退出", "power")]):
-        y = 444 + i * 34
-        ic(d, kind, 40, y + 6, 16, MUTED)
-        tx(d, (60, y - 3), name, 14, MUTED)
+            ic(d, "chevR", 176, y + 22, 11, DIM)
+
+    tx(d, (28, 356), "准星停住 600ms", 14, DIM)
+    tx(d, (28, 378), "即打开 / 即切换", 14, DIM)
+    d.line([(24 * S, 418 * S), (180 * S, 418 * S)], fill=BORDER, width=max(1, S))
+    for i, (name, kind) in enumerate([("设置", "sliders"), ("退出", "power")]):
+        y = 430 + i * 40
+        ic(d, kind, 40, y + 22, 18, MUTED)
+        tx(d, (62, y + 15), name, 16, TEXT)
+        ic(d, "chevR", 176, y + 22, 11, DIM)
 
 
 def home():
+    """与 VrUiLayer.drawLibrary / drawLibraryRail **逐坐标对齐**（V2.43）。"""
     im = Image.new("RGB", (W * S, H * S), BG)
     d = ImageDraw.Draw(im)
     rail(im, d)
+    d = ImageDraw.Draw(im)
 
     rr(d, (210, 8, 1016, 504), 20, fill=PANEL, outline=BORDER)
-    tx(d, (232, 22), "KAVR · 104 部", 17, TEXT, bold=True)
-    tx(d, (232, 47), "凝视即播放 · 摇头翻页", 11, DIM)
-    # 分段控件：一眼看出「全部 / 集合」两种浏览方式
-    sx = 520
-    rr(d, (sx, 22, sx + 168, 50), 14, fill=PANEL2)
-    rr(d, (sx + 2, 24, sx + 84, 48), 12, fill=ACCENT)
-    tx(d, (sx + 43, 30), "全部", 12, (10, 10, 12), "center", bold=True)
-    tx(d, (sx + 126, 30), "集合", 12, MUTED, "center")
-    ic(d, "sort", 930, 36, 14, MUTED)
-    ic(d, "more", 972, 36, 14, MUTED)
+    tx(d, (232, 22), "KAVR · 104 部", 20, TEXT, bold=True)
+    tx(d, (232, 48), "凝视即播放 · 摇头翻页", 15, DIM)
+    # 层级胶囊：纯展示，不是按钮
+    rr(d, (464, 76, 560, 104), 14, fill=PANEL2)
+    tx(d, (512, 83), "全部片", 15, TEXT, "center")
 
     xs = [232, 426, 620, 814]
-    ys = [88, 214]
+    ys = [130, 268]
     names = ["7月12日 14:30", "7月12日 15:02", "7月13日 09:02", "7月13日 09:07",
              "7月14日 21:30", "7月15日 08:12", "7月15日 19:44", "7月16日 07:20"]
     for i in range(8):
@@ -261,15 +277,13 @@ def home():
              badge=("续 12:34" if i == 4 else None), prog=(0.42 if i == 4 else None))
         d = ImageDraw.Draw(im)
 
-    # 底栏只留页码 + 语义提示，不再摆四个纯文字按钮
-    tx(d, (232, 412), "第 1 / 13 页", 11, DIM)
+    tx(d, (232, 410), "第 1 / 13 页", 15, DIM)
     for i in range(3):
         x = 314 + i * 15
-        rr(d, (x, 416, x + 9, 419), 2, fill=ACCENT if i == 0 else (60, 60, 66))
-    tx(d, (992, 412), "准星停住 600ms 即打开", 11, DIM, "right")
-    rr(d, (232, 436, 404, 480), 12, fill=PANEL2)
-    tx(d, (246, 445), "返回播放", 14, TEXT, bold=True)
-    tx(d, (246, 461), "00:42:11 / 01:58:36", 10, DIM)
+        rr(d, (x, 416, x + 9, 420), 2, fill=ACCENT if i == 0 else BORDER)
+    tx(d, (992, 410), "凝视一格即播放", 15, DIM, "right")
+    rr(d, (232, 436, 404, 480), 12, fill=PANEL2, outline=ACCENT)
+    tx(d, (318, 450), "返回播放", 16, TEXT, "center", bold=True)
 
     im.save("output/mock-home.png")
 

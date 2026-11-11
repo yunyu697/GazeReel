@@ -6,6 +6,7 @@ import android.os.SystemClock
 import android.view.Surface
 import android.view.WindowManager
 import com.gazereel.vr.core.DistortionComposer
+import com.gazereel.vr.core.PoseMath
 import com.gazereel.vr.core.Eye
 import com.gazereel.vr.core.EyeParams
 import com.gazereel.vr.core.Optics
@@ -78,6 +79,9 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
     private var headTracker: HeadTracker? = null
     private var lensDistortion: LensDistortion? = null
     private var ready = false
+    /** V2.43：与传感器路径共用同一个俯仰响应开关。 */
+    private var invertPitch = true
+    override fun setInvertPitch(enabled: Boolean) { invertPitch = enabled }
     private var fallbackStarted = false
 
     /** 装配点用反射读这个 getter（getSdkActive），false 就换成纯传感器实现。 */
@@ -342,8 +346,9 @@ class CardboardHeadsetProvider(private val context: Context) : VrHeadsetProvider
         val headView = FloatArray(16)
         quaternionToMatrix(orientation, headView)
         // SDK 输出 = head view（世界 → 头）；工程接口要 pose（设备 → 世界）→ 转置 3×3。
-        val pose = FloatArray(16)
-        transposeRotation(headView, pose)
+        val rawPose = FloatArray(16)
+        transposeRotation(headView, rawPose)
+        val pose = if (invertPitch) PoseMath.withInvertedPitch(rawPose) else rawPose
         var established = false
         var stableMs = 0L
         synchronized(lock) {

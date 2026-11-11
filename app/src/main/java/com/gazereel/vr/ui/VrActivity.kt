@@ -221,14 +221,14 @@ class VrActivity : AppCompatActivity() {
         // 显示空间旋转补偿、neck model）。手写 TYPE_ROTATION_VECTOR 链路一件都没有，
         // 这是「转头拖尾 / 平躺慢慢歪 / 方向反」的根源。缺 AAR 或缺 native so 时自动降级。
         headset = createHeadset()
-        // V2.39：把「实际生效」的两项写进日志。
-        // V2.41：俯仰翻转那条路已整段删除（见 PoseMath 与 ProjectionMesh 的注释）。
-        // 这里改为记录「实际生效」的两件事：哪条头追路径、球面 v 方向。
+        // V2.43：俯仰响应方向必须在**头追启动前**下发；
+        // 它作用在姿态源头，两条 Provider 路径都要拿到同一个值。
+        headset.setInvertPitch(settings.current.invertPitch)
         run {
             val s = settings.current
             RunLog.append(
                 this, "pose",
-                "mode=$bootMode · 球面上下翻转=${if (s.flipVertical) "开" else "关"}" +
+                "mode=$bootMode · 俯仰响应=${if (s.invertPitch) "反向（真机实测）" else "正常"}" +
                     " · 瞳距 ${VrSettings.ipdLabel(s.ipdHalfMm)}" +
                     "（每眼光轴位移 ${"%.1f".format(Optics.lensShiftDeg(s.ipdMm))}°）"
             )

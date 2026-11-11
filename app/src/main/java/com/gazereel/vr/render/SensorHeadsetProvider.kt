@@ -17,6 +17,7 @@ import com.gazereel.vr.core.RotationBlend
 import com.gazereel.vr.core.TriggerEvent
 import com.gazereel.vr.core.TriggerKind
 import com.gazereel.vr.core.VrHeadsetProvider
+import com.gazereel.vr.core.PoseMath
 import com.gazereel.vr.core.viewRotationOf
 import com.gazereel.vr.data.RunLog
 
@@ -54,6 +55,12 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
 
     @Volatile
     private var viewLocked = false
+    /**
+     * V2.43：俯仰响应反向。默认开——真机（2026-11-12）确认当前设备抬头看到地板，
+     * 这不是「内容倒了」，是姿态的俯仰符号反了。设置里可当场关掉。
+     */
+    private var invertPitch = true
+    override fun setInvertPitch(enabled: Boolean) { invertPitch = enabled }
     private val frozen = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
 
 
@@ -307,7 +314,9 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         val deviceToWorld = FloatArray(9)
         SensorManager.getRotationMatrixFromVector(deviceToWorld, event.values)
         val screenPose = screenPoseOf(deviceToWorld)
-        val matrix = screenPose
+        // V2.43：在**姿态源头**翻转俯仰响应。写进 rotation 之后，
+        // 参考系、视图矩阵、准星、手势、recenter 全都基于同一个姿态，没有反馈回路。
+        val matrix = if (invertPitch) PoseMath.withInvertedPitch(screenPose) else screenPose
         val crossLen = lastCrossLen
         val branch = lastBranch
         // 参考系的「上」= 偏移矩阵作用在世界天顶上，即它的第三列。

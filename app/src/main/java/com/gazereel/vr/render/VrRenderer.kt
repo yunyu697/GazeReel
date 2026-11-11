@@ -61,8 +61,6 @@ class VrRenderer(
     private var surfaceTexture: SurfaceTexture? = null
     private var videoSurface: Surface? = null
     private var videoGeometry: ProjectionMesh.Geometry? = null
-    /** V2.41：球面 v 方向；变了就重建几何（设置浮层里可当场拨）。 */
-    private var lastFlipV = false
     // V2.19 / B5：UI 平面不再只有「居中 / 下移 / 片库」三块固定几何。
     // 舒适俯角是连续量，缓动期间每帧都在变，所以按 panelSpec 现算并按需重建。
     private var uiGeometry: ProjectionMesh.Geometry? = null
@@ -154,13 +152,10 @@ class VrRenderer(
             }
         }
 
-        if (lastProjection != state.format.projection || lastLayout != state.format.layout ||
-            lastFlipV != state.settings.flipVertical
-        ) {
-            videoGeometry = mesh.build(state.format.projection, state.settings.flipVertical)
+        if (lastProjection != state.format.projection || lastLayout != state.format.layout) {
+            videoGeometry = mesh.build(state.format.projection)
             lastProjection = state.format.projection
             lastLayout = state.format.layout
-            lastFlipV = state.settings.flipVertical
             // 真机排查用：正前方（网格 u=0.5, v=0.5）落在纹理的哪个坐标。
             // SBS 应该是左眼 (0.25, 0.5)、右眼 (0.75, 0.5)——即各取半幅的中心；
             // 如果是 (0.5, 0.5)，说明每眼取半幅根本没生效，视点就落在两幅的接缝上。

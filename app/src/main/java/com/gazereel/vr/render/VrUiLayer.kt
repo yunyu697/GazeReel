@@ -77,6 +77,20 @@ class VrUiLayer(
         private val CELL_LEFT = floatArrayOf(24f, 272f, 520f, 768f)
         private val CELL_TOP = floatArrayOf(114f, 266f)
 
+        /**
+         * V2.43 片库改版：左栏 8..196 常驻导航，内容面板 210..1016。
+         * 卡片 178×100 的海报 + 名字在卡外（下方 22px）。
+         *
+         * 两行 top = 130 / 268，海报底 = 230 / 368，中间横缝 230..268 有 38px；
+         * 画布正中 y=256 正落在这条缝里——准星静止时压不到任何一张卡。
+         * 名字基线 250 / 388，既不撞下一行卡片，也不压底栏（424 起）。
+         * 这条「十字缝」的性质是 V2.16 定的结构性防误触，改版不能丢。
+         */
+        private const val LIB_W = 178f
+        private const val LIB_H = 100f
+        private val LIB_LEFT = floatArrayOf(232f, 426f, 620f, 814f)
+        private val LIB_TOP = floatArrayOf(130f, 268f)
+
         /** 20260712_143022 这类相机 / 手机命名。 */
         private val STAMP_COMPACT =
             Regex("(\\d{4})(\\d{2})(\\d{2})[_-](\\d{2})(\\d{2})(\\d{2})")
@@ -202,6 +216,9 @@ class VrUiLayer(
         return PointF(x.toFloat(), y.toFloat())
     }
 
+    /** V2.43：当前凝视目标，供片库的「悬停放大」用（只影响绘制，不改命中区）。 */
+    private var activeGazeTargetId: String? = null
+
     fun render(
         state: VrUiState,
         gazeTargetId: String?,
@@ -210,6 +227,7 @@ class VrUiLayer(
     ): Bitmap {
         bitmap.eraseColor(Color.TRANSPARENT)
         targets.clear()
+        activeGazeTargetId = gazeTargetId
 
         // V2.19c：姿态确认卡出现时，**只画这一张卡**。
         //
@@ -446,171 +464,224 @@ class VrUiLayer(
      *    目标数不变，假功能变真功能（08.2 第 06 条同一思路）。
      * 3. 每格直接就是「播放这一部」的目标，不再需要先选中、再凝视中间的「打开」。
      */
+    /**
+     * V2.43：按 SKYBOX 的视觉语言重做片库，但**不照抄它的三栏**。
+     *
+     * SKYBOX 是 Quest 手柄/指针，右栏那些小条目点得到；我们是凝视 + 一个触发键，
+     * 把两块侧栏塞到视野边缘等于把二十个小目标放在余光里停 600ms，误触率会很难看。
+     * 所以只留左边一栏（188px ≈ 11°，五个大目标），右栏那种历史列表用卡片角标表达。
+     *
+     * 三条来自稿子、与可读性直接相关的改动：
+     * 1. 名字写在海报**外面**（原来压在渐变条上，17px 字只有 1° 高）；
+     * 2. 悬停整卡放大 5%、名字变白加粗、描边强调色；
+     * 3. 底栏不再摆四个纯文字按钮，只留页码 / 进度点 / 一句提示。
+     */
     private fun drawLibrary(state: VrUiState) {
-        panel(RectF(20f, 14f, 1004f, 498f))
-
         val pageCount = state.pageCount
         val page = state.page.coerceIn(0, pageCount - 1)
-        val stack = state.currentStack
+        drawLibraryRail(state, page, pageCount)
 
-        // V2.18：用户要求把这个层级叫「集合」——「叠」不是人话，改掉。
-        // 有集合时括号里补一句「共 M 个集合」，用户才知道自己现在在哪一层。
-        // V2.18：选了某个柜子就把柜名写在最前面，用户一眼知道自己在看哪个设备。
+        panel(RectF(210f, 8f, 1016f, 504f))
+
+        val stack = state.currentStack
         val root = state.cabinets.firstOrNull { it.sourceId == state.cabinet }?.label ?: "片库"
         val title = when {
             stack != null -> "集合 · ${stack.label} · ${stack.items.size} 部"
             state.showingStacks -> "$root · ${state.items.size} 部 · ${state.stacks.size} 个集合"
             else -> "$root · ${state.items.size} 部"
         }
-        small.textSize = 30f
-        label(ellipsize(title, 420f, small), 44f, 76f, 30f, C_TEXT)
-        small.textSize = 18f
-        if (pageCount > 1) {
-            // 两侧箭头之间只有 116px，「第 x / y 页」会压到箭头框上，只留数字。
-            label("${page + 1} / $pageCount", 636f, 74f, 22f, C_MUTED, Paint.Align.CENTER)
-        }
+        strong.textSize = 20f
+        strongLabel(ellipsize(title, 470f, strong), 232f, 40f, 20f, C_TEXT)
+        label("凝视即播放 · 摇头翻页", 232f, 62f, 15f, C_DIM)
 
-        // V2.13：原来底部并排四个文字按钮（上一页 / 下一页 / 设置 / 退出）占了近 1/5 的画布。
-        // 现在换成图标，且全部收进顶栏与底栏两条窄带，中间整块留给片子。
-        // 图标本身画得小，但命中区仍然 ≥ 96×66px（约 5.8°×4.3°），没有牺牲好点。
-        iconButton(
-            "pagePrev", "上一页", RectF(482f, 28f, 578f, 94f),
-            VrAction.PageFlip(-1), Glyph.CHEVRON_LEFT,
-            dimmed = page <= 0
-        )
-        iconButton(
-            "pageNext", "下一页", RectF(694f, 28f, 790f, 94f),
-            VrAction.PageFlip(1), Glyph.CHEVRON_RIGHT,
-            dimmed = page >= pageCount - 1
-        )
-        iconButton(
-            "settingsLib", "设置", RectF(806f, 28f, 902f, 94f),
-            VrAction.OpenSettings, Glyph.GEAR
-        )
-        iconButton(
-            "exitLib", "退出", RectF(912f, 28f, 1008f, 94f),
-            VrAction.Exit, Glyph.POWER
-        )
+        // 层级胶囊：纯展示，不注册凝视目标。没有对应的切换动作就不画成看似可点的按钮，
+        // 「看着能点其实没反应」比没有这个控件更糟。
+        val modeText = when {
+            stack != null -> "集合内"
+            state.showingStacks -> "集合"
+            else -> "全部片"
+        }
+        fill.color = C_PANEL_HI
+        canvas.drawRoundRect(RectF(464f, 76f, 560f, 104f), 14f, 14f, fill)
+        label(modeText, 512f, 96f, 15f, C_TEXT, Paint.Align.CENTER)
 
         if (state.items.isEmpty()) {
             centerText("还没有片源 · 请回到戴镜前配置添加共享", 250f, 22f, C_MUTED)
+            return
+        }
+
+        val start = page * VrUiState.PAGE_SIZE
+        if (state.showingStacks) {
+            for (slot in 0 until VrUiState.PAGE_SIZE) {
+                val st = state.stacks.getOrNull(start + slot) ?: break
+                val left = LIB_LEFT[slot % 4]
+                val top = LIB_TOP[slot / 4]
+                stackCard(
+                    st,
+                    RectF(left, top, left + LIB_W, top + LIB_H),
+                    hover = activeGazeTargetId == "stack:${st.key}"
+                )
+            }
         } else {
-            val start = page * VrUiState.PAGE_SIZE
-            if (state.showingStacks) {
-                // V2.16：第一层是「一叠一叠」，不是 104 页片子。
-                for (slot in 0 until VrUiState.PAGE_SIZE) {
-                    val stack = state.stacks.getOrNull(start + slot) ?: break
-                    val left = CELL_LEFT[slot % 4]
-                    val top = CELL_TOP[slot / 4]
-                    stackCard(stack, RectF(left, top, left + CELL_W, top + CELL_H))
-                }
-            } else {
-                val items = state.visibleItems
-                for (slot in 0 until VrUiState.PAGE_SIZE) {
-                    val index = start + slot
-                    val item = items.getOrNull(index) ?: break
-                    // 2 行 × 4 列，正中那道十字缝留得比别处宽（横向 16px、纵向 16px）。
-                    // 这只是在「已经上膛」之后多一道保险，不是防误开的主力——
-                    // 配戴过程中手机一直在动，准星照样会扫到卡片上，主力是 V2.9 的触发键上膛。
-                    val left = CELL_LEFT[slot % 4]
-                    val top = CELL_TOP[slot / 4]
-                    val resume = state.progress[mediaKeyOf(item)]
-                        ?.takeIf { !it.finished && it.positionMs > 0L }
-                    cell(
-                        id = "cell$index",
-                        item = item,
-                        rect = RectF(left, top, left + CELL_W, top + CELL_H),
-                        action = VrAction.OpenMedia(item.id),
-                        badge = resume?.let { "续 ${formatTime(it.positionMs)}" },
-                        current = item.id == state.currentMediaId
-                    )
-                }
+            val items = state.visibleItems
+            for (slot in 0 until VrUiState.PAGE_SIZE) {
+                val index = start + slot
+                val item = items.getOrNull(index) ?: break
+                val left = LIB_LEFT[slot % 4]
+                val top = LIB_TOP[slot / 4]
+                val id = "cell$index"
+                val resume = state.progress[mediaKeyOf(item)]
+                    ?.takeIf { !it.finished && it.positionMs > 0L }
+                cell(
+                    id = id,
+                    item = item,
+                    rect = RectF(left, top, left + LIB_W, top + LIB_H),
+                    action = VrAction.OpenMedia(item.id),
+                    badge = resume?.let { "续 ${formatTime(it.positionMs)}" },
+                    current = item.id == state.currentMediaId,
+                    hover = activeGazeTargetId == id,
+                    progress = resume?.let {
+                        item.durationMs.takeIf { d -> d > 0L }
+                            ?.let { d -> (it.positionMs.toFloat() / d).coerceIn(0f, 1f) }
+                    }
+                )
             }
         }
 
-        // ── 底栏（V2.16）────────────────────────────────────────────────
-        // 播放中调出片库之后，必须有明摆着的路回到正在看的那一部；
-        // 进了某个集合，也要有明摆着的路退回全部集合。两个都放在底栏，靠左排。
-        var barRight = 24f
+        // 底栏：页码 + 三个进度点 + 一句提示，不再摆四个文字按钮。
+        label("第 ${page + 1} / $pageCount 页", 232f, 424f, 15f, C_DIM)
+        for (i in 0 until 3) {
+            val x = 314f + i * 15f
+            fill.color = if (i == (page % 3)) C_ACCENT else C_BORDER
+            canvas.drawRoundRect(RectF(x, 416f, x + 9f, 420f), 2f, 2f, fill)
+        }
+        val hint = state.message ?: if (state.showingStacks) "凝视一个集合即进入" else "凝视一格即播放"
+        small.textSize = 15f
+        label(
+            ellipsize(hint, 400f, small), 992f, 424f, 15f,
+            if (state.message != null) C_ACCENT else C_DIM, Paint.Align.RIGHT
+        )
+
+        // 唯一的底栏按钮：回到正在看的那一部。其余动作都在左栏，卡片区完全不被占。
         if (state.currentMediaId != 0L) {
             button(
                 "resumePlay", "返回播放",
-                RectF(24f, 424f, 224f, 490f), VrAction.ResumePlayback,
+                RectF(232f, 436f, 404f, 480f), VrAction.ResumePlayback,
                 highlighted = true
             )
-            barRight = 236f
-        }
-        if (state.activeStack != null) {
-            button(
-                "closeStack", "← 全部集合",
-                RectF(barRight, 424f, barRight + 184f, 490f), VrAction.CloseStack
-            )
-            barRight += 196f
-        }
-
-        // V2.18：换片库靠右。只有两个以上真实片源时才出现——
-        // 只有一个片源时这个按钮什么也换不了，摆着只会让人点一次白点。
-        val showCabinets = state.cabinets.size > 2
-        if (showCabinets) {
-            button(
-                "openCabinets", "换片库",
-                RectF(1000f - 176f, 424f, 1000f, 490f), VrAction.OpenCabinets
-            )
-        }
-
-        val hint = state.message ?: if (state.showingStacks) {
-            "凝视一个集合即进入 · 摇头或左右箭头翻页"
-        } else {
-            "凝视一格即播放 · 摇头或左右箭头翻页"
-        }
-        val hintColor = if (state.message != null) C_ACCENT else C_MUTED
-        if (barRight > 24f) {
-            // 有按钮时提示靠右让位，避免压住按钮上的字。
-            small.textSize = 18f
-            val hintRight = if (showCabinets) 1000f - 176f - 16f else 1000f
-            label(
-                ellipsize(hint, hintRight - barRight - 16f, small), hintRight, 464f, 18f,
-                hintColor, Paint.Align.RIGHT
-            )
-            small.textSize = 18f
-        } else {
-            centerText(hint, 470f, 20f, hintColor)
         }
     }
 
+    /** 左栏一行。不可用时画成暗色且**不注册凝视目标**——不放假按钮。 */
+    private fun railItem(
+        id: String,
+        name: String,
+        kind: Glyph,
+        action: VrAction,
+        top: Float,
+        enabled: Boolean
+    ) {
+        val rect = RectF(16f, top, 188f, top + 44f)
+        if (enabled) targets += GazeTarget(id, name, RectF(rect), action)
+        val ink = if (enabled) C_TEXT else C_DIM
+        glyph(kind, 40f, top + 22f, 18f, if (enabled) ink else C_DIM, 2.2f)
+        label(name, 62f, top + 29f, 16f, ink)
+        if (enabled) glyph(Glyph.CHEVRON_RIGHT, 176f, top + 22f, 11f, C_DIM, 2f)
+    }
+
     /**
-     * 一叠：一次拍摄或一个文件夹。
-     *
-     * 不画海报——叠的价值是「这一批是什么」，不是「其中某一帧长什么样」。
-     * 左边一道亮边 + 名字 + 部数，一眼能看出它和单个片子的区别。
+     * V2.43：常驻左栏。固定 5 个导航行 + 底部 2 个系统行，不满足条件的行
+     * 留在原位但画暗、不可点——布局不跳，也不会出现「点了没反应」。
      */
-    private fun stackCard(stack: MediaStack, rect: RectF) {
+    private fun drawLibraryRail(state: VrUiState, page: Int, pageCount: Int) {
+        panel(RectF(8f, 8f, 196f, 504f))
+        label("片  库", 28f, 34f, 15f, C_DIM)
+        val where = state.currentStack?.label
+            ?: state.cabinets.firstOrNull { it.sourceId == state.cabinet }?.label
+            ?: "全部片源"
+        small.textSize = 15f
+        label(ellipsize(where, 152f, small), 28f, 58f, 15f, C_MUTED)
+
+        railItem(
+            "railCloseStack", "全部集合", Glyph.GRID, VrAction.CloseStack, 78f,
+            enabled = state.activeStack != null
+        )
+        railItem(
+            "railCabinets", "换片库", Glyph.MORE, VrAction.OpenCabinets, 130f,
+            enabled = state.cabinets.size > 2
+        )
+        railItem(
+            "railPrev", "上一页", Glyph.CHEVRON_LEFT, VrAction.PageFlip(-1), 182f,
+            enabled = page > 0
+        )
+        railItem(
+            "railNext", "下一页", Glyph.CHEVRON_RIGHT, VrAction.PageFlip(1), 234f,
+            enabled = page < pageCount - 1
+        )
+        railItem(
+            "railResume", "返回播放", Glyph.PLAY, VrAction.ResumePlayback, 286f,
+            enabled = state.currentMediaId != 0L
+        )
+
+        // 中段留白里放一句静态说明，比塞一个点不动的控件诚实。
+        label("准星停住 600ms", 28f, 366f, 14f, C_DIM)
+        label("即打开 / 即切换", 28f, 388f, 14f, C_DIM)
+
+        stroke.color = C_BORDER
+        stroke.strokeWidth = 1.5f
+        canvas.drawLine(24f, 418f, 180f, 418f, stroke)
+        railItem(
+            "railSettings", "设置", Glyph.SLIDERS, VrAction.OpenSettings, 430f,
+            enabled = true
+        )
+        railItem(
+            "railExit", "退出", Glyph.POWER, VrAction.Exit, 470f,
+            enabled = true
+        )
+    }
+
+    /**
+     * 一叠：一次拍摄或一个文件夹。不画海报——叠的价值是「这一批是什么」。
+     * V2.43：卡片缩到 178×100，字号全部按 rect 高度算，不再硬编码绝对行号。
+     */
+    private fun stackCard(stack: MediaStack, rect: RectF, hover: Boolean = false) {
         targets += GazeTarget(
             "stack:${stack.key}", stack.label, RectF(rect), VrAction.OpenStack(stack.key)
         )
+        val k = if (hover) 1.05f else 1f
+        val w = rect.width() * k
+        val h = rect.height() * k
+        val box = RectF(
+            rect.centerX() - w / 2f, rect.centerY() - h / 2f,
+            rect.centerX() + w / 2f, rect.centerY() + h / 2f
+        )
         fill.color = C_POSTER
-        canvas.drawRoundRect(rect, 14f, 14f, fill)
+        canvas.drawRoundRect(box, 12f, 12f, fill)
         fill.color = C_ACCENT
         canvas.drawRoundRect(
-            RectF(rect.left + 8f, rect.top + 12f, rect.left + 14f, rect.bottom - 12f),
+            RectF(box.left + 6f, box.top + 10f, box.left + 11f, box.bottom - 10f),
             3f, 3f, fill
         )
-        stroke.color = C_BORDER
-        stroke.strokeWidth = 1.5f
-        canvas.drawRoundRect(rect, 14f, 14f, stroke)
+        stroke.color = if (hover) C_ACCENT else C_BORDER
+        stroke.strokeWidth = if (hover) 3f else 1.5f
+        canvas.drawRoundRect(box, 12f, 12f, stroke)
 
-        strong.textSize = 28f
-        val lines = wrapTwoLines(stack.label, rect.width() - 44f)
-        val baseY = rect.centerY() - 4f - (lines.size - 1) * 16f
+        strong.textSize = 20f
+        val lines = wrapTwoLines(stack.label, box.width() - 30f)
+        val baseY = box.centerY() - (lines.size - 1) * 12f - 4f
         lines.forEachIndexed { index, line ->
             strongLabel(
-                line, rect.centerX() + 4f, baseY + index * 32f, 28f, C_TEXT, Paint.Align.CENTER
+                line, box.centerX() + 4f, baseY + index * 24f, 20f,
+                C_TEXT, Paint.Align.CENTER
             )
         }
+        small.textSize = 14f
         label(
-            stack.detail, rect.centerX() + 4f, baseY + lines.size * 32f + 6f, 20f,
+            ellipsize(stack.detail, box.width() - 30f, small),
+            box.centerX() + 4f, baseY + lines.size * 24f + 4f, 14f,
             C_ACCENT, Paint.Align.CENTER
         )
+        // 名字/部数在卡内已经够读，叠卡不再往卡外写第二行，免得和下一行撞。
     }
 
     /**
@@ -1017,7 +1088,7 @@ class VrUiLayer(
         val cards = listOf(
             CardSpec("亮度", VrSettings.BRIGHTNESS_LABELS[brightnessLevel], null, VrAction.Adjust("brightness", 1)),
             CardSpec("音量", "${volumeLevel + 1} / ${VrSettings.VOLUME_STEPS.size}", null, VrAction.Adjust("volume", 1)),
-            CardSpec("画面上下", null, s.flipVertical, VrAction.ToggleOption("flipVertical")),
+            CardSpec("抬头方向", null, s.invertPitch, VrAction.ToggleOption("invertPitch")),
             CardSpec("锁定视角", null, s.lockView, VrAction.ToggleOption("lockView")),
             CardSpec("自动连播", null, s.autoNext, VrAction.ToggleOption("autoNext")),
             CardSpec("自动淡出", null, s.autoFade, VrAction.ToggleOption("autoFade")),
@@ -1139,138 +1210,155 @@ class VrUiLayer(
      * **拍摄日期 + 时刻**：用户自己的片子就是 `VID_20260712_143022.mp4`，
      * 名字本身没有含义，时刻才是他记得住的东西。有海报就直接铺满，日期退到角标。
      */
+    /**
+     * V2.43：名字写在海报**外面**。原来 232×145 的格子里塞 44px 时刻 +
+     * 22px 日期 + 19px 分辨率，还压在渐变条上，戴镜后根本认不出是哪一部。
+     *
+     * 命中区始终用**名义 rect**，不随悬停放大：否则准星一压上去目标就挪位，
+     * 凝视进度会在临界处反复归零。放大只改绘制。
+     */
     private fun cell(
         id: String,
         item: MediaItemEntity,
         rect: RectF,
         action: VrAction,
         badge: String?,
-        current: Boolean
+        current: Boolean,
+        hover: Boolean,
+        progress: Float? = null
     ) {
         targets += GazeTarget(id, prettyName(item.title), RectF(rect), action)
+
+        val k = if (hover) 1.05f else 1f
+        val w = rect.width() * k
+        val h = rect.height() * k
+        val box = RectF(
+            rect.centerX() - w / 2f, rect.centerY() - h / 2f,
+            rect.centerX() + w / 2f, rect.centerY() + h / 2f
+        )
         fill.color = C_POSTER
-        canvas.drawRoundRect(rect, 14f, 14f, fill)
+        canvas.drawRoundRect(box, 12f, 12f, fill)
 
         val poster = item.posterPath.takeIf { it.isNotBlank() }?.let { posterLoader(it) }
         if (poster != null && poster.width > 0 && poster.height > 0) {
             canvas.save()
             val clip = Path()
-            clip.addRoundRect(rect, 14f, 14f, Path.Direction.CW)
+            clip.addRoundRect(box, 12f, 12f, Path.Direction.CW)
             canvas.clipPath(clip)
-            val scale = max(rect.width() / poster.width, rect.height() / poster.height)
+            val scale = max(box.width() / poster.width, box.height() / poster.height)
             val dw = poster.width * scale
             val dh = poster.height * scale
             val dst = RectF(
-                rect.centerX() - dw / 2f, rect.centerY() - dh / 2f,
-                rect.centerX() + dw / 2f, rect.centerY() + dh / 2f
+                box.centerX() - dw / 2f, box.centerY() - dh / 2f,
+                box.centerX() + dw / 2f, box.centerY() + dh / 2f
             )
             canvas.drawBitmap(poster, Rect(0, 0, poster.width, poster.height), dst, bitmapPaint)
             canvas.restore()
-            // V2.19：有真画面之后别把「什么时候拍的」丢掉。
-            // 用户自己的片子认的是时刻，不是画面里的第 3 秒长什么样。
-            // 兜底封面例外——它自己身上就写着日期和时刻，再压一条就是同一句话写两遍。
             if (!PosterRepository.isGeneratedCover(item.posterPath)) {
-                drawPosterCaption(item, rect)
+                drawPosterCaption(item, box)
             }
         } else {
-            drawIdentity(item, rect)
+            drawIdentity(item, box)
+        }
+
+        // 续播进度：一条贴着海报底边的细线，只在有断点时出现。
+        if (progress != null) {
+            fill.color = 0x99000000.toInt()
+            canvas.drawRoundRect(
+                RectF(box.left + 8f, box.bottom - 8f, box.right - 8f, box.bottom - 5f),
+                2f, 2f, fill
+            )
+            fill.color = C_ACCENT
+            canvas.drawRoundRect(
+                RectF(
+                    box.left + 8f, box.bottom - 8f,
+                    box.left + 8f + (box.width() - 16f) * progress.coerceIn(0f, 1f),
+                    box.bottom - 5f
+                ), 2f, 2f, fill
+            )
         }
 
         if (badge != null) {
-            // 角标放右上角：日期在格子中央，左上角会和它挤在一起。
-            // V2.16：格子收到 145 之后角标压到了日期行（离屏预览里一眼就看出来了），
-            // 所以角标整体上移、日期行随之下移，两者纵向彻底分开。
-            small.textSize = 17f
-            val width = small.measureText(badge) + 18f
+            small.textSize = 14f
+            val width = small.measureText(badge) + 14f
             fill.color = 0xE62A2A2F.toInt()
             canvas.drawRoundRect(
-                RectF(
-                    rect.right - 10f - width, rect.top + 4f,
-                    rect.right - 10f, rect.top + 28f
-                ),
-                12f, 12f, fill
+                RectF(box.right - 8f - width, box.top + 4f, box.right - 8f, box.top + 24f),
+                10f, 10f, fill
             )
-            label(badge, rect.right - 19f, rect.top + 23f, 17f, C_ACCENT, Paint.Align.RIGHT)
+            label(badge, box.right - 15f, box.top + 19f, 14f, C_ACCENT, Paint.Align.RIGHT)
         }
 
-        stroke.color = if (current) C_ACCENT else C_BORDER
-        stroke.strokeWidth = if (current) 3f else 1.5f
-        canvas.drawRoundRect(rect, 14f, 14f, stroke)
+        stroke.color = if (hover || current) C_ACCENT else C_BORDER
+        stroke.strokeWidth = if (hover || current) 3f else 1.5f
+        canvas.drawRoundRect(box, 12f, 12f, stroke)
+
+        // 名字在卡外：不压画面、不抢对比度，字号按 1024×512 / 2 米 ≈ 16.5px/度
+        // 取 15px（0.9°）下限，悬停提到 17px 并变白加粗。
+        val stamp = timestampOf(item.title)
+        val name = stamp?.let { "${it.date} ${it.time}" } ?: prettyName(item.title)
+        small.textSize = if (hover) 17f else 15f
+        val shown = ellipsize(name, rect.width() + 20f, small)
+        if (hover) {
+            strongLabel(shown, rect.centerX(), rect.bottom + 22f, 17f, C_TEXT, Paint.Align.CENTER)
+        } else {
+            label(
+                shown, rect.centerX(), rect.bottom + 22f, 15f,
+                if (current) C_TEXT else C_MUTED, Paint.Align.CENTER
+            )
+        }
     }
 
     /**
-     * V2.19：真画面上的身份条。
-     *
-     * 一条从透明到黑的渐变压在底部，左边是时刻，右边是时长。
-     * 不加这条的话，「有画面」反而比「没有画面」信息更少——用户在一堆
-     * 都拍同一个房间的片段里，靠的正是时刻。
+     * 真海报上的一条细身份条：左边时刻、右边时长。
+     * V2.43：卡片缩到 100px 高，渐变只占 30%，字号按高度算——
+     * 原来固定 42px 渐变 + 17px 字在缩小的卡上会盖掉半个画面。
      */
     private fun drawPosterCaption(item: MediaItemEntity, rect: RectF) {
         val stamp = timestampOf(item.title)
-        val when_ = stamp?.let { "${it.date} ${it.time}" } ?: prettyName(item.title)
+        val when_ = stamp?.time ?: prettyName(item.title)
         val length = item.durationMs.takeIf { it > 0L }?.let { formatTime(it) }
+        val bandH = (rect.height() * 0.30f).coerceAtMost(32f)
+        val bandTop = rect.bottom - bandH
 
-        val bandTop = rect.bottom - 42f
         scrimPaint.shader = LinearGradient(
             0f, bandTop, 0f, rect.bottom,
             0x00000000, 0xC4000000.toInt(), Shader.TileMode.CLAMP
         )
         canvas.save()
         val clip = Path()
-        clip.addRoundRect(rect, 14f, 14f, Path.Direction.CW)
+        clip.addRoundRect(rect, 12f, 12f, Path.Direction.CW)
         canvas.clipPath(clip)
         canvas.drawRect(RectF(rect.left, bandTop, rect.right, rect.bottom), scrimPaint)
         canvas.restore()
         scrimPaint.shader = null
 
-        small.textSize = 17f
+        small.textSize = 14f
         small.color = C_TEXT
+        small.textAlign = Paint.Align.LEFT
         canvas.drawText(
-            ellipsize(when_, rect.width() - 100f, small),
-            rect.left + 12f, rect.bottom - 12f, small
+            ellipsize(when_, rect.width() - 70f, small),
+            rect.left + 10f, rect.bottom - 9f, small
         )
         if (length != null) {
-            small.textSize = 16f
             small.color = C_ACCENT
-            canvas.drawText(length, rect.right - 12f, rect.bottom - 12f, small)
+            small.textAlign = Paint.Align.RIGHT
+            canvas.drawText(length, rect.right - 10f, rect.bottom - 9f, small)
         }
+        small.textAlign = Paint.Align.CENTER
         small.color = C_MUTED
     }
 
-    /** 没有海报时，格子里放「什么时候拍的」——这才是用户认得出这一部的东西。 */
+    /** 没有海报时，格子里放「什么时候拍的」；名字已经在卡外，卡内不重复写。 */
     private fun drawIdentity(item: MediaItemEntity, rect: RectF) {
         val stamp = timestampOf(item.title)
-        val meta = metaOf(item)
+        val h = rect.height()
         if (stamp != null) {
-            label(
-                stamp.date, rect.centerX(), rect.top + 54f, 22f, C_MUTED, Paint.Align.CENTER
-            )
-            strongLabel(
-                stamp.time, rect.centerX(), rect.top + 106f, 44f, C_TEXT, Paint.Align.CENTER
-            )
-            if (meta != null) {
-                label(
-                    meta, rect.centerX(), rect.top + 136f, 19f, C_MUTED, Paint.Align.CENTER
-                )
-            }
+            label(stamp.date, rect.centerX(), rect.top + h * 0.30f, 16f, C_MUTED, Paint.Align.CENTER)
+            strongLabel(stamp.time, rect.centerX(), rect.top + h * 0.68f, 28f, C_TEXT, Paint.Align.CENTER)
         } else {
-            // 名字本身就是线索（GOPR0231、导出后的中文名），放大到能读清。
-            val name = prettyName(item.title)
-            strong.textSize = 30f
-            val lines = wrapTwoLines(name, rect.width() - 36f)
-            // V2.16：格子从 165 收到 145，原来两行名字 + 一行元信息会顶出下边界。
-            val baseY = if (meta == null) rect.centerY() + 10f else rect.centerY() - 14f
-            lines.forEachIndexed { index, line ->
-                strongLabel(
-                    line, rect.centerX(), baseY + index * 36f, 30f, C_TEXT, Paint.Align.CENTER
-                )
-            }
-            if (meta != null) {
-                label(
-                    meta, rect.centerX(), baseY + lines.size * 36f + 2f, 19f,
-                    C_MUTED, Paint.Align.CENTER
-                )
-            }
+            // 名字在卡外，卡内只留一个淡的播放三角：不重复文字，也不显得是空卡。
+            glyph(Glyph.PLAY, rect.centerX(), rect.centerY(), 34f, C_DIM, 3f)
         }
     }
 
