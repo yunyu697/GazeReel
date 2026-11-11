@@ -96,4 +96,10 @@
     <string name="settings_flip_off">正常</string>
     <string name="settings_flip_on">上下反向</string>
     <string name="settings_flip_note">正常是「抬头看天花板、低头看地板」。如果戴上后正相反（抬头看到地板、低头看到天花板），把这项打开；打开后反而乱，说明原来就是对的，关掉即可。左右方向不受影响。</string>
+
+    <!-- V2.38：重定「正前方」的倒计时时长。 -->
+    <string name="settings_align_title">重定「正前方」倒计时</string>
+    <string name="settings_align_minus">− 1 秒</string>
+    <string name="settings_align_plus">+ 1 秒</string>
+    <string name="settings_align_note">在 VR 里点控制台的「正前方」后，眼前会出现一个跟着视线走的倒计时：这段时间你把姿态摆到想要的位置、然后停住，归零那一刻你看向哪儿，哪儿就是新的正前方。全程不用瞄准任何按钮。嫌慢就调短，躺下找角度费劲就调长。另外：双击触发键 = 立刻重定，不等倒计时。</string>
 </resources>

@@ -330,6 +330,12 @@ class VrRenderer(
         h = 31 * h + (state.feedback?.hashCode() ?: 0)
         h = 31 * h + (state.postureCandidate?.hashCode() ?: 0)
         h = 31 * h + (state.postureRemainingMs / 100L).hashCode()
+        // V2.38：倒计时按 100ms 量化（秒数每 1 秒变一次，弧每 100ms 走一格），
+        // 「稳住了 / 还在动」与「已调整 N°」也必须进签名，否则文案要等兜底刷新才变。
+        h = 31 * h + (state.alignCountdown?.let {
+            listOf(it.remainingMs / 100L, it.movedDeg.toLong(), if (it.steady) 1L else 0L)
+                .hashCode()
+        } ?: 0)
         h = 31 * h + state.consoleVisible.hashCode()
         h = 31 * h + state.gazeArmed.hashCode()
         h = 31 * h + state.items.size

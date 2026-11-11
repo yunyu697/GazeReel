@@ -27,7 +27,12 @@ class SettingsRepository(context: Context) {
         lockView = prefs.getBoolean("lock_view", false),
         subtitlesEnabled = prefs.getBoolean("subtitles", true),
         cursorEnabled = prefs.getBoolean("cursor", true),
-        flipPitch = prefs.getBoolean("flip_pitch", false)
+        flipPitch = prefs.getBoolean("flip_pitch", false),
+        // V2.38：旧安装没有这一项，默认 10 秒；读到的值一律夹进合法范围，
+        // 免得某次写坏了（0 秒 / 999 秒）让倒计时变成「立刻定」或「永远不定」。
+        alignCountdownMs = prefs.getLong("align_countdown_ms", 10_000L).coerceIn(
+            VrSettings.ALIGN_MIN_MS, VrSettings.ALIGN_MAX_MS
+        )
     )
 
     private fun legacyIpdHalf(): Int {
@@ -54,6 +59,7 @@ class SettingsRepository(context: Context) {
             .putBoolean("subtitles", next.subtitlesEnabled)
             .putBoolean("cursor", next.cursorEnabled)
             .putBoolean("flip_pitch", next.flipPitch)
+            .putLong("align_countdown_ms", next.alignCountdownMs)
             .apply()
         return next
     }

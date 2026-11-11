@@ -62,6 +62,14 @@ class GestureRecognizer(
 
     fun update(now: Long = SystemClock.elapsedRealtime()) {
         if (!settings.current.gesturesEnabled) return
+        // V2.38：重定「正前方」倒计时期间，用户就是在有意地上下左右转头。
+        // 那正是「点头」和「摇头」的定义——此时判定手势一定是误伤（会顺手把片子
+        // 暂停、或在片库里翻页）。所以整段跳过，并把角度窗口作废：
+        // 倒计时结束后重新从当前姿态起算，不会把调整动作的残余算成一次手势。
+        if (stateProvider().alignCountdown != null) {
+            lastYaw = Float.NaN
+            return
+        }
         val rotation = headset.headRotation()
         // V2.26：分母原来写成 `-rotation[10]`，等于 atan2(fx, fz) 而不是 atan2(fx, -fz)，
         // 结果 yaw = π − 真实偏航：正前方读成 180°，且**转向相反**（向右转为负）。

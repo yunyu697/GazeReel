@@ -814,6 +814,34 @@ class SetupActivity : AppCompatActivity() {
 
         view.settingsDone.setOnClickListener { dialog.dismiss() }
 
+        // V2.38：重定「正前方」的倒计时时长。它是「在限定时间内调整并稳定姿态」里的
+        // 那个限定时间——摆好只需确认的人给 3–5 秒，躺下再找角度的人给 15 秒。
+        // 和瞳距一样走 SettingsRepository，VrActivity 每次都新建一份，进 VR 即生效。
+        var alignMs = repo.current.alignCountdownMs.coerceIn(
+            VrSettings.ALIGN_MIN_MS, VrSettings.ALIGN_MAX_MS
+        )
+
+        fun renderAlign() {
+            view.alignValue.text = "${VrSettings.alignSeconds(alignMs)} 秒"
+            view.alignMinus.isEnabled = alignMs > VrSettings.ALIGN_MIN_MS
+            view.alignPlus.isEnabled = alignMs < VrSettings.ALIGN_MAX_MS
+        }
+
+        fun applyAlign(delta: Long) {
+            val next = (alignMs + delta)
+                .coerceIn(VrSettings.ALIGN_MIN_MS, VrSettings.ALIGN_MAX_MS)
+            if (next != alignMs) {
+                alignMs = next
+                repo.update { it.copy(alignCountdownMs = next) }
+                RunLog.append("pose", "重定倒计时 → ${VrSettings.alignSeconds(next)} 秒")
+            }
+            renderAlign()
+        }
+
+        view.alignMinus.setOnClickListener { applyAlign(-VrSettings.ALIGN_STEP_MS) }
+        view.alignPlus.setOnClickListener { applyAlign(VrSettings.ALIGN_STEP_MS) }
+        renderAlign()
+
         render()
         dialog.show()
     }

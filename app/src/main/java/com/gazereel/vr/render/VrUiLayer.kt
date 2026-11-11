@@ -19,6 +19,7 @@ import com.gazereel.vr.data.db.MediaItemEntity
 import com.gazereel.vr.data.PosterRepository
 import com.gazereel.vr.player.SubtitleParser
 import com.gazereel.vr.ui.AdjustFeedback
+import com.gazereel.vr.ui.AlignCountdown
 import com.gazereel.vr.ui.Cabinet
 import com.gazereel.vr.ui.MediaStack
 import com.gazereel.vr.ui.PostureTracker
@@ -57,6 +58,8 @@ class VrUiLayer(
         private val C_TEXT = 0xFFEAF2FA.toInt()
         private val C_MUTED = 0xFFB9C6DA.toInt()
         private val C_POSTER = 0xFF173A5E.toInt()
+        /** V2.38：倒计时最后一程还在动时的提示色。不用红色——那是报错，这里是「再稳一下」。 */
+        private val C_WARN = 0xFFFFB74D.toInt()
 
         // 片库格子：4 列 × 2 行，每格 232×165px。
         // V2.13：格子在画布里变高（原来 106px），配合片库专用的大平面，
@@ -118,6 +121,12 @@ class VrUiLayer(
      * 用户为了确认还得转头去找它，而「转头」本身就在改变他要确认的那个姿势。
      */
     fun panelSpec(state: VrUiState): PanelSpec {
+        // V2.38：重定倒计时期间，面板朝向 = 当前视线方向（每帧由 coordinator 写下）。
+        // 整块面板因此贴在眼前跟着头走：卡片永远在「你正在看的地方」偏下一点点，
+        // 用户不需要去找它，也就不会为了找它而把视线从想要的方向上挪开。
+        state.alignCountdown?.let {
+            return PanelSpec(1.8f, 0.9f, it.yaw, it.pitch)
+        }
         val candidate = state.postureCandidate
         if (candidate != null) {
             // 候选方向 = 用户此刻正在看的方向。卡片就摆在那儿，居中。
@@ -206,8 +215,13 @@ class VrUiLayer(
         // 整块挪过去）。如果这时还画下层界面，控制台和片库会跟着一起平移几十度——
         // 那正是「检测到就动画面」这个禁忌本身。下层不画，就没有东西会跳。
         // 视频是另一层，完全不受影响，所以「画面一帧不动」仍然成立。
+        // V2.38：倒计时那一层同样独占，而且**不注册任何凝视目标**。
+        // 此时用户正在靠转头摆姿态，任何可点的东西都会被顺眼扫到。
+        val countdown = state.alignCountdown
         val postureUp = state.gazeArmed && state.postureCandidate != null
-        if (postureUp) {
+        if (countdown != null) {
+            drawAlignCountdown(countdown)
+        } else if (postureUp) {
             drawPosturePrompt(state)
         } else {
             when (state.overlay) {
@@ -595,6 +609,77 @@ class VrUiLayer(
             stack.detail, rect.centerX() + 4f, baseY + lines.size * 32f + 6f, 20f,
             C_ACCENT, Paint.Align.CENTER
         )
+    }
+
+    /**
+     * V2.38：重定「正前方」的倒计时。
+     *
+     * 位置的语义和别的界面都不一样：**这块面板的朝向等于当前视线方向**
+     * （见 [panelSpec]），所以卡片贴在眼前跟着头走，不需要去追它。
+     * 旧版「凝视『正前方』→ 再凝视『挪到这里』」之所以一直差几度，
+     * 就是因为「找按钮」这个动作本身在改写要确认的那个方向。
+     *
+     * 三条约束：
+     * 1. 不铺压暗层、也不盖住视野正中——圆心比视线低 2–3°，
+     *    用户必须看得见画面中心才判断得了「正前方在哪儿」；
+     * 2. 倒计时期间**一帧都不动画面**，只在归零那一刻取姿态；
+     * 3. 不注册任何凝视目标。这一层只接受触发键：单击 = 现在就定，长按 = 取消。
+     */
+    private fun drawAlignCountdown(cd: AlignCountdown) {
+        val card = RectF(332f, 124f, 692f, 490f)
+        fill.color = 0xD90B1626.toInt()
+        canvas.drawRoundRect(card, 24f, 24f, fill)
+        stroke.color = C_BORDER
+        stroke.strokeWidth = 2f
+        canvas.drawRoundRect(card, 24f, 24f, stroke)
+
+        centerText("把现在的方向定为正前方", 172f, 24f, C_TEXT)
+
+        val cx = W / 2f
+        val cy = 288f
+        val radius = 66f
+        val oval = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
+
+        // 最后一程还在动就换成琥珀色：这是提醒，不是报错。
+        val warn = !cd.steady && cd.remainingMs <= 2_500L
+        val accent = if (warn) C_WARN else C_ACCENT
+
+        stroke.color = C_BORDER
+        stroke.strokeWidth = 10f
+        canvas.drawCircle(cx, cy, radius, stroke)
+
+        // 剩余的弧：归零时正好走完。比数字更早被余光看到，也比数字更「不用读」。
+        val ratio = if (cd.totalMs <= 0L) 0f
+        else (cd.remainingMs.toFloat() / cd.totalMs).coerceIn(0f, 1f)
+        ring.color = accent
+        ring.strokeWidth = 10f
+        canvas.drawArc(oval, -90f, 360f * ratio, false, ring)
+
+        // 向上取整：还剩 0.2 秒时显示 1，不会出现「0」卡在那里让人以为死机。
+        val seconds = (cd.remainingMs + 999L) / 1000L
+        text.textSize = 60f
+        text.color = C_TEXT
+        canvas.drawText(seconds.toString(), cx, cy + 20f, text)
+        centerText("秒", cy + 48f, 17f, C_MUTED)
+
+        centerText(
+            if (cd.movedDeg <= 0) "还没动 · 摆到你想要的方向" else "已调整 ${cd.movedDeg}°",
+            404f, 21f, C_TEXT
+        )
+        centerText(
+            when {
+                warn -> "还在动 · 再稳住一下"
+                cd.steady -> "稳住了 · 保持这个方向"
+                else -> "在限定的时间里摆好，然后别动"
+            },
+            434f, 20f,
+            when {
+                warn -> C_WARN
+                cd.steady -> C_ACCENT
+                else -> C_MUTED
+            }
+        )
+        centerText("单击 = 现在就定 · 长按 = 取消", 470f, 17f, C_MUTED)
     }
 
     /**

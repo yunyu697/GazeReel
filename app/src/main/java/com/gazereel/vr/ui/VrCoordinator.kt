@@ -72,11 +72,23 @@ class VrCoordinator(
         const val ADJUST_HOVER_MS = 16_000L
 
         /**
-         * 手动「正前方」低于这个偏移就直说「不用挪」。
+         * V2.38：双击立刻重定用 0.4 秒缓转。
          *
-         * 2° 左右：再小的话挪过去也看不出来，弹一张卡反而像出故障了。
+         * 「立刻」是语义要求（不排队、不等倒计时），但整幅画面在一帧里平移几十度
+         * 是最典型的晕动来源，所以不取 0——0.4 秒刚好够看清「它转过去了」。
          */
-        const val ALIGN_MIN_RAD = 0.035f
+        const val RECENTER_NOW_MS = 400L
+
+        /**
+         * V2.38：视线角速度低于它就算「没在动」，约 8°/s。
+         *
+         * 人手握着手机的自然抖动在 2°/s 以内；主动转头找方向是 20–60°/s。
+         * 门槛放在中间，才分得清「稳住了」和「还在调」。
+         */
+        const val ALIGN_STEADY_DPS = 8f
+
+        /** 连续稳住这么久才亮「稳住了」。0.5 秒：够短，又不至于被一次抖动打断。 */
+        const val ALIGN_STEADY_MS = 500L
     }
 
     /** V2.33 / B13：VrActivity 用它决定音量键是调音量还是临时借给瞳距。 */
@@ -90,28 +102,33 @@ class VrCoordinator(
     /** V2.19 / B4+B5：姿态闭环。它只发现「姿势变了」，动画面的是 Provider。 */
     private val posture = PostureTracker()
 
-    /**
-     * V2.19c：主动「挪正前方」时记下的方向（俯仰 + 偏航）。
-     *
-     * 非 null 表示这张确认卡是用户自己点出来的，不是检测到的——
-     * 确认时不需要走 [PostureTracker.confirm]（没有候选姿态），只需要静默期。
-     */
-    private var manualPitch: Float? = null
-    private var manualYaw = 0f
-    private var manualUntilMs = 0L
-    /**
-     * V2.27：点「正前方」那一刻的**姿态矩阵**。
-     *
-     * 自动路径刻意用「候选姿态」而不是按按钮那一刻的朝向（见 [confirmPosture]），
-     * 手动路径却一直传 null = 用此刻朝向，于是用户为了凝视确认按钮移开视线的
-     * 那几度被写进了新的正前方，确认完仍差一点。两条路现在一致。
-     */
-    private var manualPose: FloatArray? = null
+    // ── V2.38：重定「正前方」的倒计时 ────────────────────────────────
+    /** 倒计时开始那一刻的姿态，用来报告「你一共调了多少度」。 */
+    private var alignStartPose: FloatArray? = null
+    /** 上一帧的姿态与时刻，用来算视线角速度（判断「稳住了没有」）。 */
+    private var alignLastPose: FloatArray? = null
+    private var alignLastAtMs = 0L
+    /** 归零时刻（SystemClock.elapsedRealtime）。 */
+    private var alignUntilMs = 0L
+    /** 已经连续稳住多久（毫秒）；一动就清零。 */
+    private var alignSteadyMs = 0L
 
     private fun degrees(rad: Float): Int = Math.toDegrees(rad.toDouble()).toInt()
 
+    /** 姿态矩阵的前向单位向量；与 `VrUiLayer.gazePoint` 同一约定（列主序第三列取负）。 */
+    private fun forwardOf(rotation: FloatArray): FloatArray =
+        floatArrayOf(-rotation[8], -rotation[9], -rotation[10])
+
+    /** 两个姿态之间「视线方向」的夹角（度）。 */
+    private fun angleBetweenDeg(a: FloatArray, b: FloatArray): Float {
+        val fa = forwardOf(a)
+        val fb = forwardOf(b)
+        val dot = (fa[0] * fb[0] + fa[1] * fb[1] + fa[2] * fb[2]).coerceIn(-1f, 1f)
+        return Math.toDegrees(kotlin.math.acos(dot).toDouble()).toFloat()
+    }
+
     /**
-     * V2.28：自动姿态闭环已停用，这里只剩手动确认卡的倒计时。
+     * V2.28：自动姿态闭环已停用，这里只剩手动那条路（V2.38 起是倒计时）。
      *
      * alpha14 把首次基准死区收到 2°，并允许「戴稳之后」继续静默校准，于是进 VR
      * 头 6 秒内任何 2–25° 的稳定姿态都会触发一次 0.8 秒自动重定向：塞手机、
@@ -120,77 +137,157 @@ class VrCoordinator(
      *
      * 正前方改为只在进 VR 时定一次——Provider 等姿态稳定下来的第一个瞬间
      * （见 SensorHeadsetProvider.pendingInitialRecenter），之后不再自动动画面。
-     * 用户仍可以用「挪到这里」自己微调，那条路径带确认卡、不会静默抢画面。
+     * 用户仍可以自己重定，两条路都不需要瞄准任何按钮（见 [startAlignCountdown]）。
+     *
+     * 这个方法现在只做一件事：**驱动重定倒计时**。它每帧被 VrActivity 的 tick 调用，
+     * 拿到的就是当前姿态，所以「归零那一刻头朝哪儿」不需要任何额外采样。
      */
     fun updatePosture(rotation: FloatArray, nowMs: Long) {
-        if (manualPitch == null) return
-        val left = (manualUntilMs - nowMs).coerceAtLeast(0L)
-        if (left == 0L) {
-            dismissPosture()
-        } else if (left != uiState.postureRemainingMs) {
-            uiState = uiState.copy(postureRemainingMs = left)
+        val cd = uiState.alignCountdown ?: return
+        val dt = (nowMs - alignLastAtMs).coerceIn(0L, 200L)
+        if (dt > 0L) {
+            val speed = angleBetweenDeg(alignLastPose ?: rotation, rotation) * 1000f / dt
+            alignSteadyMs = if (speed <= ALIGN_STEADY_DPS) {
+                (alignSteadyMs + dt).coerceAtMost(2_000L)
+            } else {
+                0L
+            }
         }
-    }
+        alignLastPose = rotation.copyOf()
+        alignLastAtMs = nowMs
 
-    /**
-     * V2.19b：用户主动点「正前方」。
-     *
-     * 自动检测覆盖不到「先躺好、再塞手机」——那一刻初始重定已经把正前方定成躺姿，
-     * 之后永远不会有 40° 偏差。V2.19c 用「首次稳定姿态即基准」把这条补上了，
-     * 但手动这条路仍然要留着：坐着看片时想微调、或者 40° 死区之内的偏移，
-     * 只能靠用户自己说一句。
-     */
-    private fun askAlignForward() {
-        val rotation = headset.headRotation()
-        val offset = posture.offsetOf(rotation)
-        val pitch = posture.pitchOf(rotation)
-        val yaw = posture.yawOf(rotation)
-        RunLog.append(
-            "posture",
-            "手动挪正前方 · 偏移 ${degrees(offset)}°" +
-                "（俯仰 ${degrees(pitch)}° 偏航 ${degrees(yaw)}°）"
-        )
-        if (offset < ALIGN_MIN_RAD) {
-            showMessage("已经正对着了 · 不用挪")
+        val remaining = (alignUntilMs - nowMs).coerceAtLeast(0L)
+        if (remaining == 0L) {
+            applyAlign(rotation, cd)
             return
         }
-        manualPitch = pitch
-        manualYaw = yaw
-        manualPose = rotation.copyOf()
-        manualUntilMs = SystemClock.elapsedRealtime() + PostureTracker.CANDIDATE_TTL_MS
         uiState = uiState.copy(
-            postureCandidate = pitch,
-            postureYaw = yaw,
-            postureRemainingMs = PostureTracker.CANDIDATE_TTL_MS
+            alignCountdown = cd.copy(
+                remainingMs = remaining,
+                // 面板朝向 = 当前视线方向：卡片因此贴在眼前，用户永远不用去找它。
+                yaw = posture.yawOf(rotation),
+                pitch = posture.pitchOf(rotation),
+                movedDeg = angleBetweenDeg(alignStartPose ?: rotation, rotation).toInt(),
+                steady = alignSteadyMs >= ALIGN_STEADY_MS
+            )
         )
     }
 
     /**
-     * 确认「把正前方挪到这里」：整个参考系 0.8 秒缓转过去。
+     * V2.38：开始重定「正前方」的倒计时。
      *
-     * 为什么不是瞬跳：整个视界在一帧里平移几十度，是最典型的晕动触发源。
-     * 为什么不是只挪 UI：那样视频留在原地，用户反而要仰头找画面。
+     * 旧实现是「凝视『正前方』→ 弹确认卡 → 再凝视『挪到这里』」，而用户为了点到
+     * 这两个按钮，头已经转到按钮那边去了——被记下的自然是**按钮的位置**，不是
+     * 他想要的正前方。真机上「怎么调都差一点」，根子在这里，不在 `recenterTo`。
      *
-     * V2.19c：自动路径交给 [PostureTracker.confirm] 的**候选姿态**，不是「按下那一刻的
-     * 朝向」——要按到卡片上的按钮，视线必然要移开几度，那几度不该写进新的正前方。
+     * 新语义：看哪儿，哪儿就是正前方。倒计时期间什么都不用点，只要把姿态摆好、
+     * 停住；归零那一刻的朝向直接成为新基准。卡片跟着视线走（`panelSpec`），
+     * 所以也没有「去找卡片」这一步。
+     */
+    private fun startAlignCountdown() {
+        if (uiState.alignCountdown != null) return
+        val now = SystemClock.elapsedRealtime()
+        val total = settings.current.alignCountdownMs.coerceIn(
+            VrSettings.ALIGN_MIN_MS, VrSettings.ALIGN_MAX_MS
+        )
+        val rotation = headset.headRotation()
+        alignStartPose = rotation.copyOf()
+        alignLastPose = rotation.copyOf()
+        alignLastAtMs = now
+        alignUntilMs = now + total
+        alignSteadyMs = 0L
+        uiState = uiState.copy(
+            // 独占的一层：浮层与控制台全收起来。画面正中要留给用户判断方向，
+            // 也保证这一刻不会有第二块 UI 挡在「跟着视线走」的卡片前面。
+            overlay = VrOverlay.NONE,
+            consoleVisible = false,
+            feedback = null,
+            message = null,
+            messageUntilMs = 0L,
+            alignCountdown = AlignCountdown(
+                totalMs = total,
+                remainingMs = total,
+                yaw = posture.yawOf(rotation),
+                pitch = posture.pitchOf(rotation),
+                movedDeg = 0,
+                steady = false
+            )
+        )
+        // 刚凝视过按钮，凝视停留与手势窗口必须清零，否则旧落点会当场再触发一次。
+        onRecenter()
+        RunLog.append("posture", "重定倒计时 · ${total / 1000} 秒 · 归零处即新的正前方")
+    }
+
+    /**
+     * 归零：把此刻的视线方向写成新的正前方。
+     *
+     * 缓转而不是瞬跳：整个视界在一帧里平移几十度是最典型的晕动来源。
+     * 结束后 [PostureTracker.suppress] 再静默一个缓转周期，避免「刚定完就被
+     * 某条检测抢走画面」。
+     */
+    private fun applyAlign(rotation: FloatArray, cd: AlignCountdown) {
+        val now = SystemClock.elapsedRealtime()
+        val steady = alignSteadyMs >= ALIGN_STEADY_MS
+        uiState = uiState.copy(alignCountdown = null, lastActivityMs = now)
+        alignStartPose = null
+        alignLastPose = null
+        alignSteadyMs = 0L
+        posture.suppress(now)
+        headset.recenterTo(rotation, PostureTracker.ANIM_MS)
+        onRecenter()
+        showMessage("正前方已定在刚才的方向 · 调整 ${cd.movedDeg}°")
+        RunLog.append(
+            "posture",
+            "重定完成 · 调整 ${cd.movedDeg}° · 结束时${if (steady) "已稳住" else "仍在动"} · " +
+                "用 ${cd.totalMs / 1000} 秒"
+        )
+    }
+
+    /** 倒计时里单击 = 「现在就定在这里」。 */
+    private fun confirmAlignNow() {
+        val cd = uiState.alignCountdown ?: return
+        applyAlign(headset.headRotation(), cd)
+    }
+
+    private fun cancelAlign() {
+        uiState = uiState.copy(alignCountdown = null, lastActivityMs = SystemClock.elapsedRealtime())
+        alignStartPose = null
+        alignLastPose = null
+        alignSteadyMs = 0L
+        showMessage("已取消 · 正前方没动")
+        RunLog.append("posture", "重定倒计时已取消")
+    }
+
+    /**
+     * V2.38：双击触发键，立刻把正前方对齐到现在的朝向。
+     *
+     * 这是「不想等倒计时」的快捷方式，和倒计时并存。它同样不碰任何按钮，
+     * 所以不存在「被按钮位置污染」的问题——记下的就是用户此刻看向的方向。
+     */
+    private fun recenterNow() {
+        val rotation = headset.headRotation()
+        val now = SystemClock.elapsedRealtime()
+        val yaw = degrees(posture.yawOf(rotation))
+        val pitch = degrees(posture.pitchOf(rotation))
+        posture.suppress(now)
+        headset.recenterTo(rotation, RECENTER_NOW_MS)
+        onRecenter()
+        showMessage("正前方已对齐到你现在看的方向")
+        RunLog.append("posture", "双击立刻重定 · 原朝向 偏航 $yaw° 俯仰 $pitch°")
+    }
+
+    /**
+     * 自动姿态候选的确认（V2.19c 的「挪到这里」）。
+     *
+     * V2.28 起自动检测已停用，所以这条分支实际上不会触发；保留是因为
+     * 「候选卡」这条链路（PostureTracker 的 TTL / 静默期）还在，删一半会留下死引用。
      */
     private fun confirmPosture() {
         val now = SystemClock.elapsedRealtime()
-        val pose: FloatArray? = if (manualPitch == null) {
-            val confirmed = posture.confirm(now)
-            if (confirmed == null) {
-                showMessage("没有需要调整的姿势")
-                return
-            }
-            confirmed
-        } else {
-            manualPitch = null
-            posture.suppress(now)
-            // V2.27：用「点正前方那一刻」的姿态，不写进凝视按钮移开视线的那几度。
-            // 万一没记到就退回 null = 用此刻朝向，行为与旧版一致。
-            val recorded = manualPose
-            manualPose = null
-            recorded
+        val pose = posture.confirm(now)
+        if (pose == null) {
+            showMessage("没有需要调整的姿势")
+            return
         }
         headset.recenterTo(pose, PostureTracker.ANIM_MS)
         // 缓转期间必须把凝视停留与手势窗口清零——只暂停命中不清零，
@@ -201,8 +298,6 @@ class VrCoordinator(
     }
 
     private fun dismissPosture() {
-        manualPitch = null
-        manualPose = null
         posture.dismiss(headset.headRotation())
         uiState = uiState.copy(postureCandidate = null, postureYaw = 0f, postureRemainingMs = 0L)
     }
@@ -362,6 +457,21 @@ class VrCoordinator(
     }
 
     fun handle(action: VrAction, channel: InputChannel) {
+        // V2.38：倒计时期间整个输入面都让给它。
+        //
+        // 这一刻用户正在靠转头把姿态摆到想要的位置——低头、左右扫视都是调整本身，
+        // 任何落在别处的动作（单击空白 = 暂停、点头 = 切播放）都是误伤。
+        // 只留三个语义：单击 = 现在就定、长按/返回 = 取消、其余一律吞掉并留一行日志。
+        if (uiState.alignCountdown != null) {
+            when (action) {
+                VrAction.ConfirmAlign -> confirmAlignNow()
+                VrAction.CancelAlign, VrAction.Back -> cancelAlign()
+                else -> RunLog.append(
+                    "posture", "倒计时中忽略 ${action.javaClass.simpleName} via $channel"
+                )
+            }
+            return
+        }
         touch()
         // V2.33 / B13：「边看边调」只在「播放页 + 无浮层」成立。
         // 任何换屏 / 退出动作都先把音量键还回去，否则用户进了设置浮层，
@@ -397,7 +507,11 @@ class VrCoordinator(
             // V2.19：姿态闭环
             VrAction.ConfirmPosture -> confirmPosture()
             VrAction.DismissPosture -> dismissPosture()
-            VrAction.AlignForward -> askAlignForward()
+            // V2.38：「正前方」= 开始跟着视线走的倒计时；双击触发键 = 立刻重定。
+            VrAction.AlignForward -> startAlignCountdown()
+            VrAction.RecenterNow -> recenterNow()
+            VrAction.ConfirmAlign -> confirmAlignNow()
+            VrAction.CancelAlign -> cancelAlign()
             VrAction.ResumePlayback -> resumePlayback()
             VrAction.TogglePlay -> player.togglePlay()
             // V2.8：片库里 Next / Previous 只能是翻页。
@@ -1006,9 +1120,12 @@ class VrCoordinator(
      */
     fun touch() {
         val tuning = uiState.ipdTuning
+        // V2.38：倒计时期间按任何键都不许把控制台点亮。那一刻用户已经收起了控制台、
+        // 正对着想定的方向——一按就弹出一整块面板，等于当场把目标盖住。
+        val counting = uiState.alignCountdown != null
         uiState = uiState.copy(
             // B13：调瞳距时控制台不许被任何动作点亮，否则整块面板又把视频盖住。
-            consoleVisible = if (tuning) false else true,
+            consoleVisible = if (tuning || counting) false else true,
             lastActivityMs = SystemClock.elapsedRealtime()
         )
     }
@@ -1085,6 +1202,15 @@ class VrCoordinator(
      * 所以宁可让他再按一次触发键，也不要在这种时刻自动触发任何动作。
      */
     fun disarmGaze() {
+        // V2.38：倒计时跨过一次「离开 VR」就作废。否则回来后第一帧会拿一个
+        // 十几秒前的目标去当正前方，而且过程没有任何人看着——那是纯粹的意外。
+        if (uiState.alignCountdown != null) {
+            uiState = uiState.copy(alignCountdown = null)
+            alignStartPose = null
+            alignLastPose = null
+            alignSteadyMs = 0L
+            RunLog.append("posture", "重定倒计时作废（离开 VR）")
+        }
         if (uiState.gazeArmed) {
             uiState = uiState.copy(gazeArmed = false, consoleVisible = true)
             RunLog.append("ui", "凝视已锁定（离开 VR）")

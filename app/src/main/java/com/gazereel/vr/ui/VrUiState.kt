@@ -50,7 +50,15 @@ data class VrSettings(
      * 旋转矢量约定）。与其继续用推演争论，先把这一维做成可切换的：
      * `true` 时把姿态的俯仰取反（偏航、横滚原样保留），戴上试一次即可判定。
      */
-    val flipPitch: Boolean = false
+    val flipPitch: Boolean = false,
+    /**
+     * V2.38：重定「正前方」的倒计时时长（毫秒）。
+     *
+     * 用户要「在限定时间内调整并稳定姿态」，这个「限定时间」得能调：
+     * 10 秒对多数人刚好（摆好 + 停住），躺下再找角度的人可能想给 15 秒，
+     * 已经摆好只想确认的人想给 5 秒。手机端设置里以秒为单位加减。
+     */
+    val alignCountdownMs: Long = 10_000L
 ) {
     /** 米制毫米，供渲染层每帧读取；不另存，避免两套数值打架。 */
     val ipdMm: Float get() = ipdHalfMm / 2f
@@ -75,6 +83,13 @@ data class VrSettings(
         const val IPD_DEFAULT_HALF = 124      // 62.0mm
         const val IPD_COARSE_HALF = 4         // 2.0mm / 步，全程 13 步
         const val IPD_FINE_HALF = 1           // 0.5mm / 步
+
+        /** V2.38：重定倒计时的范围与步长。3 秒是「已经摆好了，只想确认」的下限。 */
+        const val ALIGN_MIN_MS = 3_000L
+        const val ALIGN_MAX_MS = 20_000L
+        const val ALIGN_STEP_MS = 1_000L
+
+        fun alignSeconds(ms: Long): Long = (ms / 1_000L).coerceIn(ALIGN_MIN_MS / 1000, ALIGN_MAX_MS / 1000)
 
         /** 找到当前值最接近的档位序号；越界的旧值也能落到最近的档上。 */
         fun stepOf(steps: IntArray, value: Int): Int {
@@ -136,6 +151,33 @@ data class AdjustFeedback(
     /** 瞳距专用：粗/微模式与按键说明。 */
     val hint: String? = null,
     val coarse: Boolean = true
+)
+
+/**
+ * V2.38：重定「正前方」的倒计时状态。
+ *
+ * 旧路径是「凝视『正前方』按钮 → 再凝视『挪到这里』」。这两步都要瞄准，
+ * 而瞄准的动作本身就把视线从「我想要的正前方」挪到了按钮那边——
+ * 于是被记下的永远是按钮的位置。真机上「怎么调都差一点」的根子在这里，
+ * 不在重定算法里（`recenterTo` 的数学在 V2.19c 就核对过）。
+ *
+ * 现在的语义：**看哪儿，哪儿就是正前方。** 用户在倒计时里把姿态摆好、
+ * 停住，归零那一刻的朝向直接成为新基准。全程只需要「看」，不需要瞄准。
+ *
+ * [yaw] / [pitch] 每帧由 VrCoordinator 写成**当前视线方向**，`VrUiLayer.panelSpec`
+ * 据此把整块面板摆到视线正前方——卡片因此贴着眼睛走，不会「跑到一边去」，
+ * 也不会像世界锁定的控制台那样要求用户转头去找它。
+ */
+data class AlignCountdown(
+    val totalMs: Long,
+    val remainingMs: Long,
+    /** 视线方向（弧度，参考系内），面板朝向跟它走。 */
+    val yaw: Float,
+    val pitch: Float,
+    /** 从倒计时开始到现在视线一共挪了多少度 —— 让用户确认「我刚才那下被记下了」。 */
+    val movedDeg: Int,
+    /** 最近半秒是否稳住。false 时界面会提示「还在动」，不改变倒计时本身。 */
+    val steady: Boolean
 )
 
 data class VrUiState(
@@ -210,6 +252,14 @@ data class VrUiState(
      * 触发键单击切粗/微；长按退出后音量键立刻归还。
      */
     val ipdTuning: Boolean = false,
+    /**
+     * V2.38：非 null 表示正在「调整正前方」的倒计时里。
+     *
+     * 这一层是**独占**的：面板只画它、不注册任何凝视目标、其他动作一律被吞掉。
+     * 理由和姿态确认卡一样——这是打断，打断上不该再摆一排按钮；
+     * 而且此时用户正在靠转头找方向，任何「顺手点一下」都会落在错的地方。
+     */
+    val alignCountdown: AlignCountdown? = null,
     /**
      * V2.9：凝视是否已上膛。
      *

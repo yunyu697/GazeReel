@@ -29,6 +29,21 @@ class TriggerDispatcher(
 
     private var lastClickAt = 0L
 
+    /**
+     * V2.38：双击的含义从「打开设置」改成「立刻把正前方对齐到你现在看的方向」。
+     *
+     * 为什么双击适合干这件事：它**不落在任何凝视目标上**。旧版给「重定」配过一个
+     * 按钮，可那个按钮在面板下方，凝视它的时候视线已经离开舒适中心了，等于把
+     * 「低头看按钮」写成了新的正前方——V2.28 因此删掉了那个按钮。双击不碰按钮，
+     * 记下的就是用户此刻看的方向，这正是它要的。
+     *
+     * 设置浮层没有丢入口：片库右上角的齿轮、播放控制台的「设置」都还在；
+     * 而且这个入口本来就在（V2.11 加的），双击只是重复的一条近路。
+     */
+    private fun doubleClickAction(): VrAction =
+        // 调瞳距时双击仍是「快速结束」——那层 0xEE 面板会把正在看的画面整个盖住。
+        if (stateProvider().ipdTuning) VrAction.StopIpdTuning else VrAction.RecenterNow
+
     fun onTrigger(event: TriggerEvent) {
         // 必须在 onActivity() 之前取：它会把控制台点亮，之后再看就已经是「显示中」了。
         val before = stateProvider()
@@ -49,6 +64,19 @@ class TriggerDispatcher(
             return
         }
 
+        // V2.38：重定「正前方」的倒计时是独占的一层，输入语义也一起接管：
+        // 长按 = 取消，单击 / 双击 = 「现在就定在这里」。此时不查凝视目标
+        // （那一层不注册目标），也不落到「播放页单击 = 暂停」。
+        if (stateProvider().alignCountdown != null) {
+            lastClickAt = 0L
+            dispatcher.dispatch(
+                if (event.kind == TriggerKind.LONG_PRESS) VrAction.CancelAlign
+                else VrAction.ConfirmAlign,
+                InputChannel.TRIGGER
+            )
+            return
+        }
+
         when (event.kind) {
             TriggerKind.LONG_PRESS -> {
                 lastClickAt = 0L
@@ -56,22 +84,13 @@ class TriggerDispatcher(
             }
             TriggerKind.DOUBLE_CLICK -> {
                 lastClickAt = 0L
-                // V2.33 / B13：调瞳距时双击是「快速结束」，不是打开设置浮层——
-                // 那层 0xEE 面板会把正在看的画面整个盖住。
-                dispatcher.dispatch(
-                    if (stateProvider().ipdTuning) VrAction.StopIpdTuning
-                    else VrAction.OpenSettings,
-                    InputChannel.TRIGGER
-                )
+                dispatcher.dispatch(doubleClickAction(), InputChannel.TRIGGER)
             }
             TriggerKind.CLICK -> {
                 val tuning = stateProvider().ipdTuning
                 if (event.atMs - lastClickAt < DOUBLE_TAP_MS) {
                     lastClickAt = 0L
-                    dispatcher.dispatch(
-                        if (tuning) VrAction.StopIpdTuning else VrAction.OpenSettings,
-                        InputChannel.TRIGGER
-                    )
+                    dispatcher.dispatch(doubleClickAction(), InputChannel.TRIGGER)
                     return
                 }
                 lastClickAt = event.atMs
