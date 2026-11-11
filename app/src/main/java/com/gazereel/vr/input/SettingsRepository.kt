@@ -26,7 +26,8 @@ class SettingsRepository(context: Context) {
         consoleTimeoutMs = 8_000L,
         lockView = prefs.getBoolean("lock_view", false),
         subtitlesEnabled = prefs.getBoolean("subtitles", true),
-        cursorEnabled = prefs.getBoolean("cursor", true)
+        cursorEnabled = prefs.getBoolean("cursor", true),
+        flipPitch = prefs.getBoolean("flip_pitch", false)
     )
 
     private fun legacyIpdHalf(): Int {
@@ -52,6 +53,7 @@ class SettingsRepository(context: Context) {
             .putBoolean("lock_view", next.lockView)
             .putBoolean("subtitles", next.subtitlesEnabled)
             .putBoolean("cursor", next.cursorEnabled)
+            .putBoolean("flip_pitch", next.flipPitch)
             .apply()
         return next
     }

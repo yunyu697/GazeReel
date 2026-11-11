@@ -796,6 +796,22 @@ class SetupActivity : AppCompatActivity() {
         view.ipdMinus.setOnClickListener { apply(half - VrSettings.IPD_FINE_HALF) }
         view.ipdPlus.setOnClickListener { apply(half + VrSettings.IPD_FINE_HALF) }
         view.ipdReset.setOnClickListener { apply(VrSettings.IPD_DEFAULT_HALF) }
+
+        // V2.37：俯仰反向。和瞳距一样走 SettingsRepository，
+        // VrActivity.onCreate 会重新 new 一份并在建 headset 时下发，不用重启。
+        val flip = repo.current.flipPitch
+        view.flipSwitch.isChecked = flip
+        view.flipSwitch.text = getString(
+            if (flip) R.string.settings_flip_on else R.string.settings_flip_off
+        )
+        view.flipSwitch.setOnCheckedChangeListener { _, checked ->
+            repo.update { it.copy(flipPitch = checked) }
+            view.flipSwitch.text = getString(
+                if (checked) R.string.settings_flip_on else R.string.settings_flip_off
+            )
+            RunLog.append("pose", "俯仰方向 · ${if (checked) "上下反向" else "正常"}")
+        }
+
         view.settingsDone.setOnClickListener { dialog.dismiss() }
 
         render()

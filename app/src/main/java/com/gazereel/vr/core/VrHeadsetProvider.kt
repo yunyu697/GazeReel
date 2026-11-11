@@ -63,6 +63,15 @@ interface VrHeadsetProvider {
     fun recenterYaw() = recenter()
 
     /**
+     * V2.37：把姿态的**俯仰**取反（偏航、横滚保持）。
+     *
+     * 真机「抬头画面往上走、低头画面往下走」是俯仰方向反了：正常应是抬头时
+     * 正前方的东西在屏幕上往下滑。这一项是给那台设备的现场开关，
+     * 默认实现不做事，手写 Provider 不实现也不会编译不过。
+     */
+    fun setFlipPitch(enabled: Boolean) {}
+
+    /**
      * V2.19 / B5：把「正前方」在 [durationMs] 内**缓转**到当前姿态，而不是瞬跳。
      *
      * 瞬跳在头显里是典型的晕动触发源：整个视界在一帧里平移几十度。

@@ -162,6 +162,47 @@
         android:lineSpacingExtra="2dp"
         android:textColor="@color/setup_muted" />
 
+    <!--
+      V2.37：球面上下方向。
+      真机「抬头看到地板、低头看到天花板，左右却正常」把范围锁在垂直那一维，
+      球面几何与纹理 v 的配对在源码里是同向的，所以真机上必定有一层与开发机不同。
+      与其继续猜，不如让用户在戴上的状态下试一次：这一项只改顶点里的 v，不改几何。
+    -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:orientation="horizontal"
+        android:baselineAligned="false"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/settings_flip_title"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/setup_text" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/flipSwitch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_flip_off"
+            android:textSize="13sp"
+            android:textColor="@color/setup_cyan" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:text="@string/settings_flip_note"
+        android:textSize="11sp"
+        android:lineSpacingExtra="2dp"
+        android:textColor="@color/setup_muted" />
+
     <com.google.android.material.button.MaterialButton
         android:id="@+id/settingsDone"
         android:layout_width="match_parent"

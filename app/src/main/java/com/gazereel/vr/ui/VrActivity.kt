@@ -219,7 +219,7 @@ class VrActivity : AppCompatActivity() {
         // V2.30：头追整体交给官方 Cardboard SDK（EKF 融合、陀螺零偏估计、50ms 姿态预测、
         // 显示空间旋转补偿、neck model）。手写 TYPE_ROTATION_VECTOR 链路一件都没有，
         // 这是「转头拖尾 / 平躺慢慢歪 / 方向反」的根源。缺 AAR 或缺 native so 时自动降级。
-        headset = createHeadset()
+        headset = createHeadset().also { it.setFlipPitch(settings.current.flipPitch) }
         stage("headset")
         stage("player")
         val dispatcher = ActionDispatcher { action, channel -> coordinator.handle(action, channel) }

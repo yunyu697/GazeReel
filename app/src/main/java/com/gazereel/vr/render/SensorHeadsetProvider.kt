@@ -55,6 +55,14 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     private var viewLocked = false
     private val frozen = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
 
+    /** V2.37：俯仰反向开关（真机现场校准用，见 [flipPitchOf]）。 */
+    @Volatile
+    private var flipPitch = false
+
+    override fun setFlipPitch(enabled: Boolean) {
+        flipPitch = enabled
+    }
+
     // V2.19 / B5：缓转重定基准。起点/终点都是「参考系偏移」，中间走球面插值。
     private var easing = false
     private var easeStartMs = 0L
@@ -300,7 +308,8 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
         val deviceToWorld = FloatArray(9)
         SensorManager.getRotationMatrixFromVector(deviceToWorld, event.values)
-        val matrix = screenPoseOf(deviceToWorld)
+        val screenPose = screenPoseOf(deviceToWorld)
+        val matrix = if (flipPitch) flipPitchOf(screenPose) else screenPose
         val crossLen = lastCrossLen
         val branch = lastBranch
         // 参考系的「上」= 偏移矩阵作用在世界天顶上，即它的第三列。
@@ -392,6 +401,54 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         val fz = -m[8]
         lastCrossLen = kotlin.math.sqrt((1f - fz * fz).coerceAtLeast(0f))
         lastBranch = 1
+        return out
+    }
+
+    /**
+     * V2.37：只把**俯仰**取反，偏航与横滚原样保留。
+     *
+     * 真机（2026-11-11）：「抬头整个视频画面应该下移才能看到天花板，低头画面上移
+     * 才能看到地板，现在是反的；左右正常。」——画面没倒、左右没反，只有俯仰反。
+     *
+     * 做法是按 `C = Ry(yaw)·Rx(pitch)·Rz(roll)` 分解，把 pitch 换成 -pitch 再乘回去。
+     * 不要图省事写成「共轭一个 y 镜像」：那等价于把世界上下翻，整个画面会倒过来，
+     * 用户看到的就不只是「方向反」而是「画面倒了」。
+     *
+     * 分解用视线方向取 yaw/pitch（`视线 = -第三列`，与 [headRotation] 的约定一致），
+     * roll 由 `Rx(pitch)ᵀ·Ry(yaw)ᵀ·C` 的第一列取出——不用叉乘，接近天顶时也不退化。
+     */
+    private fun flipPitchOf(c: FloatArray): FloatArray {
+        val fx = -c[8]
+        val fy = (-c[9]).coerceIn(-1f, 1f)
+        val fz = -c[10]
+        // C = Ry(yaw)·Rx(pitch)·Rz(roll) 时，视线水平分量是 (-sin yaw·cos p, ·, -cos yaw·cos p)
+        val yaw = -kotlin.math.atan2(fx.toDouble(), (-fz).toDouble()).toFloat()
+        val pitch = kotlin.math.asin(fy.toDouble()).toFloat()
+
+        val c0 = FloatArray(16)
+        Matrix.setIdentityM(c0, 0)
+        Matrix.rotateM(c0, 0, Math.toDegrees(yaw.toDouble()).toFloat(), 0f, 1f, 0f)
+        Matrix.rotateM(c0, 0, Math.toDegrees(pitch.toDouble()).toFloat(), 1f, 0f, 0f)
+
+        val m = FloatArray(16)
+        Matrix.multiplyMM(m, 0, transpose3x3(c0), 0, c, 0)
+        val roll = kotlin.math.atan2(m[1].toDouble(), m[0].toDouble()).toFloat()
+
+        val out = FloatArray(16)
+        Matrix.setIdentityM(out, 0)
+        Matrix.rotateM(out, 0, Math.toDegrees(yaw.toDouble()).toFloat(), 0f, 1f, 0f)
+        Matrix.rotateM(out, 0, Math.toDegrees(-pitch.toDouble()).toFloat(), 1f, 0f, 0f)
+        Matrix.rotateM(out, 0, Math.toDegrees(roll.toDouble()).toFloat(), 0f, 0f, 1f)
+        return out
+    }
+
+    /** 3×3 部分转置，平移列清零；只用于姿态矩阵。 */
+    private fun transpose3x3(src: FloatArray): FloatArray {
+        val out = FloatArray(16)
+        out[0] = src[0]; out[1] = src[4]; out[2] = src[8]
+        out[4] = src[1]; out[5] = src[5]; out[6] = src[9]
+        out[8] = src[2]; out[9] = src[6]; out[10] = src[10]
+        out[15] = 1f
         return out
     }
 

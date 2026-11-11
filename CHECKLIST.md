@@ -11,9 +11,9 @@
 >    `[设计]` 只有设计、代码没动 · `[已实现]` 代码改了、编译过 · `[真机]` 用户在真机上确认过 · `[回归]` 曾经可用、后来坏了
 > 5. **动任何功能前先核查成熟方案**（官方 SDK / 平台 API / 成熟库 / 行业标准），结论写进《附录 · 成熟方案核查》；自研只做成熟方案不覆盖的那部分，并在裁决记录里写清边界。
 >
-> 最后更新：V2.36 / 1.1.0-alpha23（2026-11-11 晚，C1 抽帧布局判据改写：零位移相关 → 视差补偿分块比对；起因是 `KAVR-332-CD1` 手选「180 半球 · SBS」画面就正常）
+> 最后更新：V2.37 / 1.1.0-alpha24（2026-11-11 晚，C1 真机通过 + 俯仰反向的现场开关；起因是「抬头画面往上走、低头往下走，左右正常」）
 >
-> **当前基线**：`V2.36 / 1.1.0-alpha23`（tag `v1.1.0-alpha23`；上一版是 `40d55ae` / alpha22）；产物 `GazeReel-1.1.0-alpha23.apk`（**未上真机**）。本轮只改「怎么从像素判布局」，**先看「本轮新增（alpha23）」再上机**。
+> **当前基线**：`V2.37 / 1.1.0-alpha24`（tag `v1.1.0-alpha24`；上一版是 `9b3cde5` / alpha23）；产物 `GazeReel-1.1.0-alpha24.apk`（**俯仰开关待真机**）。C1 已在真机达成（`KAVR-332-CD1` 不手选自动 180° 半球 · SBS）；本轮只加「俯仰方向」一项，**先看「本轮新增（alpha24）」再上机**。
 
 ---
 
@@ -116,7 +116,26 @@
 
 ## 已知未验证（真机一跑就可能翻案）
 
-**总口径**：当前代码 `V2.36 / 1.1.0-alpha23`。alpha4–alpha23 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+**总口径**：当前代码 `V2.37 / 1.1.0-alpha24`。alpha4–alpha24 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+
+### 本轮新增（alpha24 / V2.37，真机只验了一条）
+
+**一、C1 真机通过**：`KAVR-332-CD1` 不手选打开，自动判成「180° 半球 · SBS 左右」，画面正常。V2.36 的「视差补偿分块比对」成立，`0.95 零位移相关`那条老门槛可以彻底埋掉。
+
+**二、真机遗留：俯仰反向**
+
+- 用户原话（2026-11-11 21:40）：「抬头整个视频画面应该下移，才可能看到天花板，低头画面应该上移，才能看到地板，而现在是反了。」
+- 另外两条已确认：**画面内容正立**（人脸、文字不倒）、**左右方向正常**（头右转，物体往左跑）。所以反的只有俯仰这一维。
+- 源码逐层核对结果（全部对得上，找不到能产生该现象的符号错误）：
+  ① 姿态：`getRotationMatrixFromVector`（行主序，第三列＝设备 z 在世界）→ `screenPoseOf` 摊成列主序 4×4 → 右乘 `screenToDevice(ROTATION_90)`（屏幕右＝设备 +y、屏幕上＝设备 −x，与官方 `remapCoordinateSystem(AXIS_Y, AXIS_MINUS_X)` 同义）→ 左乘 `inverseOffset`；
+  ② 相机：`eyeParams` 用 `translated × viewRotationOf(headRotation())`（转置＝世界→屏幕），MVP＝P×V（`multiplyMM` 顺序、`glUniformMatrix4fv(transpose=false)` 都核过）；
+  ③ 球面：`point()` 的 `y = +r·sinφ`、`emit()` 的 `v = φ/π + 0.5` —— **同向**，φ 增既往上也往画面上；
+  ④ 纹理：外部纹理由 V2.7 真机定过「v=0 是画面底部」，`plane(flipV=true)` 与此一致，球面也按它配对。
+- 关键结论：**任何纯旋转都做不到「只反俯仰」**。只把 pitch 取反的变换在数学上是镜像（det=−1），画面上等价于「整幅上下翻」，用户会看到画面倒过来，而不是「方向反」。所以这次不是某个符号写错，而是这台设备上多了一层方向差（`Display.getRotation()` 与物理横向、或旋转矢量约定）。
+- 处置：`VrHeadsetProvider.setFlipPitch(Boolean)`（默认空实现，不影响 Cardboard 那条路），`SensorHeadsetProvider` 在 `screenPoseOf` 之后按需套 `flipPitchOf()` —— 把 `C` 分解成 `Ry(yaw)·Rx(pitch)·Rz(roll)`，只把 pitch 换成 −pitch 再乘回去，**yaw 与 roll 原样保留**。落地项：`VrSettings.flipPitch`（默认 false）、手机端设置「俯仰方向：正常 / 上下反向」、`VrActivity` 建 headset 时下发。
+- 数值校验（纯 Python 复刻同一套 3×3 运算，7 例）：纯抬头 30° / 纯低头 20° / 纯右转 40° / yaw40·pitch20·roll10 / yaw−30·pitch−15·roll−8 / 抬头 80° / 抬头 90° —— 俯仰精确取反、**yaw 与 roll 一位不差**、重建矩阵正交性误差 < 1e-9、天顶处不退化。
+- 真机要验：① 打开「上下反向」后抬头是否看到天花板、低头是否看到地板；② 左右是否**仍然**正常；③ 控制台/准星是否跟着一起变对（应当一起，它们共用同一个 `headRotation()`）——如果控制台反而变歪，说明不是俯仰而是参考系，需要回头查 `screenToDevice`。
+- 已知限制：这一项是**现场校准**，不是根治。默认关闭，所以对已经正确的设备/片源零影响。
 
 ### 本轮新增（alpha23 / V2.36，一次真机都没跑）
 
@@ -306,6 +325,9 @@
 | V2.36 | 为什么必须加「峰值独占」 | 相关高就说明对上了 | **平稳纹理会骗人**：水面、草地、条纹在好几个位移上都能凑出 0.95+，而 mono 360 的左右两半**都是「一片水」**，统计上没差别。加「最佳要比离它 1 px 以外的次佳高 0.05」后，合成水面场景的带内比例从「能过」掉到 0.000。 |
 | V2.36 | 为什么还要「连成片」 | 带内块占比够了就算立体 | 几十个块 × 19 个位移，纯属巧合也能凑出一撮；但巧合是散落的，真立体的一片背景是连着的。所以再要求带内块有上下左右邻块的比例 ≥0.55。 |
 | V2.36 | 投影规则要不要跟着改 | 布局判对了，180 可能还要单独加规则 | **不用**。`FormatDetector` 本来就是先定布局、再按**每眼**画幅比推视场；4096×2048 的 SBS 每眼 2048×2048 = 1:1，天然落在 180 的区间。为了这一部片去改投影阈值，等于给一条片开特例。 |
+| V2.37 / 2026-11-11 | 俯仰反了，是不是某个符号写错 | 只要找到那一处符号就能根治 | **这次不是符号错。** 逐层核对了姿态、相机、球面几何、纹理配对四段，`φ→y`、`φ→v`、`view=Cᵀ`、`MVP=P×V` 全部自洽；而「只反俯仰」在数学上不是旋转（det=−1，等价于整幅上下翻），画面上会变成「倒了」而不是「方向反」。**用户明确说画面没倒、左右也对**，所以这台机器上多出来的是一层方向差，不是一处笔误。 |
+| V2.37 | 为什么不直接把 pitch 取反了事 | 用户都说反了，翻转一下不就好了 | **不能裸翻。** 直接把 `view` 的俯仰取反＝给世界做 y 镜像，画面会 180° 上下翻过来；用户看到的会从「方向反」变成「画面倒了」，比现在更糟。必须**分解重建**（`Ry(yaw)·Rx(−pitch)·Rz(roll)`），yaw 与 roll 保留——7 例数值校验里 yaw/roll 一位不差就是这个原因。 |
+| V2.37 | 为什么做成开关而不是直接改默认 | 既然是 bug，改默认值就完事了 | 因为**没有证据表明所有设备都反**。开发机上的链路是自洽的，直接翻默认值会把本来正确的机器弄反，而且没法回退。做成默认关闭的一项：对的一开机就留着，不对的关掉即可，也顺带把「到底哪一层反」这件事变成一次可复现的实验（打开后看控制台是否也一起变对）。 |
 
 ---
 
@@ -313,6 +335,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| V2.37 | **版本号 1.1.0-alpha24**（`versionCode 101000024`）。C1 真机通过（`KAVR-332-CD1` 自动 180 SBS）。新增「俯仰方向」现场开关：`VrHeadsetProvider.setFlipPitch()`（接口默认空实现）、`SensorHeadsetProvider.flipPitchOf()`（按 `Ry(yaw)·Rx(pitch)·Rz(roll)` 分解，只取反 pitch，yaw/roll 保留，附 `transpose3x3`）、`VrSettings.flipPitch`（默认 false）+ `SettingsRepository` 持久化（`flip_pitch`）、手机端 `dialog_settings.xml` 加 `flipSwitch` 与说明、`SetupActivity` 绑定并写 `[pose]` 日志、`VrActivity` 建 headset 时下发。验证：`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 62 文件 / 15341 行）、分解重建 7 例 Python 数值校验（俯仰精确取反、yaw/roll 不变、正交性 <1e-9、天顶不退化）。**开关本身未上真机**。 |
 | V2.36 | **版本号 1.1.0-alpha23**（`versionCode 101000023`）。C1 抽帧判据重写：`StereoFrameJudge` 从「零位移整幅相关系数（门槛 0.95）」改为「视差补偿后的分块比对」——192×96 判据网格、6×6 块、±10% 半幅宽的位移搜索、峰值独占（`PAIR_MATCH 0.86` / `PEAK_GAP 0.05`）、最宽视差带三条判据（`BAND_RATIO 0.45` / `PAIR_MEAN 0.90` / `BAND_CLUSTER 0.55`），`Verdict` 增加 `sbsBand/tabBand/sbsMean/tabMean/sbsCluster/tabCluster/sbsShift/tabShift`，`describe()` 把「零位移 / 带内 / 均值 / 连片」一起写进 `[fmt]` 日志；`combine()` 三帧一致与「只许升级、不许降级」保持原样。新增离线自检 `tools/StereoJudgeCheck.kt`（10 个合成场景）+ `tools/run-stereo-check.sh`（用 Gradle 缓存里的 Kotlin 编译器编**真代码**）；`tools/build/stereo-check/` 为产物目录。验证：自检 10/10 PASS、`assembleDebug` 通过、`check_structure.py` 通过。**未上真机**。 |
 | V2.35 | **版本号 1.1.0-alpha22**（`versionCode 101000022`）。① **OOM 崩溃**：`DefaultLoadControl` 改回按字节封顶（96MB + `prioritizeTimeOverSizeThresholds(false)`、15s/30s、backBuffer 10s）——上一版「90 秒 + 时间优先」等于取消字节上限，而 Media3 采样缓冲是 Java 堆上的 `byte[]`，8K 几十秒即几百 MB；清单开 `largeHeap`；SMB 分块 1MB→256KB、单源缓存 12MB→4MB、`withReadBufferSize(256KB)`；`UnifiedDataSource.open()` 补关旧 source；新增 `[mem]` 每 10 秒一行与崩溃行内存账。② **打开不正对中心**：新增 `recenterYaw()`（只转世界 Y 轴，俯仰/横滚保持重力对齐），在 `startPlayback()` 打开新片时对齐方位角，并 `onRecenter()` 清凝视/手势窗口。③ `CardboardHeadsetProvider` 初始化失败时写出异常类型与消息（真机上 SDK 从未启用，此前日志无线索）。验证：`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 62 文件 / 14954 行）、打包清单含 `largeHeap` 与 `versionCode 101000022`、对齐数学 Python 逐例校验。**未上真机**。 |
 | V2.34 | **版本号 1.1.0-alpha21**（`versionCode 101000021`）：B13 瞳距补上戴镜前入口。`SetupActivity` 底部新增「设置」（竖屏与「运行日志」同一行、横屏在顶栏日志左侧，竖横两套 layout 的 view id 一致），点开 `dialog_settings.xml`：当前值（0.5mm 精度）+ 滑杆 50.0–75.0mm（`stepSize=0.5`、`labelBehavior=gone`）+ `−0.5 / +0.5` + 「恢复默认 62.0mm」+ 说明「它不是纸盒的透镜间距」。「设置」用 accent 色、「运行日志」降级为 muted（沿用 V2.19 日志降级）。写入走 `SettingsRepository.update().copy(ipdHalfMm=…)`，`RunLog` 记 `[ipd] 戴镜前调瞳距`；`VrActivity.onCreate` 每次新建 repository，改完直接进 VR 生效。滑杆回写用差值判断（`abs(value-mm) > 0.01f`），避免浮点抖动把监听器打成死循环。**验证**：`assembleDebug` BUILD SUCCESSFUL、`check_structure.py` 通过（Kotlin 62 文件 / 14764 行、XML 21、values 113）、产物 `GazeReel-1.1.0-alpha21.apk`（15MB，`versionCode 101000021`）。回看布局时发现竖屏两个小字并排后「设置」只剩约 38×23dp，低于可点热区下限，已加 `minHeight="32dp"`、左右 padding 12dp（热区约 46×32dp）并重编（同一 alpha21 内不另升版本）。**未上真机**。 |

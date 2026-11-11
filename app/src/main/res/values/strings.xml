@@ -91,4 +91,9 @@
     <string name="settings_ipd_reset">恢复默认 62.0 mm</string>
     <string name="settings_ipd_note">两眼瞳孔中心的距离。左右画面合不上、看久了发酸，先拖这条粗调，再点 ± 修 0.5mm。它不是纸盒的透镜间距，两者别混。</string>
     <string name="settings_done">完成</string>
+    <!-- V2.37：俯仰方向。措辞按「现象 → 动作」写，不解释原理。 -->
+    <string name="settings_flip_title">俯仰方向</string>
+    <string name="settings_flip_off">正常</string>
+    <string name="settings_flip_on">上下反向</string>
+    <string name="settings_flip_note">正常是「抬头看天花板、低头看地板」。如果戴上后正相反（抬头看到地板、低头看到天花板），把这项打开；打开后反而乱，说明原来就是对的，关掉即可。左右方向不受影响。</string>
 </resources>
