@@ -27,6 +27,7 @@
     <string name="setup_sources_ready">我的片库</string>
     <string name="setup_foot">凭证加密保存在本机 · 配置只需做一次</string>
     <string name="setup_enter">放入纸盒，进入 VR</string>
+    <string name="setup_enter_first">先加一个片库</string>
     <!-- V2.7：第一屏只有两个动作，都不需要输入 -->
     <string name="setup_local_title">手机里的视频</string>
     <string name="setup_local_chip">点一下加入</string>
@@ -42,9 +43,16 @@
     <!-- V2.18：在这台设备上再选一个文件夹，不用重新填 IP 和账号。 -->
     <string name="setup_add_folder">＋ 文件夹</string>
     <string name="setup_permission_title">需要读取视频的权限</string>
-    <string name="setup_permission_detail">没有这个权限就看不到手机里的视频。点这里重新授权，或在系统设置里打开「照片和视频」权限。</string>
+    <string name="setup_permission_detail">不给权限就看不到手机里的视频。点这条提示重新授权。</string>
     <string name="setup_permission_action">去授权</string>
-    <string name="setup_local_empty">这台手机上还没有视频。用相机拍一段，或从别的设备传过来，再点这里。</string>
+    <string name="setup_permission_later">稍后</string>
+    <string name="setup_permission_rationale">要读手机里的视频，只会访问视频文件，不会上传或改动。允许之后点一下「手机里的视频」就能加进片库；不授权也可以用同一 Wi-Fi 下的设备。</string>
+    <string name="setup_permission_settings">之前选了「不再询问」，系统不会再弹授权框。请到应用详情页 →「权限」→「照片和视频」手动打开，回来会自动继续。</string>
+    <string name="setup_notify_title">允许播放通知？</string>
+    <string name="setup_notify_rationale">进 VR 后播放器会在后台运行，通知栏用来显示播放状态、避免系统把串流掐断。手机放进纸盒之后就没法再点授权框了，所以现在先问一次。拒绝也能正常看片。</string>
+    <string name="setup_notify_ok">继续</string>
+    <string name="setup_notify_later">不用</string>
+    <string name="setup_local_empty">这台手机上还没有视频。用相机拍一段，或从别的设备传过来，再点「手机里的视频」重扫。</string>
     <string name="setup_lan_none">这个 Wi-Fi 下没找到设备。确认 NAS / 电脑开着共享，或点「＋ 加片库」手动填地址。</string>
     <string name="setup_lan_pick">选一台设备</string>
     <!-- V2.6：「添加片库」不再是填空题 -->

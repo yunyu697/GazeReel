@@ -38,6 +38,17 @@ class GazeDetector(
          * 只更新落点，不累计停留。
          */
         private const val ARM_DELAY_MS = 1_000L
+
+        /**
+         * V2.46 / P0：一次确认之后，视线必须**连续离开**目标这么久，才允许下一次确认。
+         *
+         * 原来确认完只把 `startedAt=now`，准星一直停在同一个按钮上就会每
+         * `gazeDurationMs`（默认 1200ms）再触发一次：暂停变「暂停→继续→暂停」、
+         * 「下一部」连跳好几部、开关反复翻。`ActionDispatcher` 的 900ms 冷却比
+         * dwell 还短，根本挡不住。现在改成「必须移开、再回来」才算一次新的选择。
+         * 250ms 的连续离开是为了避免准星在矩形边缘抖动被当成「已经离开」。
+         */
+        private const val LEAVE_MS = 250L
     }
 
     @Volatile var currentId: String? = null
@@ -72,6 +83,9 @@ class GazeDetector(
      */
     private var mustLeave: String? = null
 
+    /** [mustLeave] 生效后，视线第一次离开目标的时刻；0 表示还没离开。 */
+    private var mustLeaveSince = 0L
+
     /**
      * V2.19：比 [mustLeave] 更硬的一条——**准星必须先落在空白处一次**，才允许开始计时。
      *
@@ -102,6 +116,7 @@ class GazeDetector(
         lastY = Float.NaN
         armedAt = SystemClock.elapsedRealtime() + ARM_DELAY_MS
         mustLeave = null
+        mustLeaveSince = 0L
         mustClear = false
     }
 
@@ -146,7 +161,12 @@ class GazeDetector(
         // V2.33：「新浮层出现算一次换屏」——调节条带自己的凝视目标，
         // 瞳距「边看边调」又换掉整层输入语义，两者都必须重新走 1 秒静默。
         val adjustUp = state.feedback != null
-        val screenKey = "${state.screen}/${state.overlay}/$postureUp/${state.ipdTuning}/$adjustUp"
+        // V2.46 / P0：翻页、换柜、进叠、倒计时开始/结束都算换屏。
+        // 原来只认 screen/overlay，于是「翻到下一页」时准星没动、currentId 没变，
+        // 旧的停留进度会直接把新页同一格里的片子打开。
+        val screenKey = "${state.screen}/${state.overlay}/$postureUp/${state.ipdTuning}/$adjustUp" +
+            "/${state.page}/${state.cabinet}/${state.cabinetsOpen}/${state.activeStack ?: ""}" +
+            "/${state.alignCountdown != null}"
         if (screenKey != lastScreen) {
             lastScreen = screenKey
             armedAt = now + ARM_DELAY_MS
@@ -154,6 +174,7 @@ class GazeDetector(
             progress = 0f
             startedAt = now
             mustLeave = if (postureUp) null else target?.id
+            mustLeaveSince = 0L
             // 浮层里目标 id 全是新的，按 id 判「离开」必然失效，改成「先看一次空白」。
             mustClear = postureUp
             lastHit = target?.id
@@ -175,11 +196,25 @@ class GazeDetector(
         }
         if (mustLeave != null) {
             if (target?.id == mustLeave) {
+                // 还压在刚确认过的那个目标上：进度归零，且「离开过」的记录作废。
+                mustLeaveSince = 0L
+                currentId = null
+                progress = 0f
+                return
+            }
+            if (mustLeaveSince == 0L) {
+                mustLeaveSince = now
+                currentId = null
+                progress = 0f
+                return
+            }
+            if (now - mustLeaveSince < LEAVE_MS) {
                 currentId = null
                 progress = 0f
                 return
             }
             mustLeave = null
+            mustLeaveSince = 0L
         }
 
         if (target?.id != currentId) {
@@ -195,6 +230,9 @@ class GazeDetector(
         progress = ((now - startedAt).toFloat() / settings.current.gazeDurationMs).coerceIn(0f, 1f)
         if (progress >= 1f) {
             dispatcher.dispatch(target.action, InputChannel.GAZE, gazeCompleted = true)
+            // V2.46 / P0：同一次停留只算一次。想再按，必须把视线移开再回来。
+            mustLeave = target.id
+            mustLeaveSince = 0L
             currentId = null
             progress = 0f
             startedAt = now

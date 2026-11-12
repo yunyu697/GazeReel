@@ -1,10 +1,7 @@
 package com.gazereel.vr.ui
 
-import android.Manifest
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -313,11 +310,9 @@ class VrActivity : AppCompatActivity() {
             database.progressDao().observeAll().collect { all -> coordinator.loadProgress(all) }
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 42)
-        }
+        // V2.46 / P0：通知权限一律在戴镜前的 SetupActivity 申请。
+        // 原来这里在 IMMERSIVE_STICKY 全屏里弹系统授权框，手机已经塞进纸盒，
+        // 用户既看不清也够不着，而且没有 onRequestPermissionsResult 处理结果。
 
         // 前台服务失败（权限 / 系统限制）不该让整个 VR 界面跟着挂掉。
         stage("foreground-service")
@@ -372,14 +367,39 @@ class VrActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (::glView.isInitialized) glView.onResume()
+        // V2.46 / P0：临时离开再回来，不再铺「戴稳了？」全屏遮罩。
+        // 只清凝视停留进度（1 秒静默）就足以防误触；画面、进度、控制台都保持。
+        if (::coordinator.isInitialized) {
+            if (::gaze.isInitialized) gaze.reset()
+            coordinator.onReturnForeground()
+            handler.removeCallbacks(tick)
+            handler.post(tick)
+        }
     }
 
     override fun onPause() {
-        // V2.9：离开 VR 就把凝视重新锁上。回来时姿态基准已经变了，
-        // 而且一定伴随一次明显移动，这时候自动确认任何目标都是错的。
-        if (::coordinator.isInitialized) coordinator.disarmGaze()
+        // V2.46 / P0：来电 / 锁屏 / 切后台时暂停播放并保存断点，
+        // 不再让声音在后台外放、自动连播把进度跑掉。
+        if (::coordinator.isInitialized) coordinator.onLeaveForeground()
         if (::glView.isInitialized) glView.onPause()
+        // 后台不再每 33ms 轮询头追与 UI，省电也避免状态在看不见时继续推进。
+        handler.removeCallbacks(tick)
         super.onPause()
+    }
+
+    /**
+     * V2.46 / P0：把系统返回、手势返回、实体返回键统一到状态机。
+     *
+     * 原来只覆写 onKeyDown(KEYCODE_BACK)，Android 10+ 的手势导航走
+     * OnBackPressedDispatcher，直接 finish() 绕过逐层退与 saveProgress。
+     */
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+    override fun onBackPressed() {
+        if (::coordinator.isInitialized) {
+            coordinator.handle(VrAction.Back, InputChannel.SYSTEM)
+        } else {
+            super.onBackPressed()
+        }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -416,7 +436,8 @@ class VrActivity : AppCompatActivity() {
                 injectTrigger(TriggerKind.CLICK); true
             }
             KeyEvent.KEYCODE_BACK -> {
-                coordinator.handle(VrAction.Back, InputChannel.SYSTEM); true
+                // 统一走 onBackPressed()，硬件键与手势导航不再有两条行为。
+                onBackPressed(); true
             }
             else -> super.onKeyDown(keyCode, event)
         }
@@ -448,6 +469,8 @@ class VrActivity : AppCompatActivity() {
         }
         if (::glView.isInitialized) glView.onPause()
         // 初始化失败时这些可能没建起来，逐个判断，避免二次崩溃。
+        // V2.46 / P0：onPause 已存过一次；这里再兜一次，覆盖进程直接被结束的路径。
+        if (::player.isInitialized) runCatching { player.saveProgress() }
         if (::player.isInitialized) runCatching { player.release() }
         if (::renderer.isInitialized) runCatching { renderer.release() }
         if (::headset.isInitialized) runCatching { headset.stop() }

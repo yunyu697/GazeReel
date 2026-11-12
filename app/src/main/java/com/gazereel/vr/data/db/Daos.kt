@@ -31,6 +31,14 @@ interface MediaDao {
     @Query("SELECT * FROM media_item")
     suspend fun all(): List<MediaItemEntity>
 
+    /**
+     * V2.46 / P0：扫描完成后返回「这个片库里一共有几个视频」。
+     * 原来 MediaIndexer.scan() 返回的是「本次变更数」，一部没变时报 0，
+     * 配置页就显示「这次没找到视频」——和卡片上「120 个视频」自相矛盾。
+     */
+    @Query("SELECT COUNT(*) FROM media_item WHERE source_id = :sourceId")
+    suspend fun countBySource(sourceId: Long): Int
+
     @Query("SELECT * FROM media_item WHERE id = :id")
     suspend fun byId(id: Long): MediaItemEntity?
 

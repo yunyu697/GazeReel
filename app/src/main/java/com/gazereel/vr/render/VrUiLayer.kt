@@ -256,7 +256,7 @@ class VrUiLayer(
             }
 
             // V2.9：还没上膛就盖一层提示。这里不注册任何目标，凝视此时也不生效。
-            if (!state.gazeArmed) drawArmPrompt()
+            if (!state.gazeArmed) drawArmPrompt(state)
         }
 
         // V2.33 / B14：调节条是**可操作**的一层，压在提示之上。
@@ -268,6 +268,9 @@ class VrUiLayer(
             drawAdjustFeedback(state, fb)
             targets.addAll(lower)
         }
+
+        // V2.46 / P0：统一提示层压在所有界面之上，包括「控制台已淡出」的播放页。
+        drawMessage(state)
 
         published = targets.toList()
 
@@ -324,7 +327,7 @@ class VrUiLayer(
      * 手机一直在动，准星会扫过整个片库。只要凝视还在工作，就会有卡片被「停留」确认掉。
      * 所以进 VR 后凝视默认关闭，这一屏是唯一还亮着的东西，而它只接受物理按键。
      */
-    private fun drawArmPrompt() {
+    private fun drawArmPrompt(state: VrUiState) {
         fill.color = 0xB3101013.toInt()
         canvas.drawRect(RectF(0f, 0f, W.toFloat(), H.toFloat()), fill)
 
@@ -345,9 +348,58 @@ class VrUiLayer(
             W / 2f, 316f, 19f, C_MUTED, Paint.Align.CENTER
         )
         label(
-            "开始之后：凝视 1.2 秒确认 · 长按返回 · 摇头翻页",
+            "开始之后：凝视 ${"%.1f".format(state.settings.gazeDurationMs / 1000f)} 秒确认 · 长按返回 · 摇头翻页",
             W / 2f, 346f, 19f, C_MUTED, Paint.Align.CENTER
         )
+    }
+
+    /**
+     * V2.46 / P0：把 `state.message` 真正画出来。
+     *
+     * 原来全工程只有片库底栏一处消费它（15px 暗灰小字），播放页 / 格式 / 设置 /
+     * 倒计时结束后的提示全是静默的：「此编码当前设备不支持」「共享已断开」
+     * 「正前方已定」用户一个字都看不到，只会以为自己没对准按钮。
+     *
+     * 两类分开处理：
+     * - 短反馈（`messageUntilMs > 0`）：顶部一条小胶囊，不挡视线；
+     * - 播放错误（`messageUntilMs == 0`，`onPlaybackState` 的约定）：中央一张常驻卡，
+     *   并**清空下层凝视目标**——被它盖住的按钮不该还能被瞄到。卡上给「重试」
+     *   和「回片库」两个真实动作，戴镜状态下不用摘手机就能恢复。
+     */
+    private fun drawMessage(state: VrUiState) {
+        val msg = state.message ?: return
+        // 倒计时是独占层，它自己会画完成/取消说明；这里不叠加第二块卡。
+        if (state.alignCountdown != null) return
+        val persistent = state.messageUntilMs == 0L
+
+        if (!persistent) {
+            val pill = RectF(272f, 18f, 752f, 78f)
+            fill.color = 0xF2161A20.toInt()
+            canvas.drawRoundRect(pill, 18f, 18f, fill)
+            stroke.color = C_ACCENT
+            stroke.strokeWidth = 2f
+            canvas.drawRoundRect(pill, 18f, 18f, stroke)
+            small.textSize = 22f
+            label(ellipsize(msg, 448f, small), W / 2f, 55f, 22f, C_TEXT, Paint.Align.CENTER)
+            return
+        }
+
+        targets.clear()
+        val card = RectF(232f, 148f, 792f, 344f)
+        fill.color = 0xF61A1214.toInt()
+        canvas.drawRoundRect(card, 24f, 24f, fill)
+        stroke.color = C_WARN
+        stroke.strokeWidth = 3f
+        canvas.drawRoundRect(card, 24f, 24f, stroke)
+        heading("播放没成功", 208f)
+        small.textSize = 22f
+        label(ellipsize(msg, 512f, small), W / 2f, 250f, 22f, C_TEXT, Paint.Align.CENTER)
+        label(
+            "检查设备是否在线、账号是否过期；也可以直接重试这一部。",
+            W / 2f, 278f, 16f, C_MUTED, Paint.Align.CENTER
+        )
+        button("msgRetry", "重试", RectF(292f, 292f, 484f, 332f), VrAction.Retry, highlighted = true)
+        button("msgLibrary", "回片库", RectF(540f, 292f, 732f, 332f), VrAction.Back)
     }
 
     /**
@@ -506,7 +558,12 @@ class VrUiLayer(
         label(modeText, 512f, 96f, 15f, C_TEXT, Paint.Align.CENTER)
 
         if (state.items.isEmpty()) {
-            centerText("还没有片源 · 请回到戴镜前配置添加共享", 250f, 22f, C_MUTED)
+            // V2.46 / P0：原来这句把人往「戴镜前配置」「添加共享」赶，
+            // 可用户走的是「手机里的视频」，而且戴镜之后摘手机是最贵的操作。
+            // 片库左栏的「退出」是常驻的，这里必须把戴镜内的闭环写出来。
+            centerText("片库是空的", 226f, 28f, C_TEXT)
+            centerText("凝视左栏「退出」回配置页，点「手机里的视频」加入片库", 268f, 20f, C_MUTED)
+            centerText("或点「＋ 加片库」添加同一 Wi-Fi 下的设备", 300f, 18f, C_DIM)
             return
         }
 

@@ -131,7 +131,8 @@ class MediaIndexer(
         }
         RunLog.append(
             "smb",
-            "扫描完成 · ${source.address} · 变更 $result 项 · 耗时 ${System.currentTimeMillis() - started}ms"
+            "扫描完成 · ${source.address} · 库内共 $result 个视频 · " +
+                "耗时 ${System.currentTimeMillis() - started}ms"
         )
         result
     }
@@ -190,7 +191,10 @@ class MediaIndexer(
         db.sourceDao().touchScan(source.id, System.currentTimeMillis())
         // 海报是低优先级增强：失败只记录在日志，绝不让扫描整体失败。
         updatePosters(source, credentials)
-        return changed.size
+        // V2.46 / P0：返回的是「库内总数」，不是 changed.size。
+        // 调用方 renderScanResult 用它写「共 N 个视频」/「还没有视频」，
+        // 拿变更数会在「库里 120 部、这次一部没变」时谎报没找到视频。
+        return db.mediaDao().countBySource(source.id)
     }
 
     /** 阶段二 FR-10：可由配置页或后台任务单独触发的海报刷新入口。返回新生成张数。 */

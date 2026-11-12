@@ -134,6 +134,18 @@ sealed class VrAction {
     }
     object Back : VrAction() { override val priority = 2 }
     object Exit : VrAction() { override val priority = 4 }
+
+    /**
+     * V2.46 / P0：播放报错时在 VR 里直接重试当前这一部。
+     *
+     * 原来 `PlayerController` 的错误文案写「回片库重试一次」，但 VrAction 全表
+     * 没有任何重试动作——戴镜状态下唯一的恢复路径是摘手机、退回配置页、重扫。
+     * 错误卡现在是可见的模态层，「重试」必须真的能点。
+     */
+    object Retry : VrAction() {
+        override val priority = 4
+        override val isPlaybackRelated = true
+    }
     object OpenFormat : VrAction()
     object OpenSettings : VrAction()
     object CloseOverlay : VrAction()

@@ -15,6 +15,7 @@ import android.widget.AdapterView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -63,6 +64,11 @@ import kotlin.math.abs
  */
 class SetupActivity : AppCompatActivity() {
 
+    companion object {
+        /** 通知权限只主动问一次，拒绝后不再每次冷启动都弹。 */
+        private const val KEY_NOTIF_ASKED = "notif_permission_asked"
+    }
+
     private enum class Status { IDLE, BUSY, OK, ERR }
 
     private lateinit var binding: ActivitySetupBinding
@@ -105,13 +111,24 @@ class SetupActivity : AppCompatActivity() {
             addLocalVideos()
         } else {
             permissionDenied = true
+            // V2.46 / P0：原来这一句只有 4 个参数，action 为 null，
+            // applyStatus 会把状态条的点击监听置空；可 strings.xml 偏偏写着
+            // 「点这里重新授权」——文案承诺了一个根本不能点的控件。
             renderStatus(
                 Status.ERR,
                 getString(R.string.setup_permission_title),
                 getString(R.string.setup_permission_detail),
-                "需授权"
+                getString(R.string.setup_permission_action),
+                action = { requestMediaPermission() }
             )
         }
+    }
+
+    /** V2.46 / P0：通知权限在戴镜前申请，不再塞进沉浸全屏的 VrActivity。 */
+    private val notificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        RunLog.append("perm", "通知权限 ${if (granted) "已授权" else "被拒绝"}")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -144,6 +161,20 @@ class SetupActivity : AppCompatActivity() {
             }
         }
         refreshStalePosters()
+        // V2.46 / P0：Android 13+ 的通知权限必须在戴镜前问完。
+        // 原来放在 VrActivity.boot()，那时手机已在纸盒里、屏幕是沉浸全屏。
+        requestNotificationPermissionIfNeeded()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // V2.46 / P0：从系统设置里打开权限再返回，界面要立刻自己恢复，
+        // 不能让用户「再点一下卡片」才知道授权生效了。
+        if (permissionDenied && hasMediaPermission()) {
+            permissionDenied = false
+            addLocalVideos()
+        }
+        renderSources(currentSources)
     }
 
     /**
@@ -227,6 +258,17 @@ class SetupActivity : AppCompatActivity() {
         binding.manualToggle.setOnClickListener { showAddSourceDialog() }
         binding.sourceAdd.setOnClickListener { showAddSourceDialog() }
         binding.enterVrButton.setOnClickListener {
+            // V2.46 / P0：空片库不能带着用户进 VR。原来按钮永远可用，
+            // 戴镜后先见「戴稳了？」遮罩、再被叫回配置页，白折腾一趟。
+            if (currentSources.isEmpty()) {
+                renderStatus(
+                    Status.ERR,
+                    "先加一个片库",
+                    "点上面的「手机里的视频」或「同一 Wi-Fi 下的设备」，加好之后再把手机放进纸盒。",
+                    "未添加"
+                )
+                return@setOnClickListener
+            }
             startActivity(Intent(this, VrActivity::class.java))
         }
         // V2.7.4 测试版：一页能截图的运行日志，不用连电脑也能反馈问题。
@@ -314,6 +356,61 @@ class SetupActivity : AppCompatActivity() {
         ContextCompat.checkSelfPermission(this, mediaPermissionName()) ==
             PackageManager.PERMISSION_GRANTED
 
+    /**
+     * V2.46 / P0：读视频权限的唯一入口。
+     *
+     * 原来点卡片直接弹系统框、一个字解释都没有；拒绝后「再点一次」是静默跳到
+     * 系统设置页，用户不知道该打开哪一项。现在区分三种情况：
+     * 首次 = 先说用途再请求；拒绝过 = 给「去授权 / 稍后」对话框；
+     * 勾了「不再询问」= 明说要去系统设置，并直接送到应用详情页。
+     */
+    private fun requestMediaPermission() {
+        val name = mediaPermissionName()
+        if (ContextCompat.checkSelfPermission(this, name) == PackageManager.PERMISSION_GRANTED) {
+            permissionDenied = false
+            addLocalVideos()
+            return
+        }
+        val rationale = ActivityCompat.shouldShowRequestPermissionRationale(this, name)
+        val goToSettings = permissionDenied && !rationale
+        if (!rationale && !permissionDenied) {
+            mediaPermission.launch(name)
+            return
+        }
+        AlertDialog.Builder(this, R.style.SetupDialog)
+            .setTitle(R.string.setup_permission_title)
+            .setMessage(
+                getString(
+                    if (goToSettings) R.string.setup_permission_settings
+                    else R.string.setup_permission_rationale
+                )
+            )
+            .setNegativeButton(R.string.setup_permission_later, null)
+            .setPositiveButton(R.string.setup_permission_action) { _, _ ->
+                if (goToSettings) openAppSettings() else mediaPermission.launch(name)
+            }
+            .show()
+    }
+
+    /** V2.46 / P0：戴镜前问通知权限，只问一次，拒绝也不再反复打扰。 */
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) return
+        val prefs = getSharedPreferences("gazereel", MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_NOTIF_ASKED, false)) return
+        prefs.edit().putBoolean(KEY_NOTIF_ASKED, true).apply()
+        AlertDialog.Builder(this, R.style.SetupDialog)
+            .setTitle(R.string.setup_notify_title)
+            .setMessage(R.string.setup_notify_rationale)
+            .setNegativeButton(R.string.setup_notify_later, null)
+            .setPositiveButton(R.string.setup_notify_ok) { _, _ ->
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            .show()
+    }
+
     private fun openAppSettings() {
         startActivity(
             Intent(
@@ -330,7 +427,7 @@ class SetupActivity : AppCompatActivity() {
      */
     private fun addLocalVideos() {
         if (!hasMediaPermission()) {
-            if (permissionDenied) openAppSettings() else mediaPermission.launch(mediaPermissionName())
+            requestMediaPermission()
             return
         }
         val existing = currentSources.firstOrNull { it.type == SourceType.LOCAL.name }
@@ -355,13 +452,15 @@ class SetupActivity : AppCompatActivity() {
                 }
             }
             setBusy(false)
-            binding.localChip.text = getString(R.string.setup_local_chip)
+            // V2.46 / P0：不再硬写回「点一下加入」。片源 upsert 会触发
+            // observeAll() → renderSources()，chip 只有一个真相源；
+            // 原来这行会把它改回未添加，转一下横屏又变回「已加入」。
             when {
                 count < 0 -> renderStatus(
                     Status.ERR,
                     "没能读取手机里的视频",
-                    getString(R.string.setup_permission_detail),
-                    "需检查"
+                    "片库已保存。点这一行的「重扫」再试一次；运行日志里有具体原因。",
+                    "需重扫"
                 )
                 count == 0 -> renderStatus(
                     Status.OK,
@@ -827,13 +926,13 @@ class SetupActivity : AppCompatActivity() {
             )
             count == 0 -> renderStatus(
                 Status.OK,
-                "$prefix · 这次没找到视频",
-                "确认那个文件夹里真的有视频；或者点这一行进「编辑」，换一个文件夹。",
-                "已就绪"
+                "$prefix · 这个片库里还没有视频",
+                "确认设备在线、文件夹里确实有视频；也可以点这一行的「重扫」再试一次。",
+                "0 个"
             )
             else -> renderStatus(
                 Status.OK,
-                "$prefix，扫描到 $count 个视频",
+                "$prefix · 共 $count 个视频",
                 "子文件夹也一起扫了。想只收当前这一层，进「编辑」勾上「不扫描子文件夹」。",
                 "已就绪"
             )
@@ -1249,6 +1348,10 @@ class SetupActivity : AppCompatActivity() {
             R.string.source_library_count, sources.size, mediaCounts.values.sum()
         )
         binding.sourceList.removeAllViews()
+        // V2.46 / P0：主按钮自己说明「现在还不能进」，不用等点了才被告知。
+        binding.enterVrButton.text = getString(
+            if (sources.isEmpty()) R.string.setup_enter_first else R.string.setup_enter
+        )
 
         val hasLocal = sources.any { it.type == SourceType.LOCAL.name }
         binding.localChip.text = getString(

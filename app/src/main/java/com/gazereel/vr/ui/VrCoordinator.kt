@@ -226,7 +226,14 @@ class VrCoordinator(
     private fun applyAlign(rotation: FloatArray, cd: AlignCountdown) {
         val now = SystemClock.elapsedRealtime()
         val steady = alignSteadyMs >= ALIGN_STEADY_MS
-        uiState = uiState.copy(alignCountdown = null, lastActivityMs = now)
+        // V2.46 / P0：startAlignCountdown 把 consoleVisible 置成了 false，
+        // 结束时必须还回来。否则倒计时一过，播放页 drawPlayer() 直接 return、
+        // 准星也不画，用户被丢进一个「无按钮、无光标、无完成提示」的纯视频画面。
+        uiState = uiState.copy(
+            alignCountdown = null,
+            consoleVisible = true,
+            lastActivityMs = now
+        )
         alignStartPose = null
         alignLastPose = null
         alignSteadyMs = 0L
@@ -248,10 +255,17 @@ class VrCoordinator(
     }
 
     private fun cancelAlign() {
-        uiState = uiState.copy(alignCountdown = null, lastActivityMs = SystemClock.elapsedRealtime())
+        // V2.46 / P0：同 applyAlign，控制台要还回来；另外取消也得清凝视窗口，
+        // 否则倒计时期间转头找方向留下的 dwell 会在取消那一帧误开一部片。
+        uiState = uiState.copy(
+            alignCountdown = null,
+            consoleVisible = true,
+            lastActivityMs = SystemClock.elapsedRealtime()
+        )
         alignStartPose = null
         alignLastPose = null
         alignSteadyMs = 0L
+        onRecenter()
         showMessage("已取消 · 正前方没动")
         RunLog.append("posture", "重定倒计时已取消")
     }
@@ -444,6 +458,12 @@ class VrCoordinator(
             when (action) {
                 VrAction.ConfirmAlign -> confirmAlignNow()
                 VrAction.CancelAlign, VrAction.Back -> cancelAlign()
+                // V2.46 / P0：倒计时不该是模态牢笼。用户想退出 VR 时必须有出口，
+                // 否则戴镜状态下要干等 10 秒才能离开。
+                VrAction.Exit -> {
+                    player.saveProgress()
+                    onExit()
+                }
                 else -> RunLog.append(
                     "posture", "倒计时中忽略 ${action.javaClass.simpleName} via $channel"
                 )
@@ -506,7 +526,13 @@ class VrCoordinator(
             VrAction.OpenSettings -> uiState = uiState.copy(overlay = VrOverlay.SETTINGS)
             VrAction.CloseOverlay -> uiState = uiState.copy(overlay = VrOverlay.NONE)
             VrAction.Back -> back()
-            VrAction.Exit -> onExit()
+            VrAction.Exit -> {
+                // V2.46 / P0：退出前落盘断点。原来只有 back() 的 PLAYER→LIBRARY
+                // 分支会存，直接凝视「退出」的用户下次进 VR 就从头播。
+                player.saveProgress()
+                onExit()
+            }
+            VrAction.Retry -> retryCurrent()
             VrAction.ShowConsole -> uiState = uiState.copy(
                 consoleVisible = true,
                 lastActivityMs = SystemClock.elapsedRealtime()
@@ -545,6 +571,25 @@ class VrCoordinator(
     private fun keepsIpdTuning(action: VrAction): Boolean = when (action) {
         is VrAction.Adjust, VrAction.ToggleIpdMode, VrAction.Back -> true
         else -> false
+    }
+
+    /** V2.46 / P0：播放错误卡上的「重试」。重新打开当前这一部，不需要摘手机。 */
+    private fun retryCurrent() {
+        val id = uiState.currentMediaId
+        uiState = uiState.copy(
+            message = null,
+            messageUntilMs = 0L,
+            consoleVisible = true,
+            lastActivityMs = SystemClock.elapsedRealtime()
+        )
+        if (id == 0L) {
+            showMessage("回片库再选一次")
+            return
+        }
+        val index = uiState.items.indexOfFirst { it.id == id }
+        if (index >= 0) uiState = uiState.copy(selectedIndex = index)
+        RunLog.append("ui", "重试当前片 · mediaId=$id")
+        openSelected()
     }
 
     private fun openSelected() {
@@ -739,6 +784,12 @@ class VrCoordinator(
     }
 
     private fun back() {
+        // V2.46 / P0：播放错误卡是模态层（会清空下层凝视目标）。用户点
+        // 「回片库」时必须把错误一起撤掉，否则片库页也被这张卡锁住，
+        // 只能在「重试 / 回片库」之间打转，连「退出」都点不到。
+        if (uiState.message != null && uiState.messageUntilMs == 0L) {
+            uiState = uiState.copy(message = null, messageUntilMs = 0L)
+        }
         val state = uiState
         when {
             // V2.33 / B13：瞳距「边看边调」是最上层的一层，长按先退它，
@@ -768,7 +819,15 @@ class VrCoordinator(
             state.cabinetsOpen -> uiState = state.copy(cabinetsOpen = false)
             // V2.16：在某一叠里按返回，先退回「全部叠」，而不是直接说「已在首页」。
             state.activeStack != null -> closeStack()
-            else -> showMessage("已在片库首页 · 凝视「退出」可返回配置")
+            else -> {
+                // V2.46 / P0：片库首页再按返回 = 退出 VR。
+                // 原来这里只 showMessage("凝视「退出」可返回配置")，可播放页的「退出」
+                // 会随 8 秒控制台淡出消失，而这条提示本身在播放页根本不显示——
+                // 用户连按返回键永远出不去，只能把手机从纸盒里取出来。
+                player.saveProgress()
+                RunLog.append("ui", "片库首页再按返回 · 退出 VR")
+                onExit()
+            }
         }
     }
 
@@ -1096,15 +1155,17 @@ class VrCoordinator(
     }
 
     /**
-     * V2.9：重新把凝视锁上。离开 VR 时调用。
+     * V2.46 / P0：临时离开前台（来电 / 锁屏 / 切后台 / 下拉通知栏）。
      *
-     * 用户把手机从纸盒里拿出来再看一眼、或者切到别的应用，回来时姿态基准已经变了，
-     * 而且一定伴随一次明显的移动。这时候如果凝视还开着，回来第一眼就可能把某张卡确认掉。
-     * 所以宁可让他再按一次触发键，也不要在这种时刻自动触发任何动作。
+     * 原来 `onPause()` 只调 `disarmGaze()`，播放照常继续：声音在后台外放、
+     * 自动连播还在跑，回来后进度已经丢掉几十分钟。更糟的是 `disarmGaze` 把
+     * `gazeArmed` 置 false，`VrUiLayer` 会铺一张全屏「戴稳了？」把正在看的片
+     * 和进度全盖住，还要重新按触发键——文案和「刚才在看片」完全不符。
+     *
+     * 现在：暂停 + 落盘断点，但**不锁凝视**。准星进度由 `GazeDetector.reset()`
+     * 在 `onResume` 里清掉并走 1 秒静默，这已经足够防误触，不需要整屏遮罩。
      */
-    fun disarmGaze() {
-        // V2.38：倒计时跨过一次「离开 VR」就作废。否则回来后第一帧会拿一个
-        // 十几秒前的目标去当正前方，而且过程没有任何人看着——那是纯粹的意外。
+    fun onLeaveForeground() {
         if (uiState.alignCountdown != null) {
             uiState = uiState.copy(alignCountdown = null)
             alignStartPose = null
@@ -1112,9 +1173,25 @@ class VrCoordinator(
             alignSteadyMs = 0L
             RunLog.append("posture", "重定倒计时作废（离开 VR）")
         }
-        if (uiState.gazeArmed) {
-            uiState = uiState.copy(gazeArmed = false, consoleVisible = true)
-            RunLog.append("ui", "凝视已锁定（离开 VR）")
+        if (uiState.screen == VrScreen.PLAYER) {
+            if (uiState.playing) player.pause()
+            player.saveProgress()
+            RunLog.append("ui", "离开前台 · 已暂停并保存断点")
+        }
+    }
+
+    /** V2.46 / P0：回到前台。控制台叫回来，并用一条可见短提示说明已暂停。 */
+    fun onReturnForeground() {
+        uiState = uiState.copy(
+            consoleVisible = true,
+            lastActivityMs = SystemClock.elapsedRealtime()
+        )
+        // 常驻播放错误（messageUntilMs == 0）比「已暂停」重要，别用短提示盖掉它。
+        val hasError = uiState.message != null && uiState.messageUntilMs == 0L
+        if (!hasError && uiState.screen == VrScreen.PLAYER &&
+            !uiState.playing && uiState.gazeArmed
+        ) {
+            showMessage("已为你暂停 · 凝视「播放」继续")
         }
     }
 

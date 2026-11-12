@@ -11,9 +11,9 @@
 >    `[设计]` 只有设计、代码没动 · `[已实现]` 代码改了、编译过 · `[真机]` 用户在真机上确认过 · `[回归]` 曾经可用、后来坏了
 > 5. **动任何功能前先核查成熟方案**（官方 SDK / 平台 API / 成熟库 / 行业标准），结论写进《附录 · 成熟方案核查》；自研只做成熟方案不覆盖的那部分，并在裁决记录里写清边界。
 >
-> 最后更新：V2.45 / 1.1.0-alpha32（2026-11-12 下午，**用户真机确认 alpha31 的抬头/低头方向对了**，四轮方向返工到此收口；随后反馈「手机端 UI 有点难用」，这一版把戴镜前的平面界面整体重做）
+> 最后更新：V2.46 / 1.1.0-alpha33（2026-11-12 下午，用户要求「模拟用户从打开 app 开始之后的各种操作，提出需要改善的地方」，随后指定「先修 P0 全部」。本轮按真实操作链路修掉 8 条 P0，**未改 `HeadPose` 与球面渲染链路**）
 >
-> **当前基线**：`V2.45 / 1.1.0-alpha32`（上一版 `d841fa0` / alpha31）；产物 `GazeReel-1.1.0-alpha32.apk`（**本次手机端改动未上真机**）。**方向问题已由用户真机确认修好**：`V2.44` 的 ENU→Y-up 坐标转换有效，不需要任何方向开关。本轮只动手机端（非 VR）界面，VR 内一行业务逻辑没改。**先看「本轮新增（alpha32）」再上机**。
+> **当前基线**：`V2.46 / 1.1.0-alpha33`（上一版 `da40463` / alpha32）；产物 `GazeReel-1.1.0-alpha33.apk`（**本轮改动未上真机**）。方向问题已于 alpha31 由用户真机确认修好，不需要复验。**先看「本轮新增（alpha33）」再上机**。
 
 ---
 
@@ -116,7 +116,37 @@
 
 ## 已知未验证（真机一跑就可能翻案）
 
-**总口径**：当前代码 `V2.45 / 1.1.0-alpha32`。**例外**：`V2.44 / alpha31` 的头追方向已由用户真机确认「这次方向对了」，这是四轮方向返工后第一条真机通过的结论。其余 alpha4–alpha32 的手机端改动多数只做了编译、静态校验或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+**总口径**：当前代码 `V2.46 / 1.1.0-alpha33`。**例外**：`V2.44 / alpha31` 的头追方向已由用户真机确认「这次方向对了」，这是四轮方向返工后第一条真机通过的结论。其余 alpha4–alpha33 的改动多数只做了编译、静态校验或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+
+### 本轮新增（alpha33 / V2.46，P0 八条，未上真机）
+
+**零、来源**：按「冷启动 → 权限 → 首屏 → 加片库 → 进 VR → 戴镜内操作 → 退出/后台 → 异常恢复」四条路径做代码级走查，关键结论逐条回源码核过。用户指定「先修 P0 全部」。**`HeadPose.kt` / `SensorHeadsetProvider.kt` / `ProjectionMesh.kt` / `GlUtils.kt` 一行未动。**
+
+**一、八条 P0 与落地位置**
+
+| # | 问题 | 修法 |
+|---|---|---|
+| 1 | `state.message` 全工程只在 `VrUiLayer:558` 片库底栏 15px 灰字出现，播放错误 / 倒计时完成 / 退出提示全静默 | `VrUiLayer.drawMessage()` 统一提示层压在所有界面之上；短反馈画顶部胶囊，播放错误（`messageUntilMs==0`）画中央常驻卡并清下层凝视目标，给「重试」「回片库」两个真实动作。新增 `VrAction.Retry` → `VrCoordinator.retryCurrent()` 重开当前片；`back()` 撤掉常驻错误，避免模态卡把片库也锁住 |
+| 2 | `GazeDetector:195` 确认后只重置计时，准星停住就每 1.2 秒重复触发（暂停横跳 / 切集连跳 / 开关乱翻） | 确认后 `mustLeave = target.id`，视线必须**连续离开 250ms** 再回来才算新的一次；`screenKey` 补 `page / cabinet / cabinetsOpen / activeStack / alignCountdown` |
+| 3 | 返回键只逐层退，首页只给一句看不见的提示；`Exit` 不存进度；手势返回绕过状态机 | `back()` 首页分支直接 `saveProgress() + onExit()`；`VrActivity.onBackPressed()` 统一硬件键与手势导航；`KEYCODE_BACK` 转发到它；`Exit` 与 `onDestroy` 都落盘断点；倒计时期允许 `Exit` |
+| 4 | `startAlignCountdown()` 把 `consoleVisible=false`，`applyAlign/cancelAlign` 不恢复 → 倒计时后无按钮、无准星、无提示 | 两条路径统一 `copy(consoleVisible = true, lastActivityMs = now)`；`cancelAlign()` 补 `onRecenter()` 清凝视窗口 |
+| 5 | 通知权限在沉浸全屏 VR 内才弹且无结果处理；拒绝态文案说「点这里」但 `renderStatus` 4 参 → 状态条不可点 | `VrActivity` 删除 `requestPermissions`；`SetupActivity` 戴镜前用 rationale 对话框申请通知权限（只问一次）；读视频权限收口到 `requestMediaPermission()`，区分首次 / 拒绝 / 不再询问；拒绝态 chip 改「去授权」并传 `action`；`onResume` 从系统设置回来自动复核；`statusDetail` 文案缩短到 2 行放得下 |
+| 6 | `onPause()` 只锁凝视 → 后台声音继续放、进度跑掉，回来被「戴稳了？」整屏盖住 | `VrCoordinator.onLeaveForeground()` 暂停 + 存断点但**不锁凝视**；`onResume` 只 `gaze.reset()`（1 秒静默）并 `onReturnForeground()` 恢复控制台与可见短提示；`onPause/onResume` 成对停启 30fps tick |
+| 7 | 空片库可直接进 VR，进去先见遮罩再被叫「回戴镜前配置添加共享」 | `enterVrButton` 点击拦截 + `renderSources()` 改文案「先加一个片库」；VR 空库文案改成戴镜内闭环（凝视左栏「退出」/ 点「手机里的视频」） |
+| 8 | `MediaIndexer.scan()` 返回**变更数**，`renderScanResult` 当成总数 → 库里 120 部片重扫报「这次没找到视频」并建议换文件夹；`localChip` 被硬写回「点一下加入」 | 新增 `MediaDao.countBySource()`，`scanOnce()` 返回库内总数；提示改「共 N 个视频」/「这个片库里还没有视频」，删掉换文件夹误导；删掉 `addLocalVideos` 的 chip 硬写回，交给 `renderSources` 单点渲染；扫描失败不再冒充权限问题 |
+
+**二、顺带**：`drawArmPrompt` 的「凝视 1.2 秒」改成读 `settings.gazeDurationMs` 动态生成（原来写死 1.2，与设置里可调的 600–2400ms 打架）。
+
+**三、验证（全部离线）**
+
+| 项目 | 结果 |
+|---|---|
+| `assembleDebug --offline --rerun-tasks` | BUILD SUCCESSFUL（40 tasks 全执行；仅剩 `MdnsNames` 一条与本轮无关的历史弃用警告） |
+| `run-pose-check.sh` / `run-format-check.sh` | 75/75 · 30/30 |
+| `check_structure.py` | 通过（64 Kotlin / 16041 行 / 30 XML / 155 values / 14 drawables） |
+| aapt2 badging | `versionName=1.1.0-alpha33` / `versionCode=101000033` |
+
+**四、仍需真机复验**：凝视停在一个按钮上不再重复触发；播放失败时错误卡与「重试」可见可用；倒计时结束后控制台回来；片库首页按返回能退出且进度保住；来电/切后台回来是「已暂停」而不是「戴稳了？」；空库主按钮文案；重扫显示的总数与卡片一致。**方向不需要复验**。
 
 ### 本轮新增（alpha32 / V2.45，手机端 UI 重做，未上真机）
 
