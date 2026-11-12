@@ -35,7 +35,7 @@
     <string name="setup_lan_title">同一 Wi-Fi 下的设备</string>
     <string name="setup_lan_chip">开始找</string>
     <string name="setup_lan_hint">自动找 NAS、电脑上的共享，不用记 IP。</string>
-    <string name="setup_manual_toggle">手动填地址 ▾</string>
+    <string name="setup_manual_toggle">找不到设备？手动填地址</string>
     <!-- V2.18：用户真机反馈「加第二个文件夹根本不知道怎么操作」。
          加片库的入口要和已有片库放在一起，一个词说清它做什么。 -->
     <string name="setup_add_source">＋ 加片库</string>
@@ -45,7 +45,7 @@
     <string name="setup_permission_detail">没有这个权限就看不到手机里的视频。点这里重新授权，或在系统设置里打开「照片和视频」权限。</string>
     <string name="setup_permission_action">去授权</string>
     <string name="setup_local_empty">这台手机上还没有视频。用相机拍一段，或从别的设备传过来，再点这里。</string>
-    <string name="setup_lan_none">这个 Wi-Fi 下没找到设备。确认 NAS / 电脑开着共享，或展开下面的手动填地址。</string>
+    <string name="setup_lan_none">这个 Wi-Fi 下没找到设备。确认 NAS / 电脑开着共享，或点「＋ 加片库」手动填地址。</string>
     <string name="setup_lan_pick">选一台设备</string>
     <!-- V2.6：「添加片库」不再是填空题 -->
     <string name="setup_address_hint">例如 192.168.1.10 或 192.168.1.10:8080</string>
@@ -82,20 +82,49 @@
     <!-- V2.34 / B13 补齐：戴镜前的设置（目前只有瞳距） -->
     <string name="settings_entry">设置</string>
     <string name="settings_title">设置</string>
-    <string name="settings_lead">瞳距是戴镜前就该定好的参数。进 VR 后也能边看边调。</string>
+    <string name="settings_lead">戴镜前定好，进 VR 后也能边看边调</string>
     <string name="settings_ipd">瞳距</string>
     <string name="settings_ipd_min">50.0</string>
     <string name="settings_ipd_max">75.0</string>
     <string name="settings_ipd_minus">− 0.5 mm</string>
     <string name="settings_ipd_plus">+ 0.5 mm</string>
     <string name="settings_ipd_reset">恢复默认 62.0 mm</string>
-    <string name="settings_ipd_note">两眼瞳孔中心的距离。左右画面合不上、看久了发酸，先拖这条粗调，再点 ± 修 0.5mm。它会改变每只眼的画面位置（不是相机间距），所以在球面视频上也看得见变化。</string>
+    <string name="settings_ipd_note">两眼瞳孔中心的距离。左右画面合不上、看久了发酸，先拖这条粗调，再点 ± 修 0.5mm。</string>
     <string name="settings_done">完成</string>
-    <string name="settings_ipd_effect">瞳距改变的是「每只眼的画面朝镜片中心挪多少」：调大 = 两幅画面各自向外分开。每 1mm 约 0.6°。</string>
+    <string name="settings_ipd_effect">调大时两幅画面各自向外分开，每 1mm 约 0.6°。</string>
 
     <!-- V2.38：重定「正前方」的倒计时时长。 -->
     <string name="settings_align_title">重定「正前方」倒计时</string>
     <string name="settings_align_minus">− 1 秒</string>
     <string name="settings_align_plus">+ 1 秒</string>
-    <string name="settings_align_note">在 VR 里点控制台的「正前方」后，眼前会出现一个跟着视线走的倒计时：这段时间你把姿态摆到想要的位置、然后停住，归零那一刻你看向哪儿，哪儿就是新的正前方。全程不用瞄准任何按钮。嫌慢就调短，躺下找角度费劲就调长。另外：双击触发键 = 立刻重定，不等倒计时。</string>
+    <string name="settings_align_note">VR 里点「正前方」后，倒计时会跟着视线走；归零那一刻你看向哪儿，哪儿就是新的正前方。双击触发键可立刻重定，不等倒计时。</string>
+
+    <!--
+      V2.45：手机端（非 VR）整体重做。
+      原则：一屏里只留「现在该做什么」和「已经有什么」，不再用 11sp 长句解释原理。
+      原来那些两段式说明不是信息，是阅读负担；要解释的收进对话框、按需才出现。
+    -->
+    <string name="setup_sub">先加一个片库，再放进纸盒</string>
+    <string name="setup_local_short">读系统视频库，点一下就收进来</string>
+    <string name="setup_lan_short">自动找 NAS 和电脑上的共享</string>
+    <string name="setup_add_source_title">添加片库</string>
+    <string name="setup_add_source_lead">自动找不到的设备，填一次地址就行。连上后直接点选文件夹，不用记路径语法。</string>
+    <string name="setup_account_label">账号 / 密码（可留空）</string>
+    <string name="setup_add_cancel">取消</string>
+    <string name="setup_manual_section">手动填地址</string>
+    <string name="source_library_count">%1$d 个片库 · %2$d 个视频</string>
+    <string name="source_video_count">%1$d 个视频</string>
+    <string name="source_hidden">已隐藏</string>
+    <string name="source_action_rescan">重扫</string>
+    <string name="source_action_folder">＋ 文件夹</string>
+    <string name="source_more_edit">编辑片库</string>
+    <string name="source_more_delete">删除片库…</string>
+    <string name="source_more_title">「%1$s」要做什么</string>
+    <string name="source_address_hint_label">设备地址</string>
+    <string name="cd_settings">设置</string>
+    <string name="cd_log">运行日志</string>
+    <string name="cd_more">更多操作</string>
+    <string name="edit_source_local_note">本机视频来自系统媒体库，没有目录和账号要改。</string>
+    <string name="edit_source_browse_note">换文件夹不用重新添加；账号密码留空表示保持原样。</string>
+    <string name="edit_source_ready">已选「%1$s」· 点保存生效</string>
 </resources>

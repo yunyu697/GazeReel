@@ -1,24 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  V2.19 横屏布局。
-
-  用户第一次真机反馈（alpha8）：
-  「横过来已经是两栏了，但老实说，横屏界面很粗糙，给人一种很乱的感觉，
-   和竖屏的设计语言也不一样，人竖屏转到横屏时体验有点割裂」。
-
-  上一版虽然重排成两栏，但只做了「摆位置」，没做「统一语言」：
-  · 品牌在竖屏是「青色竖条 + 白字 + 凝影」，横屏却变成了一行青色大字；
-  · 竖屏那张 29sp 的主张句在横屏被整个删掉，横屏看起来像另一个 App 的列表页；
-  · 卡片里又写了一遍 14dp padding，而 bg_setup_box 自己带 16dp，
-    于是横屏卡片内边距 30dp、竖屏 16dp，同一个卡片两种胖瘦；
-  · 卡片没有 foreground，按下没有水波纹；状态条 padding 也是另一套数。
-
-  这一版把横屏当成竖屏的「另一种排法」，而不是另一个界面：
-  · 顶栏用与竖屏完全相同的品牌组（竖条 + GazeReel + 凝影）；
-  · 左栏顶部保留主张句与 kicker，只是从 29sp 收到 22sp；
-  · 卡片一律不写 padding，交给 bg_setup_box；一律带 clickable + foreground；
-  · 状态条不再塞在左栏里滚动，改成贴底的通栏——它是全局状态，
-    横屏最缺的是高度，贴在底部就永远看得见，也不用滚。
+  V2.45 横屏：和竖屏是同一个界面换一种排法，不是另一个 App。
+  · 顶栏品牌组、图标入口、主行动按钮与竖屏一致；
+  · 左栏「现在该做什么」，右栏「已经有什么」，中间一道细线；
+  · 状态条贴底通栏，横屏最缺高度，一行就够；
+  · 加片库一律弹对话框，两个方向都不再有折叠表单。
+  所有 id 与 layout/activity_setup.xml 一致，onConfigurationChanged 换整套 view 后照常重绑。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -29,13 +16,13 @@
     android:background="@color/setup_bg"
     android:paddingStart="20dp"
     android:paddingEnd="20dp"
-    android:paddingTop="12dp"
-    android:paddingBottom="12dp">
+    android:paddingTop="8dp"
+    android:paddingBottom="10dp">
 
-    <!-- 顶栏：品牌（与竖屏同一套画法） + 日志 + 进入 VR -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:minHeight="52dp"
         android:orientation="horizontal"
         android:gravity="center_vertical">
 
@@ -67,66 +54,45 @@
             android:layout_height="1dp"
             android:layout_weight="1" />
 
-        <!--
-          V2.19：日志降级。
-          用户原话「日志对用户来说是什么很关键的信息吗，那么大个按钮」——不是。
-          它是出问题才点一次的兜底入口，不该和主行动抢同一条视觉权重。
-          这里去掉底色，只留一行小字。
-        -->
-        <!--
-          V2.34：戴镜前的「设置」入口，与日志同一条视觉等级。
-          横屏时它没有单独一栏可放，就跟日志并排待在顶栏右侧——
-          反正这一屏的主行动只有一个「进入 VR」，次要入口不该各占一行高度。
-        -->
-        <TextView
+        <ImageButton
             android:id="@+id/settingsEntry"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minHeight="32dp"
-            android:gravity="center"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
-            android:text="@string/settings_entry"
-            android:textSize="11sp"
-            android:textColor="@color/setup_cyan"
-            android:clickable="true"
-            android:focusable="true" />
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_setup_settings"
+            android:scaleType="fitCenter"
+            android:padding="11dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/cd_settings" />
 
-        <TextView
+        <ImageButton
             android:id="@+id/logEntry"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minHeight="32dp"
-            android:gravity="center"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
-            android:text="@string/setup_log_entry"
-            android:textSize="11sp"
-            android:textColor="@color/setup_muted" />
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_setup_log"
+            android:scaleType="fitCenter"
+            android:padding="11dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/cd_log" />
 
-        <!--
-          V2.19：进入 VR 是这一屏唯一的主行动，它必须最大。
-          上一版它和一个带底色的「运行日志」并排、字号还更小，
-          结果就是「次要入口比主要入口显眼」。
-        -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/enterVrButton"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:minWidth="132dp"
-            android:minHeight="52dp"
-            android:paddingStart="22dp"
-            android:paddingEnd="22dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:minWidth="146dp"
             android:text="@string/setup_enter"
-            android:textSize="17sp"
+            android:textSize="14sp"
             android:textStyle="bold"
             android:textColor="@color/setup_deep"
             app:backgroundTint="@color/setup_cyan"
-            app:cornerRadius="14dp" />
+            app:cornerRadius="12dp" />
     </LinearLayout>
 
-    <!-- 两栏主体 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/setup_divider" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -135,7 +101,7 @@
         android:orientation="horizontal"
         android:baselineAligned="false">
 
-        <!-- 左栏：先做什么 -->
+        <!-- 左栏：现在该做什么 -->
         <ScrollView
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -145,154 +111,174 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
+                android:orientation="vertical"
+                android:paddingEnd="4dp">
 
-                <!--
-                  横屏的「主张句」排成一行：标题在左、kicker 在右。
-                  竖屏里它是两行（29sp + kicker），但横屏缺的正是纵向空间——
-                  同一句话横向排开只花一行，既保住了设计语言，又不把两张入口卡挤出首屏。
-                -->
-                <LinearLayout
-                    android:layout_width="match_parent"
+                <TextView
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:baselineAligned="true">
+                    android:text="@string/setup_big"
+                    android:textSize="21sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/setup_text" />
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/setup_big"
-                        android:textSize="20sp"
-                        android:textStyle="bold"
-                        android:textColor="@color/setup_text" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:text="@string/setup_sub"
+                    android:textSize="11sp"
+                    android:textColor="@color/setup_muted" />
 
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="12dp"
-                        android:maxLines="1"
-                        android:ellipsize="end"
-                        android:text="@string/setup_kicker"
-                        android:textSize="11sp"
-                        android:letterSpacing="0.14"
-                        android:textColor="@color/setup_muted" />
-                </LinearLayout>
-
-                <!-- 入口 1：手机里的视频 -->
                 <LinearLayout
                     android:id="@+id/localCard"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="14dp"
-                    android:orientation="vertical"
+                    android:minHeight="72dp"
+                    android:padding="12dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
                     android:background="@drawable/bg_setup_box"
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground">
 
+                    <FrameLayout
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@drawable/bg_setup_icon_tile">
+
+                        <ImageView
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_setup_phone"
+                            android:contentDescription="@string/setup_local_title" />
+                    </FrameLayout>
+
                     <LinearLayout
-                        android:layout_width="match_parent"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
+                        android:layout_weight="1"
+                        android:layout_marginStart="12dp"
+                        android:orientation="vertical">
 
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
                             android:text="@string/setup_local_title"
-                            android:textSize="16sp"
+                            android:textSize="15sp"
                             android:textStyle="bold"
                             android:textColor="@color/setup_text" />
 
                         <TextView
-                            android:id="@+id/localChip"
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:background="@drawable/bg_setup_chip"
-                            android:paddingStart="10dp"
-                            android:paddingEnd="10dp"
-                            android:paddingTop="3dp"
-                            android:paddingBottom="3dp"
-                            android:text="@string/setup_local_chip"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/setup_local_short"
                             android:textSize="11sp"
-                            android:textColor="@color/setup_cyan" />
+                            android:maxLines="1"
+                            android:ellipsize="end"
+                            android:textColor="@color/setup_muted" />
                     </LinearLayout>
 
                     <TextView
-                        android:id="@+id/localHint"
-                        android:layout_width="match_parent"
+                        android:id="@+id/localChip"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:text="@string/setup_local_hint"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/bg_setup_chip_solid"
+                        android:text="@string/setup_local_chip"
                         android:textSize="11sp"
-                        android:lineSpacingExtra="2dp"
-                        android:textColor="@color/setup_muted" />
+                        android:textColor="@color/setup_cyan" />
                 </LinearLayout>
 
-                <!-- 入口 2：同一 Wi-Fi 下的设备 -->
                 <LinearLayout
                     android:id="@+id/lanCard"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:orientation="vertical"
+                    android:minHeight="72dp"
+                    android:padding="12dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
                     android:background="@drawable/bg_setup_box"
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground">
 
+                    <FrameLayout
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@drawable/bg_setup_icon_tile">
+
+                        <ImageView
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_setup_wifi"
+                            android:contentDescription="@string/setup_lan_title" />
+                    </FrameLayout>
+
                     <LinearLayout
-                        android:layout_width="match_parent"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
+                        android:layout_weight="1"
+                        android:layout_marginStart="12dp"
+                        android:orientation="vertical">
 
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
                             android:text="@string/setup_lan_title"
-                            android:textSize="16sp"
+                            android:textSize="15sp"
                             android:textStyle="bold"
                             android:textColor="@color/setup_text" />
 
                         <TextView
-                            android:id="@+id/lanChip"
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:background="@drawable/bg_setup_chip"
-                            android:paddingStart="10dp"
-                            android:paddingEnd="10dp"
-                            android:paddingTop="3dp"
-                            android:paddingBottom="3dp"
-                            android:text="@string/setup_lan_chip"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/setup_lan_short"
                             android:textSize="11sp"
-                            android:textColor="@color/setup_cyan" />
+                            android:maxLines="1"
+                            android:ellipsize="end"
+                            android:textColor="@color/setup_muted" />
                     </LinearLayout>
 
                     <TextView
-                        android:id="@+id/lanHint"
-                        android:layout_width="match_parent"
+                        android:id="@+id/lanChip"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:text="@string/setup_lan_hint"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/bg_setup_chip_solid"
+                        android:text="@string/setup_lan_chip"
                         android:textSize="11sp"
-                        android:lineSpacingExtra="2dp"
-                        android:textColor="@color/setup_muted" />
+                        android:textColor="@color/setup_cyan" />
                 </LinearLayout>
+
+                <TextView
+                    android:id="@+id/manualToggle"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="6dp"
+                    android:gravity="center_vertical"
+                    android:text="@string/setup_manual_toggle"
+                    android:textSize="12sp"
+                    android:textColor="@color/setup_muted"
+                    android:clickable="true"
+                    android:focusable="true" />
+
             </LinearLayout>
         </ScrollView>
 
-        <!-- 两栏之间一道细线：让「左右两栏」看起来是分栏，不是两个并排的列表 -->
         <View
             android:layout_width="1dp"
             android:layout_height="match_parent"
-            android:layout_marginStart="18dp"
-            android:layout_marginEnd="18dp"
-            android:background="@color/setup_border" />
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:background="@color/setup_divider" />
 
         <!-- 右栏：已经有什么 -->
         <ScrollView
@@ -304,7 +290,8 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
+                android:orientation="vertical"
+                android:paddingStart="4dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -312,243 +299,67 @@
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
 
-                    <TextView
+                    <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="@string/setup_sources_ready"
-                        android:textSize="15sp"
-                        android:textStyle="bold"
-                        android:textColor="@color/setup_text" />
+                        android:orientation="vertical">
 
-                    <TextView
-                        android:id="@+id/sourceCount"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textSize="12sp"
-                        android:textColor="@color/setup_muted" />
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/setup_sources_ready"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/setup_text" />
 
-                    <!-- 加片库的入口必须和已有片库放在一起，不能藏在列表下面 -->
+                        <TextView
+                            android:id="@+id/sourceCount"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:textSize="11sp"
+                            android:textColor="@color/setup_muted" />
+                    </LinearLayout>
+
                     <TextView
                         android:id="@+id/sourceAdd"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="10dp"
-                        android:minWidth="56dp"
-                        android:minHeight="32dp"
+                        android:layout_height="44dp"
+                        android:minWidth="100dp"
                         android:gravity="center"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:background="@drawable/bg_setup_chip"
+                        android:background="@drawable/bg_setup_action"
+                        android:foreground="?attr/selectableItemBackground"
                         android:text="@string/setup_add_source"
-                        android:textSize="12sp"
-                        android:textColor="@color/setup_cyan" />
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/setup_cyan"
+                        android:clickable="true"
+                        android:focusable="true" />
                 </LinearLayout>
 
                 <LinearLayout
                     android:id="@+id/sourceList"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
+                    android:layout_marginTop="12dp"
                     android:orientation="vertical" />
 
-                <!-- 兜底：手动添加，默认折叠 -->
-                <TextView
-                    android:id="@+id/manualToggle"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="18dp"
-                    android:paddingTop="8dp"
-                    android:paddingBottom="8dp"
-                    android:text="@string/setup_manual_toggle"
-                    android:textSize="12sp"
-                    android:textColor="@color/setup_muted"
-                    android:clickable="true"
-                    android:focusable="true" />
-
-                <LinearLayout
-                    android:id="@+id/manualBlock"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:orientation="vertical"
-                    android:visibility="gone"
-                    android:background="@drawable/bg_setup_box">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/setup_share_type"
-                        android:textSize="11sp"
-                        android:letterSpacing="0.08"
-                        android:textColor="@color/setup_muted" />
-
-                    <Spinner
-                        android:id="@+id/shareType"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:minHeight="44dp"
-                        android:background="@drawable/bg_setup_field" />
-
-                    <LinearLayout
-                        android:id="@+id/addressBlock"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="14dp"
-                            android:text="@string/setup_address"
-                            android:textSize="11sp"
-                            android:letterSpacing="0.08"
-                            android:textColor="@color/setup_muted" />
-
-                        <EditText
-                            android:id="@+id/shareAddress"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
-                            android:minHeight="44dp"
-                            android:paddingStart="12dp"
-                            android:paddingEnd="12dp"
-                            android:background="@drawable/bg_setup_field"
-                            android:inputType="textUri"
-                            android:maxLines="1"
-                            android:textSize="13sp"
-                            android:textColor="@color/setup_text"
-                            android:autofillHints=""
-                            android:importantForAutofill="no" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:id="@+id/addressHelp"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="7dp"
-                        android:text="@string/setup_address_help"
-                        android:textSize="11sp"
-                        android:lineSpacingExtra="2dp"
-                        android:textColor="@color/setup_muted" />
-
-                    <CheckBox
-                        android:id="@+id/scanNoSubfolders"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:checked="false"
-                        android:buttonTint="@color/setup_cyan"
-                        android:text="@string/setup_no_subfolders"
-                        android:textSize="13sp"
-                        android:textColor="@color/setup_text" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:orientation="horizontal"
-                        android:baselineAligned="false">
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/setup_username"
-                                android:textSize="11sp"
-                                android:letterSpacing="0.08"
-                                android:textColor="@color/setup_muted" />
-
-                            <EditText
-                                android:id="@+id/shareUser"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="6dp"
-                                android:minHeight="44dp"
-                                android:paddingStart="12dp"
-                                android:paddingEnd="12dp"
-                                android:background="@drawable/bg_setup_field"
-                                android:inputType="text"
-                                android:maxLines="1"
-                                android:textSize="13sp"
-                                android:textColor="@color/setup_text"
-                                android:autofillHints=""
-                                android:importantForAutofill="no" />
-                        </LinearLayout>
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="10dp"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/setup_password"
-                                android:textSize="11sp"
-                                android:letterSpacing="0.08"
-                                android:textColor="@color/setup_muted" />
-
-                            <EditText
-                                android:id="@+id/sharePass"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="6dp"
-                                android:minHeight="44dp"
-                                android:paddingStart="12dp"
-                                android:paddingEnd="12dp"
-                                android:background="@drawable/bg_setup_field"
-                                android:inputType="textPassword"
-                                android:maxLines="1"
-                                android:textSize="13sp"
-                                android:textColor="@color/setup_text"
-                                android:autofillHints=""
-                                android:importantForAutofill="no" />
-                        </LinearLayout>
-                    </LinearLayout>
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/scanButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="14dp"
-                        android:minHeight="44dp"
-                        android:text="@string/setup_scan"
-                        android:textSize="13sp"
-                        android:textColor="@color/setup_cyan"
-                        app:cornerRadius="10dp"
-                        app:strokeColor="@color/setup_border"
-                        app:strokeWidth="1dp"
-                        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
-                </LinearLayout>
             </LinearLayout>
         </ScrollView>
     </LinearLayout>
 
-    <!--
-      状态条贴底通栏。
-      它是全局状态（空闲 / 扫描中 / 就绪 / 需要检查），不该挤在某一栏里跟着滚。
-
-      V2.19 修：上一版这里是「圆点 + 标题 + 副标题两行 + 胶囊」套 bg_setup_box，
-      上下内边距 32dp 再加两行字，一条状态吃掉纵向四分之一——而我在同一版里
-      刚说完「横屏最缺的是高度」。现在压成一行：标题与说明同一行，
-      说明单行省略，底色换成 8dp 的细条（bg_setup_strip）。
-    -->
+    <!-- 状态条贴底：空闲隐藏，一行写完 -->
     <LinearLayout
         android:id="@+id/statusBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
+        android:minHeight="40dp"
+        android:padding="10dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
+        android:visibility="gone"
         android:background="@drawable/bg_setup_strip">
 
         <View
@@ -592,4 +403,5 @@
             android:textSize="11sp"
             android:textColor="@color/setup_muted" />
     </LinearLayout>
+
 </LinearLayout>

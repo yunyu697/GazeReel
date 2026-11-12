@@ -12,6 +12,14 @@
     <color name="setup_cyan">#FF67E8F9</color>
     <color name="setup_busy">#FFE8C079</color>
     <color name="setup_err">#FFF0A29B</color>
+    <!-- V2.45：平面层重做。次级面、图标底、状态胶囊与分割线各归其位，
+         不再靠「同一张卡片反复叠 16dp 内边距」做层次。 -->
+    <color name="setup_surface">#FF16283F</color>
+    <color name="setup_icon_tile">#FF16334A</color>
+    <color name="setup_icon_edge">#FF2B5C72</color>
+    <color name="setup_chip_fill">#FF16384A</color>
+    <color name="setup_chip_edge">#FF2E6B7E</color>
+    <color name="setup_divider">#FF1D2C42</color>
     <!-- GazeReel / 凝影：电光青蓝，取自 stereo-cyan-dark 品牌图标 -->
     <color name="brand">#FF2563EB</color>
     <color name="brand_dark">#FF1D4ED8</color>

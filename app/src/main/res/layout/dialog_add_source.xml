@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V2.45：加片库从「页面里的折叠区」改成「点一下就弹出的对话框」。
+
+  原来点「＋ 加片库」会把页面下方一整块表单展开、再 requestFocus 到地址框：
+  · 用户得先滚过去，横屏更是在另一栏里；
+  · DLNA 不需要地址，addressBlock 被隐藏，焦点却仍打在一个看不见的框上；
+  · 表单把首屏撑得很长，配置页因此永远读不完。
+  现在表单独立成一层，取消 / 返回键都能收掉，地址与账号按类型显隐。
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:background="@color/setup_card">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/setup_add_source_title"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="@color/setup_text" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/setup_add_source_lead"
+            android:textSize="12sp"
+            android:lineSpacingExtra="2dp"
+            android:textColor="@color/setup_muted" />
+
+        <!-- 连接失败 / 正在连接要写在这一层里。状态条在对话框背后，用户看不见。 -->
+        <TextView
+            android:id="@+id/addSourceNote"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:textSize="12sp"
+            android:lineSpacingExtra="2dp"
+            android:visibility="gone"
+            android:textColor="@color/setup_err" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/setup_share_type"
+            android:textSize="12sp"
+            android:textColor="@color/setup_muted" />
+
+        <Spinner
+            android:id="@+id/shareType"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_setup_field"
+            android:popupBackground="@color/setup_card"
+            android:entries="@array/share_types" />
+
+        <LinearLayout
+            android:id="@+id/addressBlock"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="@string/source_address_hint_label"
+                android:textSize="12sp"
+                android:textColor="@color/setup_muted" />
+
+            <EditText
+                android:id="@+id/shareAddress"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/bg_setup_field"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:inputType="textUri"
+                android:textSize="14sp"
+                android:textColor="@color/setup_text"
+                android:textColorHint="@color/setup_muted"
+                android:hint="@string/setup_address_hint"
+                android:singleLine="true"
+                android:importantForAutofill="no" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/addressHelp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textSize="11sp"
+            android:lineSpacingExtra="2dp"
+            android:textColor="@color/setup_muted" />
+
+        <TextView
+            android:id="@+id/addAccountLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="@string/setup_account_label"
+            android:textSize="12sp"
+            android:textColor="@color/setup_muted" />
+
+        <LinearLayout
+            android:id="@+id/addAccountBlock"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal"
+            android:baselineAligned="false">
+
+            <EditText
+                android:id="@+id/shareUser"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_setup_field"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:hint="@string/setup_username"
+                android:textSize="14sp"
+                android:textColor="@color/setup_text"
+                android:textColorHint="@color/setup_muted"
+                android:inputType="text"
+                android:singleLine="true"
+                android:importantForAutofill="no" />
+
+            <EditText
+                android:id="@+id/sharePass"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_setup_field"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:hint="@string/setup_password"
+                android:textSize="14sp"
+                android:textColor="@color/setup_text"
+                android:textColorHint="@color/setup_muted"
+                android:inputType="textPassword"
+                android:singleLine="true"
+                android:importantForAutofill="no" />
+        </LinearLayout>
+
+        <CheckBox
+            android:id="@+id/scanNoSubfolders"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:minHeight="44dp"
+            android:checked="false"
+            android:buttonTint="@color/setup_cyan"
+            android:text="@string/setup_no_subfolders"
+            android:textSize="13sp"
+            android:textColor="@color/setup_text" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/addSourceCancel"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="@string/setup_add_cancel"
+                android:textSize="13sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="12dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/scanButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1.6"
+                android:layout_marginStart="8dp"
+                android:text="@string/setup_scan"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="@color/setup_deep"
+                app:cornerRadius="12dp"
+                app:backgroundTint="@color/setup_cyan" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

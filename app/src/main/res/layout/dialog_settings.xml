@@ -1,20 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  V2.34 / B13 补齐：戴镜前的「设置」。
-
-  上一版瞳距只能戴着头显调——那是为「边看边调」设计的补救路径，
-  但瞳距本身是**戴镜前就该定好的参数**（用户偏好：精确值前移到手机滑杆），
-  所以这里补一个平面入口：拖动粗调、−/+ 修 0.5mm、一键回默认。
-
-  只放瞳距，不铺成一整页设置项：手机侧本来没有设置模块，
-  凭空长出一堆开关会让「第一屏只有两个动作」的约定被稀释。
-  后续真要加别的戴镜前设置，往这个对话框里加区块即可。
--->
-<!--
-  V2.39：外面套一层 ScrollView。
-  对话框是 wrap_content 的竖排 LinearLayout，而这一版又多了「画面上下方向」与「重定倒计时」
-  两块；小屏上最底下的「完成」会被挤到屏幕外。真机反馈「打开开关没有任何变化」，
-  一个很可能的原因就是这个开关根本没被看见——它能滚到屏幕外，说明入口本身不合格。
+  V2.45：设置对话框收紧。
+  上一版是「标题 + 两段近百字说明 + 滑杆 + ± + 重置 + 又两段说明 + 倒计时 + 长说明 + 完成」，
+  小屏上要滚两次才摸到「完成」。现在每项一行数值、一行操作、一行短说明，
+  长解释只留一句，按钮统一 48dp。id 全部沿用，SetupActivity.showSettings 不用改。
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -23,252 +12,235 @@
     android:layout_height="wrap_content"
     android:fillViewport="true">
 
-<LinearLayout
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="20dp"
-    android:background="@color/setup_card">
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/settings_title"
-        android:textSize="17sp"
-        android:textStyle="bold"
-        android:textColor="@color/setup_text" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="@string/settings_lead"
-        android:textSize="11sp"
-        android:lineSpacingExtra="2dp"
-        android:textColor="@color/setup_muted" />
-
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:orientation="horizontal"
-        android:baselineAligned="false">
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:background="@color/setup_card">
 
         <TextView
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/settings_ipd"
-            android:textSize="13sp"
+            android:text="@string/settings_title"
+            android:textSize="18sp"
             android:textStyle="bold"
             android:textColor="@color/setup_text" />
 
         <TextView
-            android:id="@+id/ipdValue"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:minWidth="72dp"
-            android:gravity="end"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            android:textColor="@color/setup_cyan"
-            tools:text="62.0 mm" />
-    </LinearLayout>
+            android:layout_marginTop="4dp"
+            android:text="@string/settings_lead"
+            android:textSize="12sp"
+            android:textColor="@color/setup_muted" />
 
-    <!--
-      粗调就是拖这一条：50.0–75.0mm、步进 0.5mm，比任何 ± 按钮都快。
-      V2.33 已经把真相源改成 0.5mm 整数（ipdHalfMm），这里的 value 就是 half/2f，
-      写回去走 VrSettings.ipdHalfOf()，全工程只有一套数值。
-    -->
-    <com.google.android.material.slider.Slider
-        android:id="@+id/ipdSlider"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:valueFrom="50.0"
-        android:valueTo="75.0"
-        android:stepSize="0.5"
-        android:value="62.0"
-        app:labelBehavior="gone" />
+        <!-- 瞳距 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/settings_ipd"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="@color/setup_text" />
+
+            <TextView
+                android:id="@+id/ipdValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="80dp"
+                android:gravity="end"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="@color/setup_cyan"
+                tools:text="62.0 mm" />
+        </LinearLayout>
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/ipdSlider"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:valueFrom="50.0"
+            android:valueTo="75.0"
+            android:stepSize="0.5"
+            android:value="62.0"
+            app:labelBehavior="gone" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_ipd_min"
+                android:textSize="11sp"
+                android:textColor="@color/setup_muted" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_ipd_max"
+                android:textSize="11sp"
+                android:textColor="@color/setup_muted" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/ipdMinus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="@string/settings_ipd_minus"
+                android:textSize="13sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="12dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/ipdPlus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="@string/settings_ipd_plus"
+                android:textSize="13sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="12dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+        </LinearLayout>
 
         <TextView
-            android:layout_width="wrap_content"
+            android:id="@+id/ipdReset"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="center"
+            android:text="@string/settings_ipd_reset"
+            android:textSize="12sp"
+            android:textColor="@color/setup_cyan"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <TextView
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/settings_ipd_min"
+            android:text="@string/settings_ipd_note"
             android:textSize="11sp"
             android:textColor="@color/setup_muted" />
 
         <View
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:layout_weight="1" />
+            android:layout_marginTop="18dp"
+            android:background="@color/setup_divider" />
+
+        <!-- 重定「正前方」倒计时 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/settings_align_title"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="@color/setup_text" />
+
+            <TextView
+                android:id="@+id/alignValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="56dp"
+                android:gravity="end"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="@color/setup_cyan"
+                tools:text="10 秒" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/alignMinus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="@string/settings_align_minus"
+                android:textSize="13sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="12dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/alignPlus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="@string/settings_align_plus"
+                android:textSize="13sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="12dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+        </LinearLayout>
 
         <TextView
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/settings_ipd_max"
+            android:layout_marginTop="8dp"
+            android:text="@string/settings_align_note"
             android:textSize="11sp"
+            android:lineSpacingExtra="2dp"
             android:textColor="@color/setup_muted" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:orientation="horizontal">
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/ipdMinus"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:text="@string/settings_ipd_minus"
-            android:textSize="13sp"
-            android:textColor="@color/setup_text"
-            app:cornerRadius="10dp"
-            app:strokeColor="@color/setup_border"
-            app:strokeWidth="1dp"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/ipdPlus"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:text="@string/settings_ipd_plus"
-            android:textSize="13sp"
-            android:textColor="@color/setup_text"
-            app:cornerRadius="10dp"
-            app:strokeColor="@color/setup_border"
-            app:strokeWidth="1dp"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
-    </LinearLayout>
-
-    <TextView
-        android:id="@+id/ipdReset"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp"
-        android:gravity="center"
-        android:text="@string/settings_ipd_reset"
-        android:textSize="12sp"
-        android:textColor="@color/setup_cyan"
-        android:clickable="true"
-        android:focusable="true" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="@string/settings_ipd_effect"
-        android:textSize="11sp"
-        android:lineSpacingExtra="2dp"
-        android:textColor="@color/setup_muted" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:text="@string/settings_ipd_note"
-        android:textSize="11sp"
-        android:lineSpacingExtra="2dp"
-        android:textColor="@color/setup_muted" />
-
-    <!--
-      V2.38：重定「正前方」的倒计时时长。
-      它是「在限定的时间内调整并稳定姿态」里的那个限定时间，所以要能调：
-      摆好只需确认的人要 3–5 秒，躺下再找角度的人要 15 秒。
-    -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="18dp"
-        android:orientation="horizontal"
-        android:baselineAligned="false">
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/settings_align_title"
-            android:textSize="13sp"
+            android:id="@+id/settingsDone"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="16dp"
+            android:text="@string/settings_done"
+            android:textSize="14sp"
             android:textStyle="bold"
-            android:textColor="@color/setup_text" />
+            android:textColor="@color/setup_deep"
+            app:cornerRadius="12dp"
+            app:backgroundTint="@color/setup_cyan" />
 
-        <TextView
-            android:id="@+id/alignValue"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minWidth="56dp"
-            android:gravity="end"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            android:textColor="@color/setup_cyan"
-            tools:text="10 秒" />
     </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:orientation="horizontal">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/alignMinus"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:text="@string/settings_align_minus"
-            android:textSize="13sp"
-            android:textColor="@color/setup_text"
-            app:cornerRadius="10dp"
-            app:strokeColor="@color/setup_border"
-            app:strokeWidth="1dp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/alignPlus"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:text="@string/settings_align_plus"
-            android:textSize="13sp"
-            android:textColor="@color/setup_text"
-            app:cornerRadius="10dp"
-            app:strokeColor="@color/setup_border"
-            app:strokeWidth="1dp" />
-    </LinearLayout>
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:text="@string/settings_align_note"
-        android:textSize="11sp"
-        android:lineSpacingExtra="2dp"
-        android:textColor="@color/setup_muted" />
-
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/settingsDone"
-        android:layout_width="match_parent"
-        android:layout_height="44dp"
-        android:layout_marginTop="14dp"
-        android:text="@string/settings_done"
-        android:textSize="13sp"
-        android:textStyle="bold"
-        android:textColor="@color/setup_deep"
-        app:cornerRadius="10dp"
-        app:backgroundTint="@color/setup_cyan" />
-
-</LinearLayout>
 </ScrollView>

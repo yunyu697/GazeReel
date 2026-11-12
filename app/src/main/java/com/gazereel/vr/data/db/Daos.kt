@@ -1,5 +1,6 @@
 package com.gazereel.vr.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -7,8 +8,20 @@ import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * V2.45：配置页的片库卡片要显示「这个片库到底扫到几个视频」。
+ * 原来标题行只写「N 个片源」，用户看不出某个片库是不是空的、重扫有没有用。
+ */
+data class SourceCountRow(
+    @ColumnInfo(name = "source_id") val sourceId: Long,
+    @ColumnInfo(name = "video_count") val videoCount: Int
+)
+
 @Dao
 interface MediaDao {
+    @Query("SELECT source_id, COUNT(*) AS video_count FROM media_item GROUP BY source_id")
+    fun observeCountsBySource(): Flow<List<SourceCountRow>>
+
     @Query("SELECT * FROM media_item WHERE source_id = :sourceId ORDER BY title")
     fun observeBySource(sourceId: Long): Flow<List<MediaItemEntity>>
 

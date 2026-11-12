@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
+import android.view.WindowManager
 import android.widget.AdapterView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -37,6 +38,7 @@ import com.gazereel.vr.data.db.SourceEntity
 import com.gazereel.vr.data.decodeCredentials
 import com.gazereel.vr.data.encodeCredentials
 import com.gazereel.vr.databinding.ActivitySetupBinding
+import com.gazereel.vr.databinding.DialogAddSourceBinding
 import com.gazereel.vr.databinding.DialogEditSourceBinding
 import com.gazereel.vr.databinding.DialogFolderBinding
 import com.gazereel.vr.databinding.DialogSettingsBinding
@@ -79,6 +81,22 @@ class SetupActivity : AppCompatActivity() {
     /** V2.18：横竖屏切换会换掉整套 view，状态条的内容要能重画回去。 */
     private var lastStatus: StatusLine? = null
 
+    /**
+     * V2.45：加片库表单搬到独立对话框后，activity 布局里不再有 shareType / shareAddress…
+     * 这里持有当前那一层视图；旋转时先记下内容、关掉、重绑之后再原样开回来。
+     */
+    private var addBinding: DialogAddSourceBinding? = null
+    private var addDialog: AlertDialog? = null
+
+    /** V2.45：配置页显示「扫到几个视频」，不是含糊的「几个片源」。 */
+    private var mediaCounts: Map<Long, Int> = emptyMap()
+
+    /**
+     * V2.45：对话框关掉之后 saveNew 才真正入库，那时 addBinding 已为 null，
+     * 所以「不扫描子文件夹」要在点连接的当下就记下来，不能事后再去读视图。
+     */
+    private var pendingRecursive = true
+
     private val mediaPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -116,6 +134,14 @@ class SetupActivity : AppCompatActivity() {
         showLastCrash()
         lifecycleScope.launch {
             database.sourceDao().observeAll().collect { renderSources(it) }
+        }
+        // V2.45：视频数独立一条流，扫描 / 重扫后立刻反映到片库标题与每张卡片，
+        // 不用用户手动刷新，也不用把整张 media_item 表读进内存。
+        lifecycleScope.launch {
+            database.mediaDao().observeCountsBySource().collect { rows ->
+                mediaCounts = rows.associate { it.sourceId to it.videoCount }
+                renderSources(currentSources)
+            }
         }
         refreshStalePosters()
     }
@@ -174,28 +200,19 @@ class SetupActivity : AppCompatActivity() {
      */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // 先把正在填的东西记下来，重新 inflate 之后填回去。
-        val keptType = binding.shareType.selectedItemPosition
-        val keptAddress = binding.shareAddress.text?.toString().orEmpty()
-        val keptUser = binding.shareUser.text?.toString().orEmpty()
-        val keptPass = binding.sharePass.text?.toString().orEmpty()
-        val keptNoSub = binding.scanNoSubfolders.isChecked
-        val manualOpen = binding.manualBlock.visibility == View.VISIBLE
+        // V2.45：手动表单现在是一层独立对话框。旋转时先记下内容、关掉，
+        // 重绑之后再原样开回来；否则旧视图会挂在被替换掉的 activity 布局上。
+        val keptForm = if (addDialog?.isShowing == true) captureAddFormState() else null
+        dismissAddDialog()
 
         binding = ActivitySetupBinding.inflate(layoutInflater)
         setContentView(binding.root)
         bindViews()
 
-        binding.shareType.setSelection(keptType)
-        binding.shareAddress.setText(keptAddress)
-        binding.shareUser.setText(keptUser)
-        binding.sharePass.setText(keptPass)
-        binding.scanNoSubfolders.isChecked = keptNoSub
-        if (manualOpen) showManual(true)
-
         // 状态条也要重画：它不在 renderSources 里，漏了就是一片空白。
         lastStatus?.let { applyStatus(it) }
         renderSources(currentSources)
+        keptForm?.let { showAddSourceDialog(it) }
     }
 
     /**
@@ -206,16 +223,9 @@ class SetupActivity : AppCompatActivity() {
         // 两个大入口：都不需要用户输入任何东西
         binding.localCard.setOnClickListener { addLocalVideos() }
         binding.lanCard.setOnClickListener { discoverLan() }
-        binding.manualToggle.setOnClickListener { toggleManual() }
-
-        binding.scanButton.setOnClickListener { connectAndBrowse() }
-        // V2.18：「＋ 加片库」直接把手动区展开并把焦点放到地址那一格。
-        // 用户要加同一台设备下的第二个文件夹时，最自然的动作是「再加一个片库」，
-        // 而不是先想「我该点哪个已有片库去编辑」。
-        binding.sourceAdd.setOnClickListener {
-            showManual(true)
-            binding.shareAddress.requestFocus()
-        }
+        // V2.45：两处「添加」开的是同一个对话框，不再滚页面展开折叠区。
+        binding.manualToggle.setOnClickListener { showAddSourceDialog() }
+        binding.sourceAdd.setOnClickListener { showAddSourceDialog() }
         binding.enterVrButton.setOnClickListener {
             startActivity(Intent(this, VrActivity::class.java))
         }
@@ -223,17 +233,9 @@ class SetupActivity : AppCompatActivity() {
         binding.logEntry.setOnClickListener {
             startActivity(Intent(this, LogActivity::class.java))
         }
-        // V2.34 / B13 补齐：戴镜前的设置。瞳距原先只能进 VR 摸着侧键调，
-        // 但它本来就是「戴镜前定好、戴镜后微调」的参数，平面这一层才是第一现场。
+        // V2.34 / B13 补齐：戴镜前的设置。瞳距是戴镜前就该定好的参数，
+        // V2.45 起入口挪到顶栏 48dp 图标，不再藏在底部主按钮下面。
         binding.settingsEntry.setOnClickListener { showSettings() }
-        binding.shareType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(
-                parent: AdapterView<*>?, view: View?, position: Int, id: Long
-            ) = syncFormForType()
-
-            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-        }
-        syncFormForType()
     }
 
     /**
@@ -248,8 +250,9 @@ class SetupActivity : AppCompatActivity() {
 
         if (raw != null) {
             val head = CrashLog.headline(raw) ?: "原因没记下来"
-            renderStatus(Status.ERR, "上次进 VR 没成功", head, "看详情")
-            binding.statusBar.setOnClickListener {
+            // V2.45：状态条的点击动作记进 StatusLine。横竖屏换整套 view 之后
+            // applyStatus 会重新挂上，不会出现「转一下横屏详情就点不开了」。
+            val showDetail: () -> Unit = {
                 AlertDialog.Builder(this, R.style.SetupDialog)
                     .setTitle("上次进入 VR 的失败记录")
                     .setMessage(raw.take(4000))
@@ -258,7 +261,6 @@ class SetupActivity : AppCompatActivity() {
                         CrashLog.clear(this)
                         CrashLog.unblockCardboard(this)
                         CrashLog.clearBootMarker(this)
-                        binding.statusBar.setOnClickListener(null)
                         renderStatus(
                             Status.IDLE,
                             "点一个就行，不用填东西",
@@ -268,24 +270,18 @@ class SetupActivity : AppCompatActivity() {
                     }
                     .show()
             }
+            renderStatus(Status.ERR, "上次进 VR 没成功", head, "看详情", showDetail)
             return
         }
 
         if (blocked) {
-            renderStatus(
-                Status.OK,
-                "已切到兼容模式",
-                "官方头追上次没能起来，现在用手机传感器，一样能看。想恢复点这里。",
-                "兼容模式"
-            )
-            binding.statusBar.setOnClickListener {
+            val restore: () -> Unit = {
                 AlertDialog.Builder(this, R.style.SetupDialog)
                     .setTitle("恢复官方头追？")
                     .setMessage("恢复后如果还是进不去，会自动再退回兼容模式。")
                     .setNegativeButton("先这样", null)
                     .setPositiveButton("恢复") { _, _ ->
                         CrashLog.unblockCardboard(this)
-                        binding.statusBar.setOnClickListener(null)
                         renderStatus(
                             Status.IDLE,
                             "点一个就行，不用填东西",
@@ -295,6 +291,13 @@ class SetupActivity : AppCompatActivity() {
                     }
                     .show()
             }
+            renderStatus(
+                Status.OK,
+                "已切到兼容模式",
+                "官方头追上次没能起来，现在用手机传感器，一样能看。想恢复点这里。",
+                "兼容模式",
+                restore
+            )
         }
     }
 
@@ -396,7 +399,7 @@ class SetupActivity : AppCompatActivity() {
                     scan.responders > 0 -> renderStatus(
                         Status.ERR,
                         "这个 Wi-Fi 下有 ${scan.responders} 台设备，但都没开共享",
-                        "它们回了广播却没开媒体服务器，445 端口也没开。在下面的手动添加里选 SMB，" +
+                        "它们回了广播却没开媒体服务器，445 端口也没开。点「＋ 加片库」选 SMB，" +
                             "地址只填 IP 就行，连上之后会列出共享让你点选。",
                         "0 台可用"
                     )
@@ -407,7 +410,8 @@ class SetupActivity : AppCompatActivity() {
                         "0 台"
                     )
                 }
-                expandManual()
+                // V2.45：不再自动展开页面下方的折叠表单。状态条已经写清楚下一步，
+                // 用户自己点「＋ 加片库」即可，避免一次失败叠两层界面。
                 return@launch
             }
             renderStatus(
@@ -486,7 +490,8 @@ class SetupActivity : AppCompatActivity() {
             setBusy(false)
             opened.getOrNull()?.let { state ->
                 showFolderDialog(state, guest) { chosen ->
-                    saveNew(SourceType.SMB, chosen, guest.user, guest.password)
+                    // 自动发现进来的路径没有「不扫子文件夹」选项，保持默认递归。
+                    saveNew(SourceType.SMB, chosen, guest.user, guest.password, true)
                 }
                 return@launch
             }
@@ -533,17 +538,18 @@ class SetupActivity : AppCompatActivity() {
 
     /** 地址一填、设备一认出来，就把记下的账号补进表单，用户只剩「连接」这一下。 */
     private fun prefillKnownCredentials() {
-        if (binding.shareUser.text.isNotBlank() || binding.sharePass.text.isNotEmpty()) return
-        val type = sourceTypeAt(binding.shareType.selectedItemPosition) ?: return
+        val form = addBinding ?: return
+        if (form.shareUser.text.isNotBlank() || form.sharePass.text.isNotEmpty()) return
+        val type = sourceTypeAt(form.shareType.selectedItemPosition) ?: return
         if (type != SourceType.SMB) return
-        val normalized = SourceAddress.normalize(type, binding.shareAddress.text.toString())
+        val normalized = SourceAddress.normalize(type, form.shareAddress.text.toString())
         val host = parseUncFull(normalized).first
         val known = credentialsForHost(host) ?: return
-        binding.shareUser.setText(known.user)
-        binding.sharePass.setText(known.password)
+        form.shareUser.setText(known.user)
+        form.sharePass.setText(known.password)
     }
 
-    /** 把类型和地址替用户填好并展开表单——他只需要补自己知道的那部分。 */
+    /** 把类型和地址替用户填好并开对话框——他只需要补自己知道的那部分。 */
     private fun prefillManual(type: SourceType, address: String) {
         val position = when (type) {
             SourceType.SMB -> 0
@@ -552,27 +558,74 @@ class SetupActivity : AppCompatActivity() {
             SourceType.DLNA -> 3
             else -> 0
         }
-        binding.shareType.setSelection(position)
-        binding.shareAddress.setText(address)
-        binding.shareUser.requestFocus()
-        expandManual()
+        showAddSourceDialog(AddFormState(position, address, "", "", false))
+        addBinding?.shareUser?.requestFocus()
+    }
+
+    // ------------------------------------------------------- 加片库对话框
+
+    /** V2.45：旋转时把表单内容整体搬过去，不丢已经填了一半的 IP / 账号。 */
+    private data class AddFormState(
+        val typePosition: Int,
+        val address: String,
+        val user: String,
+        val pass: String,
+        val noSubfolders: Boolean
+    )
+
+    private fun captureAddFormState(): AddFormState {
+        val form = addBinding ?: return AddFormState(0, "", "", "", false)
+        return AddFormState(
+            form.shareType.selectedItemPosition,
+            form.shareAddress.text?.toString().orEmpty(),
+            form.shareUser.text?.toString().orEmpty(),
+            form.sharePass.text?.toString().orEmpty(),
+            form.scanNoSubfolders.isChecked
+        )
+    }
+
+    private fun dismissAddDialog() {
+        runCatching { addDialog?.dismiss() }
+        addDialog = null
+        addBinding = null
+    }
+
+    /**
+     * V2.45：加片库 = 一层对话框，不再把表单折进首屏。
+     * 两个入口（「＋ 加片库」与「找不到设备？手动填地址」）开的是同一层；
+     * 选设备失败时 prefillManual 也走这里，顺手替用户填好类型和地址。
+     */
+    private fun showAddSourceDialog(state: AddFormState? = null) {
+        dismissAddDialog()
+        val form = DialogAddSourceBinding.inflate(layoutInflater)
+        val dialog = darkDialog(form.root)
+        addBinding = form
+        addDialog = dialog
+
+        state?.let {
+            form.shareType.setSelection(it.typePosition)
+            form.shareAddress.setText(it.address)
+            form.shareUser.setText(it.user)
+            form.sharePass.setText(it.pass)
+            form.scanNoSubfolders.isChecked = it.noSubfolders
+        }
+
+        form.shareType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: AdapterView<*>?, view: View?, position: Int, id: Long
+            ) = syncFormForType()
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+        form.scanButton.setOnClickListener { connectAndBrowse() }
+        form.addSourceCancel.setOnClickListener { dismissAddDialog() }
+        dialog.setOnDismissListener {
+            // 返回键 / 点外面收掉对话框也走这里，只清引用，状态条内容不动。
+            addBinding = null
+            addDialog = null
+        }
         syncFormForType()
-    }
-
-    // ------------------------------------------------------------ 手动兜底
-
-    private fun toggleManual() {
-        showManual(binding.manualBlock.visibility != View.VISIBLE)
-    }
-
-    private fun showManual(open: Boolean) {
-        binding.manualBlock.visibility = if (open) View.VISIBLE else View.GONE
-        binding.manualToggle.text =
-            if (open) "收起 ▴" else getString(R.string.setup_manual_toggle)
-    }
-
-    private fun expandManual() {
-        if (binding.manualBlock.visibility != View.VISIBLE) toggleManual()
+        dialog.show()
     }
 
     // ---------------------------------------------------------------- 表单
@@ -586,13 +639,17 @@ class SetupActivity : AppCompatActivity() {
         else -> null
     }
 
-    /** 类型一变，输入框该不该出现、提示写什么都跟着变。 */
+    /** 类型一变，输入框该不该出现、提示写什么都跟着变。DLNA 不需要地址也不需要账号。 */
     private fun syncFormForType() {
-        val type = sourceTypeAt(binding.shareType.selectedItemPosition)
+        val form = addBinding ?: return
+        val type = sourceTypeAt(form.shareType.selectedItemPosition)
         val needsAddress = type != SourceType.DLNA && type != SourceType.LOCAL
-        binding.addressBlock.visibility = if (needsAddress) View.VISIBLE else View.GONE
-        binding.shareAddress.hint = SourceAddress.hint(type)
-        binding.addressHelp.text = SourceAddress.help(type)
+        form.addressBlock.visibility = if (needsAddress) View.VISIBLE else View.GONE
+        form.addressHelp.visibility = if (needsAddress) View.VISIBLE else View.GONE
+        form.addAccountLabel.visibility = if (needsAddress) View.VISIBLE else View.GONE
+        form.addAccountBlock.visibility = if (needsAddress) View.VISIBLE else View.GONE
+        form.shareAddress.hint = SourceAddress.hint(type)
+        form.addressHelp.text = SourceAddress.help(type)
     }
 
     private fun statusColor(status: Status): Int = getColor(
@@ -610,9 +667,16 @@ class SetupActivity : AppCompatActivity() {
      * V2.18：最后画的那一条要记下来。横竖屏切换会换掉整套 view，
      * 不记的话旋转之后状态条就是一片空白——真机反馈「转横屏之后内容会消失，
      * 切回竖屏也不正常」就是这么来的。
+     * V2.45：空闲时整块隐藏；点击动作也随状态一起记住，旋转后照样能点开崩溃详情。
      */
-    private fun renderStatus(status: Status, title: String, detail: String, chip: String) {
-        lastStatus = StatusLine(status, title, detail, chip)
+    private fun renderStatus(
+        status: Status,
+        title: String,
+        detail: String,
+        chip: String,
+        action: (() -> Unit)? = null
+    ) {
+        lastStatus = StatusLine(status, title, detail, chip, action)
         applyStatus(lastStatus!!)
     }
 
@@ -624,47 +688,72 @@ class SetupActivity : AppCompatActivity() {
         binding.statusTitle.text = line.title
         binding.statusDetail.text = line.detail
         binding.statusChip.text = line.chip
+        binding.statusBar.visibility =
+            if (line.status == Status.IDLE) View.GONE else View.VISIBLE
+        binding.statusBar.setOnClickListener(
+            if (line.action != null) View.OnClickListener { line.action?.invoke() } else null
+        )
+        // 加片库对话框开着时，状态条在它背后。忙 / 出错必须就地写一份，
+        // 否则用户只会看到一个灰掉的按钮，不知道发生了什么。
+        addBinding?.let { form ->
+            val inDialog = line.status == Status.BUSY || line.status == Status.ERR
+            form.addSourceNote.visibility = if (inDialog) View.VISIBLE else View.GONE
+            form.addSourceNote.text = if (inDialog) "${line.title} · ${line.detail}" else ""
+            form.addSourceNote.setTextColor(color)
+        }
     }
 
     private data class StatusLine(
         val status: Status,
         val title: String,
         val detail: String,
-        val chip: String
+        val chip: String,
+        val action: (() -> Unit)? = null
     )
 
     private fun setBusy(busy: Boolean, detail: String = "") {
-        binding.scanButton.isEnabled = !busy
         binding.localCard.isEnabled = !busy
         binding.lanCard.isEnabled = !busy
+        addBinding?.scanButton?.isEnabled = !busy
         if (busy) {
-            binding.scanButton.text = getString(R.string.setup_scan_busy)
+            addBinding?.scanButton?.text = getString(R.string.setup_scan_busy)
             renderStatus(Status.BUSY, "正在处理…", detail, "进行中")
         } else {
-            binding.scanButton.text = getString(R.string.setup_scan)
+            addBinding?.scanButton?.text = getString(R.string.setup_scan)
         }
     }
 
     // ------------------------------------------------------------ 添加片库
 
     private fun connectAndBrowse() {
-        val type = sourceTypeAt(binding.shareType.selectedItemPosition)
+        val form = addBinding ?: return
+        val type = sourceTypeAt(form.shareType.selectedItemPosition)
         if (type == null) {
             renderStatus(Status.ERR, "先选一种设备", "从上面的列表里挑一个。", "未选")
             return
         }
         prefillKnownCredentials()
-        val raw = binding.shareAddress.text.toString().trim()
-        val user = binding.shareUser.text.toString().trim()
-        val pass = binding.sharePass.text.toString()
+        val raw = form.shareAddress.text.toString().trim()
+        val user = form.shareUser.text.toString().trim()
+        val pass = form.sharePass.text.toString()
+        // 对话框在选完文件夹时就关掉了，递归范围要在这一刻记下来。
+        pendingRecursive = !form.scanNoSubfolders.isChecked
         val creds = SmbCredentials(user, pass)
         setBusy(true, "正在连接 ${raw.ifBlank { "这台设备" }}…")
 
         lifecycleScope.launch {
             try {
                 val state = browser.root(type, raw, creds)
+                // 选文件夹是另一层对话框：先把加片库这层收掉，别叠两层。
+                dismissAddDialog()
+                renderStatus(
+                    Status.OK,
+                    "已连上，选一个文件夹",
+                    "在列表里点进目录，然后按「就用这一层」。",
+                    "选文件夹"
+                )
                 showFolderDialog(state, creds) { chosen ->
-                    saveNew(type, chosen, user, pass)
+                    saveNew(type, chosen, user, pass, pendingRecursive)
                 }
             } catch (error: Exception) {
                 renderStatus(
@@ -683,7 +772,8 @@ class SetupActivity : AppCompatActivity() {
         type: SourceType,
         state: BrowseState,
         user: String,
-        pass: String
+        pass: String,
+        recursive: Boolean
     ) {
         setBusy(true, "正在扫描「${state.displayName}」…")
         lifecycleScope.launch {
@@ -710,7 +800,7 @@ class SetupActivity : AppCompatActivity() {
                     address = state.address,
                     displayName = state.displayName,
                     credentialRef = alias,
-                    recursive = !binding.scanNoSubfolders.isChecked
+                    recursive = recursive
                 )
                 val id = database.sourceDao().upsert(entity)
                 runCatching { indexer.scan(entity.copy(id = id)) }.getOrElse { error ->
@@ -834,6 +924,13 @@ class SetupActivity : AppCompatActivity() {
     private fun darkDialog(view: View): AlertDialog {
         val dialog = AlertDialog.Builder(this, R.style.SetupDialog).setView(view).create()
         dialog.window?.setBackgroundDrawable(ColorDrawable(getColor(R.color.setup_card)))
+        // V2.45：默认对话框很窄，表单里的两个输入框会被挤成两截。
+        // show 之后统一给到屏宽的 92%，横屏也留边，不会被拉伸成一条。
+        dialog.setOnShowListener {
+            val window = dialog.window ?: return@setOnShowListener
+            val width = (resources.displayMetrics.widthPixels * 0.92f).toInt()
+            window.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT)
+        }
         return dialog
     }
 
@@ -917,14 +1014,27 @@ class SetupActivity : AppCompatActivity() {
         val view = DialogEditSourceBinding.inflate(layoutInflater)
         val dialog = darkDialog(view.root)
         var chosen = source.address
+        val type = runCatching { SourceType.valueOf(source.type) }
+            .getOrDefault(SourceType.LOCAL)
+        // V2.45：本机视频 / 媒体服务器没有账号、目录层级这些概念。
+        // 上一版一律把账号密码和「换文件夹」摆出来，用户看到的都是填不了也没用的框。
+        val folderable = type == SourceType.SMB ||
+            type == SourceType.WEBDAV || type == SourceType.HTTP
+        val accountVisibility = if (folderable) View.VISIBLE else View.GONE
+        view.editAccountLabel.visibility = accountVisibility
+        view.editUser.visibility = accountVisibility
+        view.editPass.visibility = accountVisibility
+        view.editBrowse.visibility = accountVisibility
+        view.editNoSubfolders.visibility = accountVisibility
         view.editNoSubfolders.isChecked = !source.recursive
         view.editName.setText(source.displayName)
-        view.editAddress.text = source.address
-        view.editNote.text = "换文件夹不用重新添加；账号密码留空表示保持原样。"
+        view.editAddress.text = source.address.ifBlank { getString(R.string.setup_local_title) }
+        view.editNote.text = getString(
+            if (folderable) R.string.edit_source_browse_note
+            else R.string.edit_source_local_note
+        )
 
         view.editBrowse.setOnClickListener {
-            val type = runCatching { SourceType.valueOf(source.type) }
-                .getOrDefault(SourceType.LOCAL)
             val creds = decodeCredentials(credentials.get(source.credentialRef))
             view.editNote.text = "正在连接…"
             lifecycleScope.launch {
@@ -938,7 +1048,7 @@ class SetupActivity : AppCompatActivity() {
                         if (view.editName.text.toString().trim() == source.displayName) {
                             view.editName.setText(state.displayName)
                         }
-                        view.editNote.text = "已选「${state.displayName}」· 点保存生效"
+                        view.editNote.text = getString(R.string.edit_source_ready, state.displayName)
                     }
                 } catch (error: Exception) {
                     view.editNote.text = "没连上：${error.message}"
@@ -1059,7 +1169,8 @@ class SetupActivity : AppCompatActivity() {
             }
             showFolderDialog(initial = opened, creds = creds) { chosen ->
                 // 复用同一套凭证：saveNew 会比对同主机同账号，直接接住 credentialRef。
-                saveNew(type, chosen, creds.user, creds.password)
+                // 扫描范围沿用这个片库自己的设置，别悄悄把递归改成默认值。
+                saveNew(type, chosen, creds.user, creds.password, source.recursive)
             }
         }
     }
@@ -1133,7 +1244,10 @@ class SetupActivity : AppCompatActivity() {
 
     private fun renderSources(sources: List<SourceEntity>) {
         currentSources = sources
-        binding.sourceCount.text = "${sources.size} 个片源"
+        // V2.45：标题行写真实的片库数与视频总数，不再用含糊的「N 个片源」。
+        binding.sourceCount.text = getString(
+            R.string.source_library_count, sources.size, mediaCounts.values.sum()
+        )
         binding.sourceList.removeAllViews()
 
         val hasLocal = sources.any { it.type == SourceType.LOCAL.name }
@@ -1146,49 +1260,80 @@ class SetupActivity : AppCompatActivity() {
             row.sourceTitle.text = "还没有片库"
             row.sourceSubtitle.text = "点上面任意一个入口就行，不用填东西"
             row.sourceChip.text = "空"
-            row.sourceEdit.visibility = View.GONE
+            row.sourceChip.setTextColor(getColor(R.color.setup_muted))
+            row.sourceMore.visibility = View.GONE
             row.sourceRescan.visibility = View.GONE
-            row.sourceDelete.visibility = View.GONE
+            row.sourceAddFolder.visibility = View.GONE
+            row.sourceHide.visibility = View.GONE
             tintRow(row, getColor(R.color.setup_muted))
             binding.sourceList.addView(row.root)
             return
         }
 
         val cyan = getColor(R.color.setup_cyan)
+        val muted = getColor(R.color.setup_muted)
         sources.forEach { source ->
             val row = ItemSourceBinding.inflate(layoutInflater, binding.sourceList, false)
+            val count = mediaCounts[source.id] ?: 0
             row.sourceTitle.text = source.displayName
-            row.sourceSubtitle.text = source.address.ifBlank { "整机视频" }
-            row.sourceChip.text = chipFor(source)
-            row.sourceChip.setTextColor(cyan)
-            tintRow(row, cyan)
+            row.sourceSubtitle.text = getString(R.string.source_video_count, count)
+            row.sourceChip.text =
+                if (source.enabled) chipFor(source) else getString(R.string.source_hidden)
+            row.sourceChip.setTextColor(if (source.enabled) cyan else muted)
+            if (source.address.isNotBlank()) {
+                row.sourceAddress.text = source.address
+                row.sourceAddress.visibility = View.VISIBLE
+            } else {
+                row.sourceAddress.visibility = View.GONE
+            }
+            tintRow(row, if (source.enabled) cyan else muted)
             row.sourceHide.text = getString(
                 if (source.enabled) R.string.setup_hide else R.string.setup_show
             )
             row.sourceHide.setTextColor(
-                getColor(if (source.enabled) R.color.setup_muted else R.color.setup_cyan)
+                getColor(if (source.enabled) R.color.setup_text else R.color.setup_cyan)
             )
             if (!source.enabled) {
                 // 隐藏的片库压暗一点，但仍然留在列表里，随时能点回来。
                 row.sourceTitle.alpha = 0.55f
                 row.sourceSubtitle.alpha = 0.55f
+                row.sourceAddress.alpha = 0.55f
             }
-            // V2.18：整行可点 = 编辑。真机反馈「点现有的片库也完全没有反应」——
-            // 原来只有右下角那个 12sp 的「编辑」小字能点，卡片本身是死的。
-            // 用户想「在同一台设备上再选一个文件夹」，第一反应就是点那张卡片。
+            // 整行可点 = 编辑（V2.18 真机反馈后定的，保留）。
             row.root.setOnClickListener { showEditDialog(source) }
             row.sourceHide.setOnClickListener { toggleVisible(source) }
-            // V2.18：只有网络片源才有「再加一个文件夹」这回事；本机与媒体服务器没有目录概念。
+            // 只有网络片源才有「再加一个文件夹」这回事；本机与媒体服务器没有目录概念。
             val folderable = source.type == SourceType.SMB.name ||
                 source.type == SourceType.WEBDAV.name ||
                 source.type == SourceType.HTTP.name
             row.sourceAddFolder.visibility = if (folderable) View.VISIBLE else View.GONE
             row.sourceAddFolder.setOnClickListener { addFolderTo(source) }
-            row.sourceEdit.setOnClickListener { showEditDialog(source) }
             row.sourceRescan.setOnClickListener { rescan(source) }
-            row.sourceDelete.setOnClickListener { confirmDelete(source) }
+            row.sourceMore.setOnClickListener { showSourceMenu(source) }
             binding.sourceList.addView(row.root)
         }
+    }
+
+    /**
+     * V2.45：删除不再和「重扫」并排放在卡片上。
+     * 以前它是 32dp 的小字，紧挨着常用动作，误触就是一次不可逆的清理。
+     * 现在收进「更多」，而且 confirmDelete 仍有二次确认。
+     */
+    private fun showSourceMenu(source: SourceEntity) {
+        val labels = arrayOf(
+            getString(R.string.source_more_edit),
+            getString(R.string.source_more_delete)
+        )
+        AlertDialog.Builder(this, R.style.SetupDialog)
+            .setTitle(getString(R.string.source_more_title, source.displayName))
+            .setItems(labels) { _, which ->
+                when (which) {
+                    0 -> showEditDialog(source)
+                    1 -> confirmDelete(source)
+                }
+            }
+            .setNegativeButton(R.string.folder_cancel, null)
+            .show()
     }
 
     /** 卡片上不写协议缩写，写「这是什么」。 */
@@ -1201,11 +1346,8 @@ class SetupActivity : AppCompatActivity() {
         else -> source.type
     }
 
+    /** V2.45：状态点跟着片库显隐变色；胶囊与动作按钮改用固定底，不再整体染色。 */
     private fun tintRow(row: ItemSourceBinding, color: Int) {
         row.sourceDot.background?.mutate()?.setTint(color)
-        row.sourceChip.background?.mutate()?.setTint(color)
-        row.sourceEdit.background?.mutate()?.setTint(getColor(R.color.setup_cyan))
-        row.sourceRescan.background?.mutate()?.setTint(getColor(R.color.setup_cyan))
-        row.sourceDelete.background?.mutate()?.setTint(getColor(R.color.setup_err))
     }
 }

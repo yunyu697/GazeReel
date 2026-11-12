@@ -1,13 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- V2.6：一行就是一个可点的大目标，名字是用户认得的文件夹名，不是 URL / UNC -->
+<!-- V2.45：一行就是一个可点的大目标（56dp），名字是用户认得的文件夹名，不是 URL / UNC。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="6dp"
-    android:minHeight="52dp"
+    android:layout_marginBottom="8dp"
+    android:minHeight="56dp"
+    android:paddingStart="14dp"
+    android:paddingEnd="14dp"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:background="@drawable/bg_setup_field">
+    android:background="@drawable/bg_setup_field"
+    android:foreground="?attr/selectableItemBackground">
 
     <TextView
         android:id="@+id/folderName"

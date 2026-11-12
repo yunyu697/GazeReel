@@ -1,21 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  V2.6：片库不再「加进去就锁死」。每张卡片自带可见动作，不用长按、不用进二级菜单。
+  V2.45：片库卡片重做。
 
-  V2.18：真机反馈「隐藏按钮和其它按钮重叠了」。两个原因一起改：
-  ① 根布局原来**没有 padding**，按钮行直接贴着卡片右边缘；
-  ② 隐藏与编辑之间没有 marginStart，两块带底色的按钮紧挨在一起，看起来就是叠着的。
-  现在统一 14dp 内边距 + 每个按钮 8dp 间距；整行本身可点 = 编辑，
-  按钮只是「不用找也能看见」的快捷方式。
+  上一版一张卡上挤了 5 个 12sp / 32dp 的文字 chip（加文件夹、编辑、重扫、删除、
+  隐藏），右对齐、彼此只隔 8dp，「删除」就贴着「重扫」。用户要么点不中，要么误删。
+  这一版：
+  · 第一行给真实信息：类型 + 视频数 + 地址缩略，右上角一个 48dp 的「更多」；
+  · 第二行只放 3 个常做的动作，每个 48dp 高、等宽、带按下反馈；
+  · 编辑 = 点整张卡，删除收进「更多」并二次确认，不再暴露成随手可用的按钮。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="8dp"
-    android:minHeight="58dp"
+    android:layout_marginBottom="10dp"
+    android:minHeight="76dp"
     android:padding="14dp"
     android:orientation="vertical"
-    android:background="@drawable/bg_setup_box">
+    android:background="@drawable/bg_setup_box"
+    android:foreground="?attr/selectableItemBackground">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -27,7 +29,7 @@
             android:id="@+id/sourceDot"
             android:layout_width="9dp"
             android:layout_height="9dp"
-            android:layout_marginEnd="12dp"
+            android:layout_marginEnd="10dp"
             android:background="@drawable/bg_setup_dot" />
 
         <LinearLayout
@@ -40,7 +42,7 @@
                 android:id="@+id/sourceTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textSize="14sp"
+                android:textSize="15sp"
                 android:textStyle="bold"
                 android:maxLines="1"
                 android:ellipsize="middle"
@@ -50,10 +52,21 @@
                 android:id="@+id/sourceSubtitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:textSize="12sp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textColor="@color/setup_muted" />
+
+            <TextView
+                android:id="@+id/sourceAddress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
                 android:textSize="11sp"
                 android:maxLines="1"
                 android:ellipsize="middle"
+                android:visibility="gone"
                 android:textColor="@color/setup_muted" />
         </LinearLayout>
 
@@ -61,27 +74,20 @@
             android:id="@+id/sourceChip"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:background="@drawable/bg_setup_chip"
-            android:textSize="11sp"
-            android:textColor="@color/setup_muted" />
-
-        <!-- V2.18：隐藏/显示挪到标题行。它是「这个片库现在显不显示」的状态开关，
-             不是和编辑/删除同级的动作；放在按钮行里既挤又容易看错。 -->
-        <TextView
-            android:id="@+id/sourceHide"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:minWidth="44dp"
-            android:minHeight="28dp"
-            android:gravity="center"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:background="@drawable/bg_setup_chip"
-            android:text="@string/setup_hide"
+            android:background="@drawable/bg_setup_chip_solid"
             android:textSize="11sp"
-            android:textColor="@color/setup_muted" />
+            android:textColor="@color/setup_cyan" />
+
+        <ImageButton
+            android:id="@+id/sourceMore"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_setup_more"
+            android:scaleType="fitCenter"
+            android:padding="10dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/cd_more" />
     </LinearLayout>
 
     <LinearLayout
@@ -89,61 +95,45 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
         android:orientation="horizontal"
-        android:gravity="end">
-
-        <!-- V2.18：用户原话「我说的是不用重新填 IP 和凭据」。
-             这个按钮直接用这张卡片自己的主机与凭证去浏览，选完就多一个片库，
-             全程不出现地址框、不出现账号密码。 -->
-        <TextView
-            android:id="@+id/sourceAddFolder"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minWidth="72dp"
-            android:minHeight="32dp"
-            android:gravity="center"
-            android:background="@drawable/bg_setup_chip"
-            android:text="@string/setup_add_folder"
-            android:textSize="12sp"
-            android:textColor="@color/setup_cyan" />
-
-        <TextView
-            android:id="@+id/sourceEdit"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:minWidth="52dp"
-            android:minHeight="32dp"
-            android:gravity="center"
-            android:background="@drawable/bg_setup_chip"
-            android:text="@string/setup_edit"
-            android:textSize="12sp"
-            android:textColor="@color/setup_cyan" />
+        android:gravity="center_vertical">
 
         <TextView
             android:id="@+id/sourceRescan"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:minWidth="52dp"
-            android:minHeight="32dp"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
             android:gravity="center"
-            android:background="@drawable/bg_setup_chip"
-            android:text="@string/setup_rescan"
-            android:textSize="12sp"
+            android:background="@drawable/bg_setup_action"
+            android:foreground="?attr/selectableItemBackground"
+            android:text="@string/source_action_rescan"
+            android:textSize="13sp"
+            android:textColor="@color/setup_text" />
+
+        <TextView
+            android:id="@+id/sourceAddFolder"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:gravity="center"
+            android:background="@drawable/bg_setup_action"
+            android:foreground="?attr/selectableItemBackground"
+            android:text="@string/source_action_folder"
+            android:textSize="13sp"
             android:textColor="@color/setup_cyan" />
 
         <TextView
-            android:id="@+id/sourceDelete"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:id="@+id/sourceHide"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
             android:layout_marginStart="8dp"
-            android:minWidth="52dp"
-            android:minHeight="32dp"
             android:gravity="center"
-            android:background="@drawable/bg_setup_chip"
-            android:text="@string/setup_delete"
-            android:textSize="12sp"
-            android:textColor="@color/setup_err" />
+            android:background="@drawable/bg_setup_action"
+            android:foreground="?attr/selectableItemBackground"
+            android:text="@string/setup_hide"
+            android:textSize="13sp"
+            android:textColor="@color/setup_text" />
     </LinearLayout>
 
 </LinearLayout>

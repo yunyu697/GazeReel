@@ -1,156 +1,176 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- V2.6：已添加的片库可以改名、换账号、换文件夹、重扫、删除。
-     账号密码留空表示「不改」，避免为了换个文件夹被迫重敲密码。 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+  V2.45：编辑片库按类型显隐。
+  上一版对「手机里的视频」也一律摆出账号、密码、换文件夹、不扫子文件夹——
+  本机视频根本没有这些概念，用户看到的输入框全是自己填不了也没用的东西。
+  SetupActivity.showEditDialog 现在只留与这个片源有关的项目。
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="20dp"
-    android:background="@color/setup_card">
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/edit_source_title"
-        android:textSize="17sp"
-        android:textStyle="bold"
-        android:textColor="@color/setup_text" />
-
-    <TextView
-        android:id="@+id/editAddress"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:textSize="11sp"
-        android:maxLines="2"
-        android:ellipsize="middle"
-        android:textColor="@color/setup_muted" />
-
-    <EditText
-        android:id="@+id/editName"
-        android:layout_width="match_parent"
-        android:layout_height="46dp"
-        android:layout_marginTop="14dp"
-        android:background="@drawable/bg_setup_field"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:hint="@string/edit_source_name"
-        android:textSize="13sp"
-        android:textColor="@color/setup_text"
-        android:textColorHint="@color/setup_muted"
-        android:inputType="text"
-        android:singleLine="true"
-        android:importantForAutofill="no" />
-
-    <EditText
-        android:id="@+id/editUser"
-        android:layout_width="match_parent"
-        android:layout_height="46dp"
-        android:layout_marginTop="8dp"
-        android:background="@drawable/bg_setup_field"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:hint="@string/edit_source_user"
-        android:textSize="13sp"
-        android:textColor="@color/setup_text"
-        android:textColorHint="@color/setup_muted"
-        android:inputType="text"
-        android:singleLine="true"
-        android:importantForAutofill="no" />
-
-    <EditText
-        android:id="@+id/editPass"
-        android:layout_width="match_parent"
-        android:layout_height="46dp"
-        android:layout_marginTop="8dp"
-        android:background="@drawable/bg_setup_field"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:hint="@string/edit_source_pass"
-        android:textSize="13sp"
-        android:textColor="@color/setup_text"
-        android:textColorHint="@color/setup_muted"
-        android:inputType="textPassword"
-        android:singleLine="true"
-        android:importantForAutofill="no" />
-
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/editBrowse"
-        android:layout_width="match_parent"
-        android:layout_height="44dp"
-        android:layout_marginTop="12dp"
-        android:text="@string/edit_source_browse"
-        android:textSize="13sp"
-        android:textColor="@color/setup_cyan"
-        app:cornerRadius="10dp"
-        app:strokeColor="@color/setup_border"
-        app:strokeWidth="1dp"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
-
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/editRescan"
-        android:layout_width="match_parent"
-        android:layout_height="44dp"
-        android:layout_marginTop="8dp"
-        android:text="@string/edit_source_rescan"
-        android:textSize="13sp"
-        android:textColor="@color/setup_text"
-        app:cornerRadius="10dp"
-        app:strokeColor="@color/setup_border"
-        app:strokeWidth="1dp"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
-
-    <CheckBox
-        android:id="@+id/editNoSubfolders"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:buttonTint="@color/setup_cyan"
-        android:text="@string/setup_no_subfolders"
-        android:textSize="13sp"
-        android:textColor="@color/setup_text" />
-
-    <TextView
-        android:id="@+id/editNote"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:textSize="11sp"
-        android:lineSpacingExtra="2dp"
-        android:textColor="@color/setup_muted" />
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:orientation="horizontal">
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:background="@color/setup_card">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/edit_source_title"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="@color/setup_text" />
+
+        <TextView
+            android:id="@+id/editAddress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textSize="11sp"
+            android:maxLines="2"
+            android:ellipsize="middle"
+            android:textColor="@color/setup_muted" />
+
+        <EditText
+            android:id="@+id/editName"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="14dp"
+            android:background="@drawable/bg_setup_field"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:hint="@string/edit_source_name"
+            android:textSize="14sp"
+            android:textColor="@color/setup_text"
+            android:textColorHint="@color/setup_muted"
+            android:inputType="text"
+            android:singleLine="true"
+            android:importantForAutofill="no" />
+
+        <TextView
+            android:id="@+id/editAccountLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="@string/setup_account_label"
+            android:textSize="12sp"
+            android:textColor="@color/setup_muted" />
+
+        <EditText
+            android:id="@+id/editUser"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_setup_field"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:hint="@string/edit_source_user"
+            android:textSize="14sp"
+            android:textColor="@color/setup_text"
+            android:textColorHint="@color/setup_muted"
+            android:inputType="text"
+            android:singleLine="true"
+            android:importantForAutofill="no" />
+
+        <EditText
+            android:id="@+id/editPass"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_setup_field"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:hint="@string/edit_source_pass"
+            android:textSize="14sp"
+            android:textColor="@color/setup_text"
+            android:textColorHint="@color/setup_muted"
+            android:inputType="textPassword"
+            android:singleLine="true"
+            android:importantForAutofill="no" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/editCancel"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:text="@string/folder_cancel"
+            android:id="@+id/editBrowse"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="12dp"
+            android:text="@string/edit_source_browse"
+            android:textSize="13sp"
+            android:textColor="@color/setup_cyan"
+            app:cornerRadius="12dp"
+            app:strokeColor="@color/setup_border"
+            app:strokeWidth="1dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/editRescan"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:text="@string/edit_source_rescan"
             android:textSize="13sp"
             android:textColor="@color/setup_text"
-            app:cornerRadius="10dp"
+            app:cornerRadius="12dp"
             app:strokeColor="@color/setup_border"
-            app:strokeWidth="1dp"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+            app:strokeWidth="1dp" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/editSave"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:text="@string/dialog_save"
+        <CheckBox
+            android:id="@+id/editNoSubfolders"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:minHeight="44dp"
+            android:buttonTint="@color/setup_cyan"
+            android:text="@string/setup_no_subfolders"
             android:textSize="13sp"
-            android:textStyle="bold"
-            android:textColor="@color/setup_deep"
-            app:cornerRadius="10dp"
-            app:backgroundTint="@color/setup_cyan" />
-    </LinearLayout>
+            android:textColor="@color/setup_text" />
 
-</LinearLayout>
+        <TextView
+            android:id="@+id/editNote"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:textSize="11sp"
+            android:lineSpacingExtra="2dp"
+            android:textColor="@color/setup_muted" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/editCancel"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="@string/folder_cancel"
+                android:textSize="13sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="12dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/editSave"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="@string/dialog_save"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="@color/setup_deep"
+                app:cornerRadius="12dp"
+                app:backgroundTint="@color/setup_cyan" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>
