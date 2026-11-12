@@ -91,11 +91,6 @@
     <string name="settings_ipd_reset">恢复默认 62.0 mm</string>
     <string name="settings_ipd_note">两眼瞳孔中心的距离。左右画面合不上、看久了发酸，先拖这条粗调，再点 ± 修 0.5mm。它会改变每只眼的画面位置（不是相机间距），所以在球面视频上也看得见变化。</string>
     <string name="settings_done">完成</string>
-    <!-- V2.37：俯仰方向。措辞按「现象 → 动作」写，不解释原理。 -->
-    <string name="settings_flip_title">抬头方向</string>
-    <string name="settings_flip_off">原始响应</string>
-    <string name="settings_flip_on">已反向（推荐）</string>
-    <string name="settings_flip_note">正常是「抬头看天花板、低头看地板」。当前设备实测抬头看到地板，所以默认已反向。它改的是姿态的俯仰响应，不翻画面内容：左右不变、画面不倒、也不会旋转。戴上之后在 VR 控制台「设置 → 抬头方向」也能当场拨。</string>
     <string name="settings_ipd_effect">瞳距改变的是「每只眼的画面朝镜片中心挪多少」：调大 = 两幅画面各自向外分开。每 1mm 约 0.6°。</string>
 
     <!-- V2.38：重定「正前方」的倒计时时长。 -->

@@ -11,9 +11,9 @@
 >    `[设计]` 只有设计、代码没动 · `[已实现]` 代码改了、编译过 · `[真机]` 用户在真机上确认过 · `[回归]` 曾经可用、后来坏了
 > 5. **动任何功能前先核查成熟方案**（官方 SDK / 平台 API / 成熟库 / 行业标准），结论写进《附录 · 成熟方案核查》；自研只做成熟方案不覆盖的那部分，并在裁决记录里写清边界。
 >
-> 最后更新：V2.43 / 1.1.0-alpha30（2026-11-12 上午，两件真机投诉：**「画面上下」拨了整个画面倒过来**、**片库 UI 根本没改过来**。前者是 V2.41 诊断错的连带后果，已更正并改回姿态侧；后者是上一版只画稿没落地，这次代码真正改完）
+> 最后更新：V2.44 / 1.1.0-alpha31（2026-11-12 中午，用户第三条真机投诉：**「alpha30 的抬头方向开关把画面左右翻转了，但抬头/低头还是反的；给了别的 APP 做参考，没能力就照着别人现成的做」**。这一版不再做任何方向开关：按 Google Cardboard SDK 的坐标约定补齐 ENU→Y-up 转换，整条翻转链路删除）
 >
-> **当前基线**：`V2.43 / 1.1.0-alpha30`（上一版 `529baf8` / alpha29）；产物 `GazeReel-1.1.0-alpha30.apk`（**未上真机**）。**默认已把俯仰响应反向**（按真机「抬头看到地板」定），装上新包不用拨任何开关；若方向反而错了，手机设置或 VR 控制台「设置 → 抬头方向」拨关即可。片库已按稿落地。**先看「本轮新增（alpha30）」再上机**。
+> **当前基线**：`V2.44 / 1.1.0-alpha31`（上一版 `4c56078` / alpha30）；产物 `GazeReel-1.1.0-alpha31.apk`（**未上真机**）。**没有任何方向开关**：抬头看天花板、低头看地板由坐标约定保证，手机设置与 VR 控制台里的「抬头方向」都已删除（VR 设置原位换成「重定正前方」）。装上新包无需拨任何开关。**先看「本轮新增（alpha31）」再上机**。
 
 ---
 
@@ -116,7 +116,79 @@
 
 ## 已知未验证（真机一跑就可能翻案）
 
-**总口径**：当前代码 `V2.43 / 1.1.0-alpha30`。alpha4–alpha30 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+**总口径**：当前代码 `V2.44 / 1.1.0-alpha31`。alpha4–alpha31 的多数版本只做了编译、数值校验、离屏图或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+
+### 本轮新增（alpha31 / V2.44，一次真机都没跑）
+
+**零、真机原话（2026-11-12）**
+
+> 「alpha30的抬头方向开关做的都是什么垃圾，开关把画面左右翻转了，但画面跟抬头/低头的方向都还是是反的。都已经给了其他APP做参考，如果没这个能力就照着别人现成的做」
+
+**一、这次不再猜了：离线数值复现出真根因**
+
+四轮方向修复（alpha24 / 26 / 28 / 30）都在做「把 pitch 取反」，全部失败。`build/pose_probe.py`
+复刻 `screenPoseOf → recenterLocked → viewRotationOf → sphere_uv` 后给出硬证据：
+
+- `SensorManager.getRotationMatrixFromVector()` 输出的是 Android **ENU 世界（X 东 / Y 北 / Z 天）**
+  的 device→world 矩阵；全工程从球面网格、准星、`recenterYaw` 到 `PoseMath.yawPitchRollDeg`
+  一律按 **Y 朝天、-Z 朝前** 解读。中间少了一次坐标转换。
+- 后果：正常戴镜、视线水平时按 Y-up 分解出的 `pitch` 恒为 **±90°（万向节死锁）**。四个方位
+  的中性分解都落在死锁点上，所以前几轮开关的效果随用户站的方位时好时坏。
+- alpha30 的 `withInvertedPitch` 在死锁点做欧拉分解重建：抬头 +15° 时 yaw 从 0° 跳到
+  **+180°**、roll 从 0° 跳到 **−180°** —— 真机「开关把画面左右翻转」就是这一次跳变；
+  球面 v 从 0.583（天花板）被翻成 0.417（地板）—— 「抬头/低头还是反的」也同时坐实。
+- 探针 A 段还证明：**原始（未翻转）链路的俯仰响应本来就是对的**（抬头 +15° → v=0.583 天花板）。
+  是 alpha30 默认 `invertPitch=true` 把它翻反了。所以「再加一个开关」永远修不好，只会叠加故障。
+
+**二、照成熟实现做：补坐标转换，删掉整条翻转链路**
+
+- 查 AOSP `SensorManager.java` 与 Google Cardboard SDK `sdk/head_tracker.cc` 确认成熟做法：
+  `HeadTracker::GetRotation()` 返回
+  `SensorToDisplayRotations()[viewport] * predicted_rotation * EkfToHeadTrackerRotations()[viewport]`，
+  其中 `EkfToHeadTrackerRotations` 就是「传感器世界 → Y-up 头追世界」的固定旋转常量。
+  VRTV / SourceVR 用的 `libgvr.so` 同属这套约定。**成熟 App 没有方向开关，方向是坐标约定保证的。**
+- 新增 `core/HeadPose.kt`（纯 Kotlin、不依赖 Android，可 JVM 自检）：`headPose = C · R · S`。
+  `R` = 旋转矢量的 9 元素行主序矩阵；`S` = `screenToDevice(panelRotation)`；
+  `C = Rx(-90°)`，把 ENU 的**天**映成渲染的**上**、**北**映成渲染的**前**。
+  `det(C) = +1`，是合法旋转不是镜像 —— 不倒像、不左右翻、不引入 roll。
+- `SensorHeadsetProvider.onSensorChanged()` 改为一次调用 `HeadPose.headPose()`，
+  本地 `screenPoseOf()` / `screenToDevice()` 算式整段删除。
+- `CardboardHeadsetProvider`：SDK 输出本身已在头追空间（内部有 `EkfToHeadTrackerRotations`），
+  转置后**直接用**，不再叠加任何翻转。两条 Provider 路径都不再需要开关。
+- 删除清单：`PoseMath.withInvertedPitch()`、`VrHeadsetProvider.setInvertPitch()`、
+  `VrSettings.invertPitch`、键 `invert_pitch`（保留 `remove()` 清旧值）、
+  `VrActivity` 下发、`VrCoordinator.toggleOption` 分支与当场推送、
+  `SetupActivity` 的 `flipSwitch` 绑定、`dialog_settings.xml` 的开关与说明、
+  `strings.xml` 四条 `settings_flip_*`、`VrUiLayer` 的「抬头方向」卡。
+  VR 设置原位换成 **`重定正前方`（`VrAction.AlignForward`）**，维持 2×5 网格不缺格，且是已实现动作，
+  不引入新的死 UI。`ProjectionMesh` / 球面 v 一行未动（内容侧翻转的错误不再回来）。
+
+**三、验证（全部离线，一次真机都没跑）**
+
+- `run-pose-check.sh` **75/75**（真代码编译，新增 `HeadPose.kt`）：
+  - 生产代码里的 C 确实等于 `Rx(-90°)`、det=+1、三条基向量映射正确；
+  - 四个 `ROTATION_*` 的中性姿态都是**单位阵**、pitch/roll = 0；对照旧链路四个朝向的中性
+    `pitch` 全是 **+90°**（把根因钉死在自检里，防止再走回头路）；
+  - 五个方位（0/45/90/180/270）戴稳时 pitch/roll 恒 0，只有 yaw 随方位变；
+  - **核心响应**：抬头 v=0.639 / 低头 v=0.361 / 右转 u=0.639 / 左转 u=0.361，
+    五个方位**逐位一致**，roll 恒 0、det 恒 +1；纯偏航时世界「上」仍竖直，
+    所以 `recenterYaw` 的 `rotY` 终于绕真正的竖直轴；
+  - 四个面板朝向（含 `ROTATION_270`）各跑四种头动，全部一致正确 —— 堵住「只在一个朝向对」；
+  - 连续俯仰 155 帧 × 5 方位：roll 最大 0.00°、pitch 最大偏差 0.00°。
+- `run-format-check.sh` 30/30、`check_structure.py` 通过（Kotlin 64 文件 / 15574 行）、
+  `./gradlew assembleDebug --offline` **BUILD SUCCESSFUL**。
+- 顺手把上次拆包留下的 `app/libs/classes_probe.jar` / `build_probe.so` 移出 `libs/`
+  （`fileTree("libs", "*.jar")` 会把探针 jar 打进 APK），现 `app/libs` 只剩 `cardboard-sdk.aar` 与 README。
+
+**四、风险与下一步（说清楚，不粉饰）**
+
+- **仍未上真机**：以上是坐标系与矩阵层面的证明，不是「戴上去看着对」。上机第一件事只验四件事：
+  抬头看天花板、低头看地板、左右同步、画面不倒不旋转。
+- 物理中性姿态 `R0` 是按「用户朝北、横屏、屏幕朝南对着眼睛」推的，自检已用
+  `screenToDevice(90)` 反算校验一致；但真机的 `getRotation()`、传感器轴向与插盒方向只有上机才知道。
+- 本地 `cardboard-sdk.aar` 仍是 Unity C-API 版、缺 Java JNI 入口，运行时**仍回退手写传感器链路**；
+  SDK 路径这次只做了「不再叠加翻转」的清理，没有补 native。
+- 瞳距（离轴视锥）效果、格式浮层视觉统一、mono 360 片源验证，本轮仍未做。
 
 ### 本轮新增（alpha30 / V2.43，一次真机都没跑）
 

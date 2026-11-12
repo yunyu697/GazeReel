@@ -18,13 +18,6 @@ data class EyeParams(
 )
 
 interface VrHeadsetProvider {
-    /**
-     * V2.43：俯仰响应方向。真机确认「抬头看到地板」时置 true，
-     * Provider 在姿态源头套 [PoseMath.withInvertedPitch]。
-     * 默认空实现，保证新增 Provider 不会编译不过。
-     */
-    fun setInvertPitch(enabled: Boolean) {}
-
     /** 是否由硬件（v2 导电触控片 / v1 磁铁）产生触发事件。 */
     val supportsHardwareTrigger: Boolean
 
@@ -35,6 +28,8 @@ interface VrHeadsetProvider {
     /**
      * 头部**姿态**矩阵（设备 → 世界）。
      * 第 3 列取负即世界坐标系里的视线方向，世界锁定 UI 的准星与手势识别都基于它。
+     *
+     * V2.44：坐标系由 [HeadPose] 统一为 Y 朝天、-Z 朝前（Cardboard SDK 约定）。
      * 注意：它不是相机视图矩阵，渲染前必须用 [viewRotationOf] 转置。
      */
     fun headRotation(): FloatArray

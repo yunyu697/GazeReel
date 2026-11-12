@@ -1088,7 +1088,7 @@ class VrUiLayer(
         val cards = listOf(
             CardSpec("亮度", VrSettings.BRIGHTNESS_LABELS[brightnessLevel], null, VrAction.Adjust("brightness", 1)),
             CardSpec("音量", "${volumeLevel + 1} / ${VrSettings.VOLUME_STEPS.size}", null, VrAction.Adjust("volume", 1)),
-            CardSpec("抬头方向", null, s.invertPitch, VrAction.ToggleOption("invertPitch")),
+            CardSpec("重定正前方", "看哪儿定哪儿", null, VrAction.AlignForward),
             CardSpec("锁定视角", null, s.lockView, VrAction.ToggleOption("lockView")),
             CardSpec("自动连播", null, s.autoNext, VrAction.ToggleOption("autoNext")),
             CardSpec("自动淡出", null, s.autoFade, VrAction.ToggleOption("autoFade")),

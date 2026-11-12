@@ -797,22 +797,6 @@ class SetupActivity : AppCompatActivity() {
         view.ipdPlus.setOnClickListener { apply(half + VrSettings.IPD_FINE_HALF) }
         view.ipdReset.setOnClickListener { apply(VrSettings.IPD_DEFAULT_HALF) }
 
-        // V2.43：俯仰响应方向。作用在姿态源头（Ry·Rx(−p)·Rz），不改画面内容，
-        // 所以不会出现「拨一下画面倒过来」或「抬头低头画面在转」。
-        // 默认开是按真机「抬头看到地板」定的，戴上之后也能在 VR 控制台当场拨。
-        val inv = repo.current.invertPitch
-        view.flipSwitch.isChecked = inv
-        view.flipSwitch.text = getString(
-            if (inv) R.string.settings_flip_on else R.string.settings_flip_off
-        )
-        view.flipSwitch.setOnCheckedChangeListener { _, checked ->
-            repo.update { it.copy(invertPitch = checked) }
-            view.flipSwitch.text = getString(
-                if (checked) R.string.settings_flip_on else R.string.settings_flip_off
-            )
-            RunLog.append("pose", "俯仰响应 · ${if (checked) "反向" else "正常"}")
-        }
-
         view.settingsDone.setOnClickListener { dialog.dismiss() }
 
         // V2.38：重定「正前方」的倒计时时长。它是「在限定时间内调整并稳定姿态」里的

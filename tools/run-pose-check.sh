@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 姿态数学 / 球面网格 / 瞳距光学位移的离线自检（只用 JVM，不需要设备、不需要 Gradle）。
 #
-# 编的是 app 里那份真代码（PoseMath / Optics / ProjectionMesh），不是副本。
+# 编的是 app 里那份真代码（HeadPose / PoseMath / Optics / ProjectionMesh），不是副本。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -26,6 +26,7 @@ java -cp "$COMPILER:$STDLIB:$COROUTINES:$TROVE:$ANNOT" org.jetbrains.kotlin.cli.
   -no-stdlib -no-reflect -nowarn \
   -classpath "$STDLIB" \
   -d "$OUT/classes" \
+  app/src/main/java/com/gazereel/vr/core/HeadPose.kt \
   app/src/main/java/com/gazereel/vr/core/PoseMath.kt \
   app/src/main/java/com/gazereel/vr/core/Optics.kt \
   app/src/main/java/com/gazereel/vr/core/VrFormat.kt \

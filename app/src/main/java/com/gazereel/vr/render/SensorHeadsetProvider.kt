@@ -11,13 +11,13 @@ import android.view.Surface
 import android.view.WindowManager
 import com.gazereel.vr.core.Eye
 import com.gazereel.vr.core.EyeParams
+import com.gazereel.vr.core.HeadPose
 import com.gazereel.vr.core.Optics
 import com.gazereel.vr.core.PoseTrace
 import com.gazereel.vr.core.RotationBlend
 import com.gazereel.vr.core.TriggerEvent
 import com.gazereel.vr.core.TriggerKind
 import com.gazereel.vr.core.VrHeadsetProvider
-import com.gazereel.vr.core.PoseMath
 import com.gazereel.vr.core.viewRotationOf
 import com.gazereel.vr.data.RunLog
 
@@ -37,7 +37,7 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         appContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
 
-    /** V2.24 诊断：`screenPoseOf` 最后一次用的叉积模长与分支，只读记录。 */
+    /** V2.44 诊断：视线在水平面上的投影长度。视线正对天顶时它→0，但不再引发任何分支切换。 */
     @Volatile
     private var lastCrossLen = 0f
     @Volatile
@@ -55,12 +55,6 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
 
     @Volatile
     private var viewLocked = false
-    /**
-     * V2.43：俯仰响应反向。默认开——真机（2026-11-12）确认当前设备抬头看到地板，
-     * 这不是「内容倒了」，是姿态的俯仰符号反了。设置里可当场关掉。
-     */
-    private var invertPitch = true
-    override fun setInvertPitch(enabled: Boolean) { invertPitch = enabled }
     private val frozen = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
 
 
@@ -313,10 +307,14 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
         if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
         val deviceToWorld = FloatArray(9)
         SensorManager.getRotationMatrixFromVector(deviceToWorld, event.values)
-        val screenPose = screenPoseOf(deviceToWorld)
-        // V2.43：在**姿态源头**翻转俯仰响应。写进 rotation 之后，
-        // 参考系、视图矩阵、准星、手势、recenter 全都基于同一个姿态，没有反馈回路。
-        val matrix = if (invertPitch) PoseMath.withInvertedPitch(screenPose) else screenPose
+        // V2.44：一次完成「屏幕轴重排 + ENU(Z朝天)→Y-up 坐标转换」，
+        // 照 Cardboard SDK 的 HeadTracker 约定。写进 rotation 的姿态从源头就是
+        // 渲染世界里的合法旋转：没有开关、没有欧拉分解、没有翻转，也不会死锁。
+        val matrix = HeadPose.headPose(deviceToWorld, currentPanelRotation())
+        // 诊断：视线水平分量的长度，θ→0（正对天顶）时→0，但不引发任何分支切换。
+        val f = HeadPose.forward(matrix)
+        lastCrossLen = kotlin.math.sqrt((f[0] * f[0] + f[2] * f[2]).coerceAtLeast(0f))
+        lastBranch = 2
         val crossLen = lastCrossLen
         val branch = lastBranch
         // 参考系的「上」= 偏移矩阵作用在世界天顶上，即它的第三列。
@@ -364,80 +362,16 @@ class SensorHeadsetProvider(context: Context) : VrHeadsetProvider, SensorEventLi
     }
 
     /**
-     * V2.25 第 2 步：屏幕姿态 = 设备姿态 × 屏幕映射。全程矩阵，不分解、不重建。
+     * V2.44：屏幕姿态的构造整段搬进 [HeadPose]，这里不再有任何本地算式。
      *
-     * ## 上一版为什么抖、为什么翻转（真机 1.1.0-alpha11 实测数据）
+     * 旧实现在这里只做 `设备姿态 × 屏幕映射`，出来的矩阵列是「屏幕轴在 **ENU**
+     * （Z 朝天）里的方向」，却被下游当成 Y-up 用 —— 这是连续四轮方向修错的总根因：
+     * 正常戴镜时分解出的 pitch 恒为 ±90°（万向节死锁），俯仰响应反、翻转开关还会
+     * 让 yaw/roll 跳 180°。详见 [HeadPose] 的类注释与 `tools/PoseMathCheck.kt`。
      *
-     * 旧实现把设备姿态拆成 forward，再用 `cross(forward, 天顶)` 叉出 right、
-     * `cross(back, right)` 叉出 up。叉积模长 = sin θ（θ 为视线与重力轴夹角），
-     * θ→0 时它趋零，归一化把噪声放大；更糟的是模长掉到 0.2 以下就换设备 y 轴做参考，
-     * 而换轴那一刻 right 与天顶分支差约 90°，画面直接翻过去。
-     *
-     * 实测：108 秒里分支切换 10 次、单次最大跳 97.9°，横滚跨度 341.7°，
-     * 平放稳定段横滚恒在 −94°（不是抖，是稳稳歪了 90°）。
-     *
-     * ## 现在为什么没有奇点
-     *
-     * 设备姿态本身就是正交矩阵，横滚一直完整地存在它的列里。只要不拆开再拼回去，
-     * 就没有自由度会丢失，θ→0 时矩阵依然正交、依然连续。换轴分支也随之消失。
-     * 「记住原来的方向」的数学形式，就是**别把方向拆出去**。
-     *
-     * ## 屏幕映射是常量，不是猜出来的
-     *
-     * Activity 锁定 landscape，实测 `Display.getRotation()` = 1（ROTATION_90）。
-     * 它只决定屏幕两根轴对应设备的哪两根轴，是固定的轴重排，不需要重力判断。
-     * 映射写错的表现是「整体歪 90°」，而不是抖——可验证、可回退。
-     *
-     * 输出的列依次是 (right, up, back)，第三列取负即视线方向——与
-     * VrUiLayer.gazePoint / GestureRecognizer 使用的 -rotation[8..10] 一致。
+     * 保留「不分解、不重建、不叉积」这条原则：V2.24 的叉积分支在真机 108 秒里
+     * 切换 10 次、单次最大跳 97.9°，那类做法一律不再回来。
      */
-    private fun screenPoseOf(m: FloatArray): FloatArray {
-        val s = screenToDevice(currentPanelRotation())
-
-        // 行主序 3×3 → 列主序 4×4（列 = 设备 x / y / z 在世界中的方向）
-        val r = FloatArray(16)
-        r[0] = m[0]; r[1] = m[3]; r[2] = m[6]; r[3] = 0f
-        r[4] = m[1]; r[5] = m[4]; r[6] = m[7]; r[7] = 0f
-        r[8] = m[2]; r[9] = m[5]; r[10] = m[8]; r[11] = 0f
-        r[12] = 0f; r[13] = 0f; r[14] = 0f; r[15] = 1f
-
-        val out = FloatArray(16)
-        Matrix.multiplyMM(out, 0, r, 0, s, 0)
-
-        // 诊断：不再有分支。退化程度直接由 sinθ 表示，θ→0 时它→0 但不再引发任何切换。
-        val fz = -m[8]
-        lastCrossLen = kotlin.math.sqrt((1f - fz * fz).coerceAtLeast(0f))
-        lastBranch = 1
-        return out
-    }
-
-    /**
-     * 屏幕坐标 → 设备坐标，按 `Display.getRotation()`。
-     *
-     * 三列的物理含义：屏幕的右、上、外分别对应设备的哪根轴。
-     * ROTATION_90：屏幕右 = 设备 +y，屏幕上 = 设备 −x
-     * （与官方 `remapCoordinateSystem(R, AXIS_Y, AXIS_MINUS_X)` 同一含义）。
-     */
-    private fun screenToDevice(rotation: Int): FloatArray {
-        val s = FloatArray(16)
-        Matrix.setIdentityM(s, 0)
-        when (rotation) {
-            Surface.ROTATION_90 -> {
-                s[0] = 0f; s[1] = 1f; s[2] = 0f
-                s[4] = -1f; s[5] = 0f; s[6] = 0f
-            }
-            Surface.ROTATION_180 -> {
-                s[0] = -1f; s[1] = 0f; s[2] = 0f
-                s[4] = 0f; s[5] = -1f; s[6] = 0f
-            }
-            Surface.ROTATION_270 -> {
-                s[0] = 0f; s[1] = -1f; s[2] = 0f
-                s[4] = 1f; s[5] = 0f; s[6] = 0f
-            }
-            else -> Unit   // ROTATION_0：屏幕轴即设备轴
-        }
-        return s
-    }
 
     /** 每帧读一次面板朝向。拿不到就沿用上一次的值，不因为一次异常把画面翻过去。 */
     @Suppress("DEPRECATION")
