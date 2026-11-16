@@ -130,6 +130,18 @@ dependencies {
     // 本地 AAR / JAR：Cardboard SDK 放这里即可（不存在时 fileTree 为空，不影响构建）。
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
 
+    // alpha41：本地 AAR 不会传递它自己的 Gradle 依赖，必须按官方
+    // sdk/build.gradle 的 dependencies 逐条补齐。appcompat(1.7.0) 与 material(1.12.0)
+    // 工程已有，下面三条是缺的。
+    // 缺 protobuf-javalite 时，LensDistortion 构造会在 native 层回调
+    // DeviceParamsUtils.parseCardboardDeviceParams → NoClassDefFoundError 挂起 →
+    // native 继续 NewGlobalRef → ART CheckJNI abort(SIGABRT)。Java try-catch 接不住，
+    // 这正是 alpha40「点进 VR 整个 APP 闪退、日志里没有记录」的根因。
+    // 坐标与官方 v1.36.0 完全一致，不要自行升版本。
+    implementation("com.google.android.gms:play-services-vision:20.1.3")
+    implementation("com.google.protobuf:protobuf-javalite:3.19.4")
+    implementation("org.jspecify:jspecify:1.0.0")
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.google.material)

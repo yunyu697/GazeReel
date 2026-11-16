@@ -20,15 +20,15 @@ export ANDROID_HOME="$ANDROID_SDK"
 export ANDROID_SDK_ROOT="$ANDROID_SDK"
 SDKM="$ANDROID_SDK/cmdline-tools/latest/bin/sdkmanager.bat"
 
-echo "[1/5] Android SDK: $ANDROID_SDK"
+echo "[1/6] Android SDK: $ANDROID_SDK"
 [ -x "$SDKM" ] || { echo "找不到 sdkmanager，请先安装 Android SDK 命令行工具"; exit 1; }
 
-echo "[2/5] 安装 NDK / CMake / 编译组件"
+echo "[2/6] 安装 NDK / CMake / 编译组件"
 "$SDKM" "platforms;android-35" "build-tools;34.0.0" \
         "ndk;$NDK_VERSION" "cmake;$CMAKE_VERSION" >/dev/null
 echo "      ndk=$NDK_VERSION cmake=$CMAKE_VERSION"
 
-echo "[3/5] 下载官方源码 $VERSION"
+echo "[3/6] 下载官方源码 $VERSION"
 mkdir -p "$WORK_DIR"
 ZIP="$WORK_DIR/cardboard-$VERSION.zip"
 curl -sSL --fail --max-time 300 -o "$ZIP" \
@@ -44,7 +44,7 @@ with open(path, "w", encoding="utf-8") as f:
     f.write("sdk.dir=" + sdk.replace(":", "\\:").replace("\\", "\\\\") + "\n")
 PY
 
-echo "[4/5] 构建 sdk AAR（Gradle 9.8 + AGP 9.2，需显式 JVM 代理参数）"
+echo "[4/6] 构建 sdk AAR（Gradle 9.8 + AGP 9.2，需显式 JVM 代理参数）"
 # 必须构建 debug 变体：官方 release 变体开启 minifyEnabled，R8 会把未被引用的
 # java_api 封装类（HeadTracker / LensDistortion 等）裁掉，导致无法做 Java 层绑定。
 # 若要用 release 变体，需在官方 proguard-rules.pro 中补充 -keep com.google.cardboard.sdk.** { *; }
@@ -63,8 +63,13 @@ fi
 AAR="$(find "$SRC_DIR/sdk/build/outputs/aar" -name 'sdk-debug.aar' | head -1)"
 [ -n "$AAR" ] || { echo "未找到构建产物 AAR"; exit 1; }
 
-echo "[5/5] 接入工程"
+echo "[5/6] 接入工程"
 mkdir -p "$PROJECT_DIR/app/libs"
 cp "$AAR" "$PROJECT_DIR/app/libs/cardboard-sdk.aar"
 echo "已复制: $AAR -> app/libs/cardboard-sdk.aar"
+
+echo "[6/6] 补构建 Java API 的 JNI 桥接库 libcardboard_sdk_jni.so"
+# sdk AAR 只含 C API 库；Java 层的 JNI 桥接库定义在 paperscope 模块，
+# 不补会在 Initialize.<clinit> 抛 UnsatisfiedLinkError（alpha39 真机崩溃）。
+bash "$PROJECT_DIR/tools/build_cardboard_jni.sh" "$VERSION"
 echo "完成。app/build.gradle.kts 会自动把 src/cardboard/java 加入编译。"
