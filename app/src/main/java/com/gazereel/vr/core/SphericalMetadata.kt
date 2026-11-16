@@ -30,6 +30,13 @@ object SphericalMetadata {
     data class Probe(
         val width: Int = 0,
         val height: Int = 0,
+        /**
+         * 20:2x：stsd 里的 VisualSampleEntry 4CC 映射出的真实 mime。
+         * 片库靠它 + 宽高离线判断「本机解不了」——**文件名不可信**，
+         * 真机上标 `_4K_HEVC_` 的片子实际可能是 VP9 或 H.264。
+         * null = 容器没给 stsd（WebM/Matroska）或编码不认识，此时不标。
+         */
+        val mime: String? = null,
         /** 容器声明的立体排布；null 表示容器没说。 */
         val layout: StereoLayout? = null,
         /** 容器声明自己是球面/全景。 */
@@ -43,6 +50,7 @@ object SphericalMetadata {
     ) {
         fun describe(): String = buildString {
             append("w=").append(width).append(" h=").append(height)
+            append(" mime=").append(mime ?: "?")
             append(" 球面=").append(if (spherical) "是" else "否")
             append(" 立体=").append(layout?.name ?: "-")
             append(" 视场=").append(fov?.name ?: "-")
@@ -69,6 +77,7 @@ object SphericalMetadata {
 
         val evidence = buildList {
             if (dims != null) add("stsd")
+            if (dims?.third != null) add("codec")
             if (layout != null) add("stereo")
             if (spherical) add("sv3d")
             if (fov != null) add("xmp-crop")
@@ -78,6 +87,7 @@ object SphericalMetadata {
         return Probe(
             width = dims?.first ?: 0,
             height = dims?.second ?: 0,
+            mime = dims?.third,
             layout = layout,
             spherical = spherical && !cubemap,
             fov = if (spherical && !cubemap) fov else null,
@@ -142,20 +152,36 @@ object SphericalMetadata {
         buf.find("cbmp") >= 0 || buf.findIgnoreCase("cubemap") >= 0
 
     /**
-     * 从 `stsd` 里取编码尺寸。
+     * 从 `stsd` 里取编码尺寸**与编码 4CC**。
      * 偏移：stsd 类型(4) + version/flags(4) + entry_count(4) + entry 头(8) +
      * SampleEntry(8) + VisualSampleEntry 前 16 字节 = 宽在类型后第 44 字节。
      *
      * 音轨也有自己的 stsd，那里第 44 字节不是宽高，所以先看 entry 的 4CC 是不是音频。
+     * 20:2x 顺手把 4CC 映射成 mime 带出去：片库要靠它判「本机解不了」，
+     * 而这是全链路唯一在**不播放**时拿得到真实编码的地方。
      */
-    private fun dimensionsOf(buf: ByteArray): Pair<Int, Int>? {
+    private fun dimensionsOf(buf: ByteArray): Triple<Int, Int, String?>? {
         val idx = buf.find("stsd")
         if (idx < 0 || idx + 47 >= buf.size) return null
         val entry = String(buf, idx + 16, 4, Charsets.ISO_8859_1).lowercase()
         if (entry in NON_VIDEO_ENTRIES) return null
         val w = readU16(buf, idx + 44)
         val h = readU16(buf, idx + 46)
-        return if (w in 16..20000 && h in 16..20000) w to h else null
+        return if (w in 16..20000 && h in 16..20000) {
+            Triple(w, h, mimeOfSampleEntry(entry))
+        } else null
+    }
+
+    /**
+     * VisualSampleEntry 4CC → Media3 的 sampleMimeType，与 `PlayerController.mimeOf()`
+     * 同口径。认不出来的返回 null —— 宁可不标，也不要把「未知」误标成「能播」。
+     */
+    private fun mimeOfSampleEntry(fourcc: String): String? = when (fourcc) {
+        "avc1", "avc3", "avc4" -> "video/avc"
+        "hvc1", "hev1", "hvc2" -> "video/hevc"
+        "vp09", "vp9 " -> "video/x-vnd.on2.vp9"
+        "av01" -> "video/av01"
+        else -> null
     }
 
     private val NON_VIDEO_ENTRIES = setOf(

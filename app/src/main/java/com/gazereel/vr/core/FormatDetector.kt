@@ -28,6 +28,20 @@ package com.gazereel.vr.core
  * 而 2016–2020 那批 180 SBS 片源往往什么都没有，只有一条裸流。所以二义时选立体：
  * 判 MONO 的代价是「正对接缝、没法看」，判立体的代价是「画面切两半、小一圈」，
  * 后者一眼看得出，也一键能改。
+ *
+ * ## 18:2x：220 / 270 只走文件名，不进几何反解
+ *
+ * 220° / 270° 是**等距柱状张角档**（见 README），不是鱼眼镜头 FOV。它们的每眼画幅比
+ * 约 1.22 / 1.50，夹在 1:1 与 2:1 之间；若把这两个比例也加进 [fovOfRatio]，
+ * 4:3（1.33）与 16:9（1.78）的普通电影就会被误判成球面 —— 这正是 V2.40 反复栽过的坑。
+ * 所以这两档**只认文件名标记**，或由用户在格式确认浮层手动选；宁可多问一句，不猜。
+ *
+ * ## 19:2x：未缝合双鱼眼 360 是「明确拒绝」，不是「猜不准」
+ *
+ * 这类片源（`.insv` 等机内原始片）画面里两个圆是**同一只眼的前后镜头**。
+ * 按单镜头鱼眼去解，每只眼只看得到一个圆、前后方向还错位，结果是「两团圆」——
+ * 用户看不出是播放器算错了，只会以为片子废了。所以它走 [Refusal] 那条路：
+ * 降级成 2D 银幕原样显示 + 一张说明卡，而不是继续猜一个投影。
  */
 class FormatDetector {
 
@@ -35,7 +49,14 @@ class FormatDetector {
         val format: VrFormat,
         val needsConfirmation: Boolean,
         /** 这个结论主要靠哪条证据，写进运行日志方便对账。 */
-        val source: String = ""
+        val source: String = "",
+        /**
+         * 19:2x：**明确拒绝**的片源（见 [Refusal]）。
+         *
+         * 非 null 时 [format] 已经被降级成 2D 银幕 —— 拒绝不等于不给看，
+         * 而是「宁可原样铺在银幕上，也不做一套错的变换」。
+         */
+        val refusal: Refusal? = null
     )
 
     /** 布局是怎么定下来的，写进日志方便对账（真机报格式问题时第一个要看的东西）。 */
@@ -59,8 +80,31 @@ class FormatDetector {
         val w = probe?.width?.takeIf { it > 0 } ?: width
         val h = probe?.height?.takeIf { it > 0 } ?: height
 
+        // ⓪ 19:2x：**明确拒绝**排在所有判据之前。
+        //
+        // 未缝合的双鱼眼 360 一旦落到下面的鱼眼分支，会被当成「一只眼一个圆」去解：
+        // 每只眼只看得到一个圆，前后两圆方向错位，画面就是「两团圆」。
+        // 那个结果比拒绝更糟 —— 用户看不出是播放器算错了，只会以为片子废了。
+        //
+        // 布局一律 MONO：两个圆是**同一只眼的前后镜头**，切半幅只会再错一次。
+        if (marks.isDualFish) {
+            return Result(
+                VrFormat(Projection.PLANE_2D, StereoLayout.MONO, FieldOfView.FLAT, 0.95f),
+                needsConfirmation = false,
+                source = "双鱼眼未缝合 · 明确拒绝",
+                refusal = Refusal.DUAL_FISHEYE_360
+            )
+        }
+
         // 视场的硬证据：文件名优先于容器。它同时会参与下面的「布局反解」。
+        // 220 / 270 必须排在 180 前面 —— 有些命名（如 `220x180`）会同时命中 HAS_180，
+        // 先判宽档才不会被窄档抢走。
         val fovHint = when {
+            // 19:0x：鱼眼必须排在最前。`mkx220` 里的 220 会被数字边界命中，
+            // 先判 220 就会把鱼眼当等距柱状 220° 播 —— 正是「认成 180 就扭曲」那类错。
+            marks.isFish -> FieldOfView.FOV_FISHEYE
+            marks.is270 -> FieldOfView.FOV_270
+            marks.is220 -> FieldOfView.FOV_220
             marks.is180 -> FieldOfView.FOV_180
             marks.is360 -> FieldOfView.FOV_360
             else -> probe?.fov?.takeIf { it != FieldOfView.FLAT }
@@ -84,7 +128,9 @@ class FormatDetector {
             return Result(
                 VrFormat(projectionOf(fovHint), layout, fovHint, 0.97f),
                 needsConfirmation = false,
-                source = if (marks.is180 || marks.is360) "文件名视场" else "容器视场"
+                source = if (marks.isFish) "文件名鱼眼"
+                else if (marks.is180 || marks.is360 || marks.is220 || marks.is270)
+                    "文件名视场" else "容器视场"
             )
         }
 
@@ -136,6 +182,8 @@ class FormatDetector {
      *
      * 名字和元数据都在时，结论就是它们说的那个；都不在时用宽高比反解（见 [hypotheses]），
      * 二义则取立体。全程没有第三方的「猜测」参与，也没有会随帧变化的判据。
+     * 已知视场是 220 / 270 时，几何表里没有对应项，匹配自然为空 —— 布局只由
+     * 文件名 / 容器说话，不会拿 1.22 / 1.50 去硬套 1:1 或 2:1。
      */
     fun resolveLayout(
         probe: SphericalMetadata.Probe?,
@@ -180,9 +228,14 @@ class FormatDetector {
         return LayoutDecision(StereoLayout.MONO, "无证据", 0.50f)
     }
 
+    /**
+     * 220 / 270 借 `HALF_SPHERE_180` 表达「非整球」；球面真实跨度由 fov.degrees
+     * 在 `ProjectionMesh.curved()` 里决定，与这里的 projection 标签无关。
+     */
     private fun projectionOf(fov: FieldOfView): Projection = when (fov) {
-        FieldOfView.FOV_180 -> Projection.HALF_SPHERE_180
+        FieldOfView.FOV_180, FieldOfView.FOV_220, FieldOfView.FOV_270 -> Projection.HALF_SPHERE_180
         FieldOfView.FOV_360 -> Projection.SPHERE_360
+        FieldOfView.FOV_FISHEYE -> Projection.FISHEYE
         FieldOfView.FLAT -> Projection.PLANE_2D
     }
 
@@ -209,6 +262,9 @@ class FormatDetector {
      * 容差只给 ±5% / ±6%：真实片源的宽高都很规整（3840×1920、4096×2048、5760×2880）。
      * 放宽到 ±15% 会把 16:9（1.78）当成 2:1 —— 普通电影直接进了球面，
      * 这是自检抓到的真实回归，别再加。
+     *
+     * **故意不认 220 / 270 的 1.22 / 1.50**：它们离 4:3（1.33）、16:9（1.78）太近，
+     * 一旦进这张表就会把普通电影判成球面。这两档只走文件名与手选。
      */
     private fun fovOfRatio(ratio: Float): FieldOfView? = when {
         near(ratio, 1f) -> FieldOfView.FOV_180
@@ -249,12 +305,22 @@ class FormatDetector {
      * 旧实现只认 `[_\-. ]` 分隔，`[180][3dh][LR]` 一条都不命中；
      * 而 `name.contains("vr")` 又会命中 `BaDoinkVR` 里的 `vr`，把不相干的文件判成 explicit。
      *
-     * `180` / `360` 额外走「数字边界」匹配，这样 `VR180`、`180x180`、`180SBS` 都能命中，
-     * 又不会把 `1080p`（含 080 但没有独立 180）或 `IMG_1801` 当成 180。
+     * `180` / `360` / `220` / `270` 额外走「数字边界」匹配，这样 `VR180`、`180x180`、
+     * `180SBS` 都能命中，又不会把 `1080p`（含 080 但没有独立 180）或 `IMG_1801` 当成 180。
      */
     class Markers(
         val is180: Boolean,
         val is360: Boolean,
+        /** 18:2x：等距柱状张角档。默认 false，兼容其它构造点。 */
+        val is220: Boolean = false,
+        val is270: Boolean = false,
+        /** 19:0x：单镜头鱼眼。命名标记或中文「鱼眼」。 */
+        val isFish: Boolean = false,
+        /**
+         * 19:2x：**未缝合的双鱼眼 360**。这类片源要明确拒绝，不能按单镜头鱼眼解。
+         * 与 [isFish] 同时为真是正常的（名字里两个词都在）。
+         */
+        val isDualFish: Boolean = false,
         val sbs: Boolean,
         val tab: Boolean,
         val isFlat: Boolean,
@@ -278,8 +344,14 @@ class FormatDetector {
         companion object {
             private val HAS_180 = Regex("(?<![0-9])180(?![0-9])")
             private val HAS_360 = Regex("(?<![0-9])360(?![0-9])")
+            private val HAS_220 = Regex("(?<![0-9])220(?![0-9])")
+            private val HAS_270 = Regex("(?<![0-9])270(?![0-9])")
 
-            fun of(name: String): Markers {
+            fun of(raw: String): Markers {
+                // 19:2x：**自己转小写**，不再依赖调用方先转。
+                // 以前只有 `detect()` 会 lowercase，于是单独调 `Markers.of("Gear360.mp4")`
+                // 会切出 `ear360` 这种 token，标记全都不命中 —— 自检当场抓到的坑。
+                val name = raw.lowercase()
                 val tokens = name.split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }.toSet()
                 fun has(vararg candidates: String) = candidates.any { it in tokens }
 
@@ -294,6 +366,33 @@ class FormatDetector {
                     name.contains("180°") || HAS_180.containsMatchIn(name)
                 val is360 = has("360", "360x360", "vr360", "360vr", "fov360", "360sbs") ||
                     HAS_360.containsMatchIn(name)
+                // 18:2x：只认等距柱状张角档的写法。`mkx220` / `vrca220` 是**鱼眼镜头**档，
+                // 本工程没有径向反畸变与镜头内参，故意不认 —— 认了只会给出变形的画面。
+                val is220 = has("220", "pano220", "fov220", "220sbs", "220tb", "vr220") ||
+                    HAS_220.containsMatchIn(name)
+                val is270 = has("270", "pano270", "fov270", "270sbs", "270tb", "vr270") ||
+                    HAS_270.containsMatchIn(name)
+                // 19:0x：鱼眼镜头标记。`mkx200` / `mkx220` / `vrca220` / `rf52` 是真实镜头型号，
+                // 用户照着镜头改名就能命中；`fisheye` / `fish` / `鱼眼` 是通用写法。
+                // 注意不要认裸 `200`：普通片段里 200 太常见（码率、序号），误判代价是整幅变形。
+                val isFish = has(
+                    "fisheye", "fish", "dfisheye", "mkx200", "mkx220", "vrca220", "rf52",
+                    "fisheye180", "fisheye200", "fisheye220"
+                ) || name.contains("鱼眼")
+                // 19:2x：**未缝合双鱼眼 360** 的标记。三条路，任意一条命中就拒绝：
+                //   1. 明确的写法 `dfisheye` / `dualfisheye`（ffmpeg 与 Insta360 Studio 的默认命名）；
+                //   2. 机内原始片：`.insv` / `insta360` / `gear360` / `onex2|3|4` / `unstitched`
+                //      —— 这些后缀本身就是「还没缝」的意思，不需要再看到 fish；
+                //   3. 鱼眼标记 + `dual`（英文 `dual fisheye` 会被切成两个 token）。
+                // 只认 `dual` 一个词是不够的：`Dual Audio` 这种普通片会被误伤。
+                val rawDual = has(
+                    "insv", "insta360", "gear360", "onex2", "onex3", "onex4",
+                    "unstitched", "unstitch"
+                )
+                val isDualFish = has("dfisheye", "dualfisheye") || rawDual ||
+                    (isFish && has("dual")) ||
+                    listOf("dual fisheye", "dual-fisheye", "双鱼眼", "前后鱼眼")
+                        .any { name.contains(it) }
 
                 val isFlat = has("2d", "flat", "plane", "screen")
                 val monoExplicit = has("mono", "monoscopic", "2d180", "2d360")
@@ -301,6 +400,10 @@ class FormatDetector {
                 return Markers(
                     is180 = is180,
                     is360 = is360,
+                    is220 = is220,
+                    is270 = is270,
+                    isFish = isFish,
+                    isDualFish = isDualFish,
                     sbs = flatWord || flatPhrase.any { name.contains(it) },
                     tab = tabWord || tabPhrase.any { name.contains(it) },
                     isFlat = isFlat,
@@ -316,11 +419,12 @@ class FormatDetector {
     }
 
     private fun fileNameHints(name: String, m: Markers): Result? {
-        val explicit = m.is180 || m.is360 || m.sbs || m.tab || m.isFlat || m.isVr || m.has3d
+        val explicit = m.isFish || m.is180 || m.is360 || m.is220 || m.is270 ||
+            m.sbs || m.tab || m.isFlat || m.isVr || m.has3d
         if (!explicit) return null
 
         // 平面优先于「看到 3d 就猜球面」：SBS 3D 电影同样落在世界锁定银幕上。
-        if (m.isFlat && !m.is180 && !m.is360) {
+        if (m.isFlat && !m.isFish && !m.is180 && !m.is360 && !m.is220 && !m.is270) {
             return Result(
                 VrFormat(Projection.PLANE_2D, m.layout, FieldOfView.FLAT, 0.90f),
                 needsConfirmation = false,
@@ -330,6 +434,21 @@ class FormatDetector {
 
         val ambiguous = m.ambiguousStereo
         return when {
+            m.isFish -> Result(
+                VrFormat(Projection.FISHEYE, m.layout, FieldOfView.FOV_FISHEYE, 0.95f),
+                needsConfirmation = ambiguous,
+                source = "文件名鱼眼"
+            )
+            m.is270 -> Result(
+                VrFormat(Projection.HALF_SPHERE_180, m.layout, FieldOfView.FOV_270, 0.95f),
+                needsConfirmation = ambiguous,
+                source = "文件名 270"
+            )
+            m.is220 -> Result(
+                VrFormat(Projection.HALF_SPHERE_180, m.layout, FieldOfView.FOV_220, 0.95f),
+                needsConfirmation = ambiguous,
+                source = "文件名 220"
+            )
             m.is180 -> Result(
                 VrFormat(
                     Projection.HALF_SPHERE_180, m.layout, FieldOfView.FOV_180,

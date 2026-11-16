@@ -20,6 +20,21 @@ sealed class VrAction {
         override val priority = 2
         override val isPlaybackRelated = true
     }
+
+    /**
+     * alpha35：进度条按**真实凝视点**连续跳转。
+     *
+     * `GazeTarget.action` 是注册目标时的静态值，那会儿还不知道准星会落在轨道的
+     * 哪个 x。这个动作由输入层在 dispatch 那一刻经 `VrUiLayer.resolveAction()`
+     * 换算成 [SeekTo]，凝视与触发键两条通道共用同一个换算点。
+     *
+     * 照 Android `SeekBar` / Material `Slider` 的契约：触点 x 连续映射 value，
+     * 而不是把轨道切成 5 段、每段触发一个段中心的固定比例。
+     */
+    object SeekAt : VrAction() {
+        override val priority = 2
+        override val isPlaybackRelated = true
+    }
     data class SeekBy(val seconds: Int) : VrAction() {
         override val priority = 2
         override val isPlaybackRelated = true
@@ -29,6 +44,27 @@ sealed class VrAction {
         override val isPlaybackRelated = true
     }
     data class Adjust(val key: String, val delta: Int) : VrAction()
+    /** 18:2x：设置浮层两页切换（第 2 页放银幕宽度 / 内容缩放）。 */
+    data class SettingsPage(val page: Int) : VrAction()
+
+    /** 19:0x：鱼眼预设。点一下同时改张角与画面圆大小，不写库里的「按片记忆」。 */
+    data class ApplyFisheye(val preset: FisheyePreset) : VrAction()
+
+    /**
+     * 19:2x：鱼眼三项**一起**回默认（200° / 圆形 / 圆 100%）。
+     *
+     * 三个旋钮挨个拨回去要十几下凝视，而且顺序错了会看到一堆中间态；
+     * 试完镜头参数想「回到我上次那支镜头」是高频动作，给一个明确的出口。
+     */
+    object ResetFisheye : VrAction()
+
+    /**
+     * 19:2x：拒绝卡上的「就这样看」。
+     *
+     * 收起说明卡、画面继续按 2D 银幕原样放着。**不**顺手改成鱼眼 ——
+     * 那正是这张卡要挡住的事；用户真想强开，路径是格式页手选（见 applyFormat）。
+     */
+    object DismissRefusal : VrAction()
     data class ToggleOption(val key: String) : VrAction()
 
     /**
