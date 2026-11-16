@@ -14,8 +14,9 @@ import kotlin.math.sin
  * 连续四轮（alpha24 / 26 / 28 / 30）都在做「把 pitch 取反」这件事，全部失败。
  * 离线数值复现给出的真因不是符号，而是坐标系：Android `SensorManager` 的旋转矢量在
  * **ENU（X 东、Y 北、Z 天）**，而本工程全部按 **Y 朝天、-Z 朝前** 解读。
- * 缺的那一层转换现由 [HeadPose] 在姿态源头补上（照 Cardboard SDK 的
- * `EkfToHeadTrackerRotations` 语义）。补完之后：
+ * alpha39 起生产链路的姿态直接来自官方 Cardboard SDK 的 HeadTracker，
+ * 坐标系转换由 SDK 内部完成（[HeadPose] 仅作离线自检夹具）。此前在姿态源头
+ * 照 `EkfToHeadTrackerRotations` 语义补上 ENU → Y-up 那一层之后：
  *
  * - 正常戴镜时 [yawPitchRollDeg] 得到 (±方位角, 0, 0)，不再恒为 ±90° 的万向节死锁；
  * - 抬头看天花板、低头看地板，四个方位一致（见 `tools/PoseMathCheck.kt`）；
@@ -34,7 +35,7 @@ object PoseMath {
     /**
      * 分解成 `[yaw, pitch, roll]`（度），只用于日志与自检。
      *
-     * V2.44：现在输入的是 [HeadPose] 产出的 Y-up 姿态，戴稳时 pitch/roll 恒为 0，
+     * V2.44：现在输入的是 Y-up 姿态（生产链路由 SDK 给出），戴稳时 pitch/roll 恒为 0，
      * 不再踩万向节死锁；自检用它验证四个方位下 roll 都不会漂。
      */
     fun yawPitchRollDeg(pose: FloatArray): FloatArray {

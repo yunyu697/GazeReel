@@ -23,14 +23,15 @@ import com.google.cardboard.sdk.nativetypes.EyeType
  *   [EyeTextureDescription.texture] 里。
  * - 左眼 `leftU=0 / rightU=0.5`，右眼 `leftU=0.5 / rightU=1`，
  *   两眼 `topV=1 / bottomV=0`。FBO 的 y=0 在下、纹理 v=0 也在下，不需要翻 v。
- * - 每眼 viewport 是 `(0,0,w/2,h)` 与 `(w/2,0,w/2,h)`，与工程直出链路数值一致，
- *   所以换成离屏后每眼画到的像素范围不变，只是落点从屏幕变成纹理。
+ * - 每眼 viewport 是 `(0,0,w/2,h)` 与 `(w/2,0,w/2,h)`，与官方
+ *   `CardboardViewApi` 的离屏渲染一致。
  *
  * ## 失败策略
  *
  * 任何一步失败（FBO 不完整、SDK 网格拿不到、缺 native 库）都返回 null，
- * 让 [VrRenderer] 当帧退回直出，并把整条链标成 failed 不再重试——
+ * 让 [VrRenderer] 跳过这一帧，并把整条链标成 failed 不再重试——
  * 绝不每帧刷日志，也绝不把一个没绑上的 framebuffer 留给绘制循环。
+ * alpha39 起没有「退回直出」这条备用路径：失败原因写日志，等真机暴露后再决定怎么处理。
  *
  * ## GL 线程约定
  *
@@ -185,7 +186,7 @@ internal class SdkDistortionComposer(
         }.getOrElse { t ->
             RunLog.append(
                 "gl",
-                "[C5] 离屏靶创建失败，退回直出：${t.javaClass.simpleName}: ${t.message}"
+                "[SDK] 离屏靶创建失败，本帧跳过：${t.javaClass.simpleName}: ${t.message}"
             )
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
             GLES20.glBindRenderbuffer(GLES20.GL_RENDERBUFFER, 0)
@@ -229,7 +230,7 @@ internal class SdkDistortionComposer(
         }.getOrElse { t ->
             RunLog.append(
                 "gl",
-                "[C5] SDK 畸变网格装载失败，退回直出：${t.javaClass.simpleName}: ${t.message}"
+                "[SDK] 畸变网格装载失败，本帧跳过：${t.javaClass.simpleName}: ${t.message}"
             )
             runCatching { distortionRenderer?.close() }
             distortionRenderer = null

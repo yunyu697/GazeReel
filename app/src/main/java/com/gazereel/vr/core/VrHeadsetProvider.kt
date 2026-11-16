@@ -1,8 +1,11 @@
 package com.gazereel.vr.core
 
 /**
- * PRD 8.1 / 5.3：把畸变、头追、触发输入收敛到一个接口。
- * Cardboard SDK 只是首个实现；SDK 归档后可替换运行时而不改动 UI 与播放层。
+ * alpha39 纯复刻：头追 / 光学 / 触发输入的唯一契约。
+ *
+ * 实现只有 `CardboardHeadsetProvider`（官方 googlevr/cardboard v1.36.0）。
+ * 接口里不再为「另一条路径」预留默认实现：默认路径就是官方 SDK 的每眼矩阵、
+ * 投影与桶形畸变，不存在左右半屏直出、也没有传感器回退。
  */
 enum class Eye { LEFT, RIGHT }
 
@@ -10,11 +13,10 @@ enum class TriggerKind { CLICK, DOUBLE_CLICK, LONG_PRESS }
 
 data class TriggerEvent(val kind: TriggerKind, val atMs: Long)
 
-/** 每眼渲染参数。矩阵均为 OpenGL 列主序 4x4。 */
+/** 每眼渲染参数。矩阵均为 OpenGL 列主序 4x4，由官方 `LensDistortion` 给出。 */
 data class EyeParams(
     val viewMatrix: FloatArray,
-    val projectionMatrix: FloatArray,
-    val distortion: FloatArray = floatArrayOf(0f, 0f)
+    val projectionMatrix: FloatArray
 )
 
 interface VrHeadsetProvider {
@@ -26,90 +28,37 @@ interface VrHeadsetProvider {
     fun attachTriggerListener(listener: (TriggerEvent) -> Unit)
 
     /**
-     * 头部**姿态**矩阵（设备 → 世界）。
-     * 第 3 列取负即世界坐标系里的视线方向，世界锁定 UI 的准星与手势识别都基于它。
+     * 头部**姿态**矩阵（屏幕 → 世界；列 = 屏幕的右 / 上 / 后）。
      *
-     * V2.44：坐标系由 [HeadPose] 统一为 Y 朝天、-Z 朝前（Cardboard SDK 约定）。
-     * 注意：它不是相机视图矩阵，渲染前必须用 [viewRotationOf] 转置。
+     * 约定与唯一的转置点都在 [HeadSpace]：视图矩阵 = `poseᵀ`。
+     * **实现方不得自己转置** —— alpha35 真机的「抬头低头、左右转头画面方向全反，
+     * 而画面本身是正的」就是「Provider 转置一次 + 渲染层再转置一次」造成的：
+     * 静止时 `R ≈ Rᵀ` 看不出来，一转头两个轴一起反。
      */
     fun headRotation(): FloatArray
 
-    fun eyeParams(eye: Eye, aspect: Float, ipdMeters: Float): EyeParams
+    /** 官方公式 `eyeView = eyeFromHead × headView`，投影来自 `getEyeProjectionMatrix`。 */
+    fun eyeParams(eye: Eye): EyeParams
 
     /**
-     * C5 / V2.32：可选的桶形畸变后处理（见 [DistortionComposer]）。
+     * 官方桶形畸变合成链，无条件启用。
      *
-     * 默认 null = 左右半屏直出，画面几何零变化。返回非 null 时，VrRenderer
-     * 会把两眼先画进离屏纹理，再交给它合成；SDK 的真实每眼 FOV / IPD 投影
-     * 与畸变网格必须**同时**启用，只开一个会把视场和网格对不上。
-     *
-     * 默认实现让手写 Provider / 传感器回退路径无需改动。
+     * GL 资源在首次 `beginFrame`（GL 线程）分配；本方法只在主线程造薄对象，不碰 GL。
      */
-    fun distortionComposer(): DistortionComposer? = null
+    fun distortionComposer(): DistortionComposer
 
     /** 「重置正前方」（PRD 4.6）。 */
     fun recenter()
 
-    /**
-     * V2.35：只把**方位角**对齐到此刻的朝向，俯仰与横滚保持重力对齐。
-     *
-     * 「打开视频总对着接缝」不是几何算错：球面网格的正前方采样一直是
-     * 180° SBS 的左眼 u=0.25（左右两幅各自的正中），错的是**参考系**——
-     * 画面相对用户偏了约 90°，正中就压在两幅的接缝上。全量 [recenter] 能转回来，
-     * 但会连俯仰一起重定：用户低头看控制台时打开下一部片，地平线就永久歪了。
-     * 所以这里只绕世界 Y 轴转，方位角对上了、地平线还是平的。
-     *
-     * 默认实现退回 [recenter]，保证新增 Provider 不会编译不过；
-     * 两个既有实现才是「只转 Y 轴」。
-     */
-    fun recenterYaw() = recenter()
+    /** 只把方位角对齐到此刻朝向，俯仰与横滚保持重力对齐（V2.35）。 */
+    fun recenterYaw()
 
-    /**
-     * V2.19 / B5：把「正前方」在 [durationMs] 内**缓转**到当前姿态，而不是瞬跳。
-     *
-     * 瞬跳在头显里是典型的晕动触发源：整个视界在一帧里平移几十度。
-     * 姿态闭环的「把正前方挪到这里」必须走这条，否则用户看到的就是闪一下。
-     *
-     * 默认实现退回 [recenter]（瞬跳），保证新增 Provider 时不会编译不过，
-     * 但**只有真正实现了插值的 Provider 才算 B5 落地**。
-     */
-    fun recenterSmooth(durationMs: Long) = recenter()
+    /** 把正前方在 [durationMs] 内缓转到当前姿态，避免瞬跳晕动（B5）。 */
+    fun recenterSmooth(durationMs: Long)
 
-    /**
-     * V2.19c：把「正前方」缓转到**指定姿态**，而不是「此刻的姿态」。
-     *
-     * 差别只在几度，但恰好是舒适中心最要紧的那几度：姿态确认卡是给凝视点的，
-     * 用户为了点到「挪到这里」必须把视线从候选方向移开几度，
-     * 若按「按下那一刻的朝向」重定，正前方就永久偏了那几度。
-     * 候选姿态是检测到的那一个，用它才是用户确认的那个方向。
-     *
-     * @param pose 设备 → 世界 的姿态矩阵；null 表示「就用此刻的姿态」。
-     */
-    fun recenterTo(pose: FloatArray?, durationMs: Long) = recenterSmooth(durationMs)
+    /** 把正前方缓转到指定姿态（姿态确认卡「挪到这里」用）。null = 此刻姿态。 */
+    fun recenterTo(pose: FloatArray?, durationMs: Long)
 
-    /**
-     * PRD FR-12「锁定视角」：冻结头追输出，画面与 UI 都停在锁定瞬间的朝向。
-     * 默认空实现保证新增 Provider 时不需要立刻实现该能力。
-     */
-    fun setViewLocked(locked: Boolean) = Unit
-}
-
-/**
- * 姿态矩阵的逆（纯旋转，逆 = 转置），即「世界 → 设备」的视图旋转。
- *
- * 真机 V2.7.2 反馈：头向左转画面也向左转。原因是 [VrHeadsetProvider.headRotation]
- * 返回的是设备姿态 R（设备 → 世界），却被直接当成 view 矩阵塞进了 MVP。
- * 相机变换要的是 Rᵀ：世界中的点先被转到设备坐标系，才能投影。
- * 用 R 的话，物理转头 α 与矩阵旋转 α 叠加，画面会同向转 2α ——
- * 头往哪边转，画面就往哪边跑。
- *
- * 只转 3×3，平移列填 0（纯旋转不含平移）。
- */
-fun viewRotationOf(pose: FloatArray): FloatArray {
-    val out = FloatArray(16)
-    out[0] = pose[0]; out[1] = pose[4]; out[2] = pose[8]; out[3] = 0f
-    out[4] = pose[1]; out[5] = pose[5]; out[6] = pose[9]; out[7] = 0f
-    out[8] = pose[2]; out[9] = pose[6]; out[10] = pose[10]; out[11] = 0f
-    out[12] = 0f; out[13] = 0f; out[14] = 0f; out[15] = 1f
-    return out
+    /** PRD FR-12「锁定视角」：冻结头追输出。 */
+    fun setViewLocked(locked: Boolean)
 }

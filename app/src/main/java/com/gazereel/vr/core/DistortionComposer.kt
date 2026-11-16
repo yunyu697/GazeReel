@@ -1,7 +1,7 @@
 package com.gazereel.vr.core
 
 /**
- * C5 / V2.32：可选的「两眼先渲到离屏纹理 → SDK 桶形畸变网格 → 屏幕」后处理链。
+ * alpha39 纯复刻：「两眼先渲到离屏纹理 → SDK 桶形畸变网格 → 屏幕」的唯一渲染链。
  *
  * ## 为什么不直接把 Cardboard SDK 的类写进 VrRenderer
  *
@@ -11,11 +11,11 @@ package com.gazereel.vr.core
  * `com.google.cardboard.sdk.*`，没放 AAR 的机器就编译不过。
  * 所以这里只定接口，实现放在 cardboard 源码集，由 VrHeadsetProvider 注入。
  *
- * ## 默认路径零变化
+ * ## 这是唯一路径
  *
- * [VrHeadsetProvider.distortionComposer] 默认返回 null，渲染器仍按原来的
- * 左右半屏 `glViewport` 直出。只有显式打开 SDK 光学开关，才会走
- * [beginFrame] / [endFrame] 这条离屏链。
+ * [VrHeadsetProvider.distortionComposer] 无条件返回 SDK 实现，渲染器没有
+ * 「左右半屏直出」分支。[beginFrame] 返回 null 只表示**这一帧的 GL 资源没起来**，
+ * 渲染器跳过本帧，不会切到另一套几何或投影。
  *
  * ## 线程约定
  *
@@ -27,10 +27,9 @@ interface DistortionComposer {
     /**
      * 每帧两眼绘制之前调用：创建 / 复用全屏离屏纹理并绑定它的 FBO。
      *
-     * 返回 null 表示这条链不可用（初始化失败、缺 native、FBO 不完整），
-     * 渲染器必须**当帧退回直出**，绝不能画到一个没绑上的 framebuffer 上。
-     * 返回的视口与官方 `CardboardViewApi` 一致：左眼占纹理左半、右眼占右半，
-     * 与现有直出链路的 `glViewport` 数值完全相同，只是落点从屏幕换成纹理。
+     * 返回 null 表示这一帧不可用（FBO 不完整、SDK 网格拿不到、缺 native 库），
+     * 渲染器跳过本帧；绝不能画到一个没绑上的 framebuffer 上。
+     * 视口与官方 `CardboardViewApi` 一致：左眼占纹理左半、右眼占右半。
      */
     fun beginFrame(width: Int, height: Int): DistortionTargets?
 
