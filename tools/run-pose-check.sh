@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # 姿态数学 / 球面网格 / 瞳距光学位移的离线自检（只用 JVM，不需要设备、不需要 Gradle）。
 #
-# 编的是 app 里那份真代码（HeadPose / PoseMath / Optics / ProjectionMesh），不是副本。
+# 编的是 app 里那份真代码，不是副本。
+# alpha39 覆盖边界：第 7 组（HeadSpace / HeadRig）验的是生产链路在用的
+# 「姿态 → view 转置」与参考系；前 6 组含 HeadPose / Optics，验的是已退出生产链路的
+# 传感器坐标转换与自研离轴视锥，只作数学回归，不代表当前渲染方向。
+# SDK 的 LensDistortion 每眼矩阵 / 投影 / 畸变不在这里覆盖，必须真机。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -29,6 +33,9 @@ java -cp "$COMPILER:$STDLIB:$COROUTINES:$TROVE:$ANNOT" org.jetbrains.kotlin.cli.
   app/src/main/java/com/gazereel/vr/core/HeadPose.kt \
   app/src/main/java/com/gazereel/vr/core/PoseMath.kt \
   app/src/main/java/com/gazereel/vr/core/Optics.kt \
+  app/src/main/java/com/gazereel/vr/core/HeadSpace.kt \
+  app/src/main/java/com/gazereel/vr/core/HeadRig.kt \
+  app/src/main/java/com/gazereel/vr/core/RotationBlend.kt \
   app/src/main/java/com/gazereel/vr/core/VrFormat.kt \
   app/src/main/java/com/gazereel/vr/core/VrHeadsetProvider.kt \
   app/src/main/java/com/gazereel/vr/core/DistortionComposer.kt \

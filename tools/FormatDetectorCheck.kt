@@ -157,6 +157,41 @@ fun main() {
         expect("200 次同一结论", "$diff 次不一致", "0 次不一致")
     }
 
+    println("[9] 19:2x：未缝合双鱼眼 360 明确拒绝，不能当单镜头鱼眼播")
+    run {
+        // `.insv` 是 Insta360 的机内原始片：两个圆 = 同一只眼的前后两支镜头。
+        val r = d.detect("VID_20260712_160512.insv", 2880, 2880)
+        expect("insv 被拒绝", (r.refusal != null).toString(), "true")
+        expect("insv 拒绝原因", r.refusal?.key ?: "-", "dual_fisheye_360")
+        // 拒绝不等于不给看：降级成 2D 银幕原样显示，且布局一定是 MONO
+        expect("insv 降级 2D", short(r.format), "PLANE_2D/MONO/FLAT")
+        expect("insv 不再弹确认", r.needsConfirmation.toString(), "false")
+    }
+    run {
+        val r = d.detect("MKX200_dual_fisheye.mp4", 3840, 1920)
+        expect("dual fisheye 被拒绝", r.refusal?.key ?: "-", "dual_fisheye_360")
+    }
+    run {
+        // 单镜头鱼眼（VR180 相机 / 圆图）不能被拒绝规则误伤。
+        val r = d.detect("MKX200_fisheye_sbs.mp4", 3840, 1920)
+        expect("单镜头鱼眼不拒绝", (r.refusal == null).toString(), "true")
+        expect("单镜头鱼眼仍是鱼眼", short(r.format), "FISHEYE/SBS/FOV_FISHEYE")
+    }
+    run {
+        // 只认 `dual` 一个词会把普通片误杀：`Dual Audio` 是音轨，不是镜头。
+        val r = d.detect("Dual Audio Movie 1080p.mp4", 1920, 1080)
+        expect("Dual Audio 不拒绝", (r.refusal == null).toString(), "true")
+        expect("Dual Audio 仍是 2D", r.format.projection.name, "PLANE_2D")
+    }
+    run {
+        val m = FormatDetector.Markers.of("Gear360_raw.mp4")
+        expect("Gear360 原始片认双鱼眼", m.isDualFish.toString(), "true")
+        val n = FormatDetector.Markers.of("vrca220_fisheye.mp4")
+        expect("VRCA 圆图不是双鱼眼", n.isDualFish.toString(), "false")
+        val c = FormatDetector.Markers.of("双鱼眼测试.mp4")
+        expect("中文「双鱼眼」也认", c.isDualFish.toString(), "true")
+    }
+
     println()
     println("通过 $passed · 失败 $failed")
     if (failed > 0) throw AssertionError("$failed 条断言未通过")

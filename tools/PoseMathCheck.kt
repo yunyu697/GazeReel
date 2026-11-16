@@ -1,6 +1,8 @@
 package check
 
 import com.gazereel.vr.core.HeadPose
+import com.gazereel.vr.core.HeadRig
+import com.gazereel.vr.core.HeadSpace
 import com.gazereel.vr.core.Optics
 import com.gazereel.vr.core.PoseMath
 import com.gazereel.vr.core.Projection
@@ -184,6 +186,19 @@ private fun rotatedR(hdg: Double, motion: Motion, rot: Int = HeadPose.ROTATION_9
 private fun inReference(r: DoubleArray, hdg: Double, rot: Int = HeadPose.ROTATION_90): DoubleArray {
     val o = tr(toRow3(headPose(neutralR(hdg, rot), rot)))
     return mul(o, toRow3(headPose(r, rot)))
+}
+
+/**
+ * 把世界坐标点用视图矩阵变换到相机坐标：`v_cam = R·v + t`（列主序 4×4）。
+ *
+ * 第 7 组要用它来回答「屏幕上的点往哪边跑」——这正是真机看到的那个量。
+ */
+private fun applyView(view: FloatArray, x: Float, y: Float, z: Float): FloatArray {
+    val out = FloatArray(3)
+    for (r in 0 until 3) {
+        out[r] = view[r] * x + view[4 + r] * y + view[8 + r] * z + view[12 + r]
+    }
+    return out
 }
 
 fun main() {
@@ -390,7 +405,8 @@ fun main() {
 
     val mesh = ProjectionMesh()
     run {
-        val geo = mesh.build(Projection.HALF_SPHERE_180)
+        // 18:2x 起 build() 必须给张角（球面跨度参与几何）；180 就是这里要验的那一档。
+        val geo = mesh.build(Projection.HALF_SPHERE_180, 180)
         val front = vertexNearest(geo, 0f, 0f, -1f)
         check(
             "180 半球正前方 u=0.5（接缝判据）",
@@ -430,6 +446,159 @@ fun main() {
             "离轴视锥向外偏",
             (bounds[0] + bounds[1]) / 2f > 0.01f && bounds[1] > bounds[0],
             "left=${bounds[0]} right=${bounds[1]}"
+        )
+    }
+
+    // ── 第 7 组：姿态 → 视图矩阵 → 屏幕方向（alpha38 新增）──────────────
+    //
+    // 前六组证明的是「姿态本身对不对」（抬头 → 球面上半）。
+    // 但真机看到的是「姿态 → view → 屏幕」这一步，而 alpha35 的「抬头低头、
+    // 左右转头画面方向全反、画面本身却是正的」恰恰发生在这里：view 用成了 pose，
+    // 等于把物理转角又叠了一次。这一组把这一步也钉死，且不需要装机。
+
+    run {
+        val p = PoseMath.poseOf(23f, 11f, 7f)
+        val v = HeadSpace.viewMatrix(p)
+        val back = HeadSpace.multiply(v, p)
+        var maxDev = 0.0
+        for (i in 0 until 16) {
+            val target = if (i % 5 == 0) 1f else 0f
+            maxDev = maxOf(maxDev, abs(back[i] - target).toDouble())
+        }
+        check("view · pose = I（view 恰好是 poseᵀ）", maxDev < 1e-5, "最大偏差 ${f2(maxDev)}")
+    }
+
+    run {
+        val yaw = 30f
+        val cam = applyView(HeadSpace.viewMatrix(PoseMath.poseOf(yaw, 0f, 0f)), 0f, 0f, -1f)
+        check(
+            "右转 ${yaw.toInt()}° → 正前方的东西移到屏幕**左**边",
+            cam[0] < -0.4f && abs(cam[2] + 0.866f) < 0.02f,
+            "x=${f2(cam[0].toDouble())} z=${f2(cam[2].toDouble())}（期望 x≈−0.500）"
+        )
+    }
+
+    run {
+        val cam = applyView(HeadSpace.viewMatrix(PoseMath.poseOf(-30f, 0f, 0f)), 0f, 0f, -1f)
+        check(
+            "左转 30° → 正前方的东西移到屏幕**右**边",
+            cam[0] > 0.4f,
+            "x=${f2(cam[0].toDouble())}（期望 ≈+0.500）"
+        )
+    }
+
+    run {
+        val pitch = 20f
+        val cam = applyView(HeadSpace.viewMatrix(PoseMath.poseOf(0f, pitch, 0f)), 0f, 0f, -1f)
+        check(
+            "抬头 ${pitch.toInt()}° → 正前方的东西移到屏幕**下**边",
+            cam[1] < -0.3f && abs(cam[2] + 0.9397f) < 0.02f,
+            "y=${f2(cam[1].toDouble())}（期望 ≈−0.342）"
+        )
+    }
+
+    run {
+        val cam = applyView(HeadSpace.viewMatrix(PoseMath.poseOf(0f, -20f, 0f)), 0f, 0f, -1f)
+        check(
+            "低头 20° → 正前方的东西移到屏幕**上**边",
+            cam[1] > 0.3f,
+            "y=${f2(cam[1].toDouble())}（期望 ≈+0.342）"
+        )
+    }
+
+    run {
+        // 反证：把 view 当 pose 用（alpha35 的实际状态），右转会让画面**跟着头同向跑**。
+        // 这条断言存在的意义是：这个 bug 若再回来，自检会立刻红。
+        val pose = PoseMath.poseOf(30f, 0f, 0f)
+        val wrong = applyView(HeadSpace.viewMatrix(HeadSpace.transpose(pose)), 0f, 0f, -1f)
+        check(
+            "反证：多转置一次 → 画面与头同向（真机「方向反了」的成因）",
+            wrong[0] > 0.4f,
+            "x=${f2(wrong[0].toDouble())}（应与「右转」那条符号相反）"
+        )
+    }
+
+    run {
+        // 左眼相机在屏幕系里偏 −X（e = (−d, 0, 0)），而 v_cam = Pᵀ·v − e，
+        // 所以平移列是 **+d**：正前方的物体落在左眼光轴的右侧。
+        // 与旧实现 Matrix.setLookAtM(eyeX,0,0 → eyeX,0,−1) 逐元素一致。
+        val d = 0.031f
+        val left = HeadSpace.viewMatrix(PoseMath.poseOf(0f, 0f, 0f), -d)
+        val right = HeadSpace.viewMatrix(PoseMath.poseOf(0f, 0f, 0f), d)
+        check(
+            "眼位平移落在 view 的平移列（左眼 +d / 右眼 −d）",
+            abs(left[12] - d) < 1e-6f && abs(right[12] + d) < 1e-6f &&
+                left[13] == 0f && left[14] == 0f,
+            "左 t=${f2(left[12].toDouble())} · 右 t=${f2(right[12].toDouble())}"
+        )
+    }
+
+    run {
+        val near = 0.1f
+        val far = 50f
+        val proj = HeadSpace.frustum(-0.5f, 0.5f, -0.5f, 0.5f, near, far)
+        val zc = proj[10] * (-near) + proj[14]
+        val wc = near
+        check(
+            "投影：近平面中点 → z_ndc = −1（等价于 Matrix.frustumM）",
+            abs(zc / wc + 1f) < 1e-4f && proj[11] == -1f,
+            "z_ndc=${f2((zc / wc).toDouble())}"
+        )
+    }
+
+    run {
+        val a = PoseMath.poseOf(0f, 0f, 0f)
+        val b = PoseMath.poseOf(40f, 0f, 0f)
+        val same = HeadSpace.rotationAngleDeg(a, a)
+        val apart = HeadSpace.rotationAngleDeg(a, b)
+        check(
+            "姿态夹角：自身 0°、相差 40° 时读到 40°",
+            same < 0.01f && abs(apart - 40f) < 0.5f,
+            "自身 ${deg(same)}° · 相差 ${deg(apart)}°"
+        )
+    }
+
+    run {
+        val rig = HeadRig { 0L }
+        rig.beginSession()
+        rig.submit(PoseMath.poseOf(37f, 12f, 5f))
+        rig.recenter()
+        val dev = HeadSpace.rotationAngleDeg(rig.pose(), HeadSpace.identity())
+        check("recenter 后「此刻朝向」就是正前方", dev < 0.05f, "偏差 ${deg(dev)}°")
+    }
+
+    run {
+        var now = 0L
+        val rig = HeadRig { now }
+        rig.beginSession()
+        rig.submit(HeadSpace.identity())
+        rig.recenter()
+        val raw = PoseMath.poseOf(20f, 0f, 0f)
+        rig.submit(raw)
+        rig.recenterTo(raw, 100L)
+        now = 200L
+        val dev = HeadSpace.rotationAngleDeg(rig.pose(), HeadSpace.identity())
+        check(
+            "recenterTo(H)：O' = H⁻¹·O 让 H 变成正前方（不是 H⁻¹，会偏几十度）",
+            dev < 0.05f,
+            "偏差 ${deg(dev)}°"
+        )
+    }
+
+    run {
+        val rig = HeadRig { 0L }
+        rig.beginSession()
+        rig.submit(HeadSpace.identity())
+        rig.recenter()
+        rig.submit(PoseMath.poseOf(35f, 18f, 0f))
+        val beforePitch = PoseMath.gazePitchDeg(rig.pose())
+        rig.recenterYaw()
+        val after = rig.pose()
+        check(
+            "recenterYaw 只转 Y 轴：方位角归零、俯仰不变",
+            abs(PoseMath.gazeYawDeg(after)) < 0.5f &&
+                abs(PoseMath.gazePitchDeg(after) - beforePitch) < 0.5f,
+            "yaw ${deg(PoseMath.gazeYawDeg(after))}° · pitch ${deg(PoseMath.gazePitchDeg(after))}°"
         )
     }
 

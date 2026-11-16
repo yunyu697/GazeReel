@@ -35,6 +35,7 @@ java -cp "$COMPILER:$STDLIB:$COROUTINES:$TROVE:$ANNOT" org.jetbrains.kotlin.cli.
   app/src/main/java/com/gazereel/vr/core/DistortionComposer.kt \
   app/src/main/java/com/gazereel/vr/core/PoseMath.kt \
   app/src/main/java/com/gazereel/vr/core/SphericalMetadata.kt \
+  app/src/main/java/com/gazereel/vr/core/Refusal.kt \
   app/src/main/java/com/gazereel/vr/core/FormatDetector.kt \
   tools/FormatDetectorCheck.kt
 
