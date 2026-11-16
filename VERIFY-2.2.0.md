@@ -11,10 +11,10 @@
 
 ```bash
 # 1) 装包（保留数据升级；首次装用 install 不带 -r 也行）
-adb install -r output/GazeReel-2.2.0-alpha4.apk
+adb install -r output/GazeReel-2.2.0-alpha5.apk
 
-# 2) 确认版本对得上（应输出 versionName='2.2.0-alpha4'）
-aapt2 dump badging output/GazeReel-2.2.0-alpha4.apk | head -1
+# 2) 确认版本对得上（应输出 versionName='2.2.0-alpha5'）
+aapt2 dump badging output/GazeReel-2.2.0-alpha5.apk | head -1
 ```
 
 **取证三件套**（每项失败都要，否则我无法定位）：
@@ -124,7 +124,7 @@ adb logcat -d -b crash > crash-v4.txt
 ## 3. 记录表（复制到对话里填）
 
 ```
-版本：2.2.0-alpha4    设备：<型号> / Android <版本>
+版本：2.2.0-alpha5    设备：<型号> / Android <版本>
 
 V1 360        □过 □不过   备注：
 V2 180        □过 □不过   备注：
