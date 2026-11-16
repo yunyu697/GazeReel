@@ -159,15 +159,14 @@ class VrUiLayer(
 
         // 17:7x：唤出热区与徽标的对称轴。
         //
-        // **对称轴 = 正前方中心水平线（pitch 0）**，也就是头不动、眼平视时的
-        // 那条水平线。**它不是「视频中心线」** —— 影院形态下银幕中心
-        // （`SCREEN_CENTER_Y = 0.62` @ 5 m）比视线高 7.1°，两条线不是同一条。
-        // 上一版 KDoc 把两者混称「视频中心线（pitch 0）」，是错的：按银幕中心算，
-        // 上区要压到 +45°、下区只剩 −31°，既不好够也不再对称。
+        // **基准轴 = 参考系水平线（pitch 0）**，球面 / 180° / 鱼眼的内容正前方
+        // 就是这条线。影院（PLANE_2D）不直接用它：用户认定的「当前正前方」是
+        // 正在看的银幕中心，比水平线高 atan(screenCenterY / SCREEN_DISTANCE)
+        // ≈ 7.1°，且随幕宽档位变化。实际轴由 [wakeAxisDeg] 按投影现算。
         //
-        // 轴线取 0 还有一个结构性理由：`panelSpec` 的播放页 pitch 恒为 −13°、
-        // 与 projection 无关，而 0 就是视空间的正前方 —— 2D / 180° / 360° 三种投影
-        // 共用同一个物理方向，不会出现「影院里对、球面里跑到画面中间」。
+        // 2026-11-16 真机反馈：轴钉在 0° 时，用户低头约 90° 才碰到下区、
+        // 抬头 78° 反而越过上区。原因正是这 7.1° 差——按用户口径，
+        // 「低头/抬头 78°」必须从当前看的内容中心量起，不是从水平线量起。
         //
         // 上下由「轴线 ± 单侧张角」推导，不写两个独立的字面量：只要改 SPAN，
         // 两侧同步移动，对称不可能被漏改破坏。
@@ -180,8 +179,6 @@ class VrUiLayer(
         const val WAKE_INNER_DEG = 75f
         const val WAKE_OUTER_DEG = 81f
         const val WAKE_SPAN_DEG = (WAKE_INNER_DEG + WAKE_OUTER_DEG) / 2f
-        const val WAKE_UP_DEG = WAKE_AXIS_DEG + WAKE_SPAN_DEG
-        const val WAKE_DOWN_DEG = WAKE_AXIS_DEG - WAKE_SPAN_DEG
         /**
          * 上下带宽：内缘 ±75°、外缘 ±81° → 中心 ±78°、半高 **3°**、每条 **6° 高**。
          *
@@ -402,6 +399,34 @@ class VrUiLayer(
 
     /** 播放控制台置于视野下方约 13°，其余界面居中（PRD 3.5）。 */
     fun panelPitch(state: VrUiState): Float = panelSpec(state).pitch
+
+    /**
+     * 当前投影下用户认定的「正前方」仰角（度，抬头为正）。
+     *
+     * 用户口径 2026-11-16：「低头 / 抬头 78°」必须从**当前正在看的内容中心**
+     * 量起，不是从参考系水平线量起。
+     * - `PLANE_2D`：银幕中心，仰角 = atan(screenCenterY / SCREEN_DISTANCE)，
+     *   幕宽档位会改 centerY，所以必须按 [VrSettings.screenWidthPercent] 现算。
+     * - 球面 / 180° / 鱼眼：内容以视线为中心，仍是基准 0°。
+     *
+     * 命中区与细线 quad 必须同时用这个函数的结果，否则「看到的线」和
+     *「压中的区」会差一个银幕仰角——正是真机上的那个偏差。
+     */
+    fun wakeAxisDeg(state: VrUiState): Float =
+        if (state.format.projection == Projection.PLANE_2D) {
+            Math.toDegrees(
+                atan2(
+                    ProjectionMesh.screenCenterY(state.settings.screenWidthPercent).toDouble(),
+                    ProjectionMesh.SCREEN_DISTANCE.toDouble()
+                )
+            ).toFloat()
+        } else WAKE_AXIS_DEG
+
+    /** 上区中心：当前内容正前方 + [WAKE_SPAN_DEG]。 */
+    fun wakeUpDeg(state: VrUiState): Float = wakeAxisDeg(state) + WAKE_SPAN_DEG
+
+    /** 下区中心：当前内容正前方 − [WAKE_SPAN_DEG]。 */
+    fun wakeDownDeg(state: VrUiState): Float = wakeAxisDeg(state) - WAKE_SPAN_DEG
 
     /**
      * 头部姿态 → 准星在 UI 画布上的落点。面板尺寸与朝向都会影响映射。
@@ -1431,21 +1456,24 @@ class VrUiLayer(
      * 目标数 22 → 15 → 11（其中 10 个是 ≥66px / 4.0° 的大目标）。
      */
     /**
-     * 播放页的「唤出控制」热区：正前方偏上、偏下各一条，**以正前方中心水平线
-     * （pitch 0）为对称轴**。
+     * 播放页的「唤出控制」热区：当前内容正前方偏上、偏下各一条，
+     * **以 [wakeAxisDeg] 为对称轴**。
      *
-     * ## 对称轴是哪条线（上一版写错过，这里定死）
+     * ## 对称轴是哪条线（2026-11-16 真机后改定）
      *
-     * 是**头不动、眼平视的那条水平线**，不是「视频中心线」：影院形态下银幕中心
-     * `SCREEN_CENTER_Y = 0.62` m、距离 5 m，比视线高 **7.1°**。若按银幕中心当轴，
-     * 上区会变成 +45°（够不到）、下区只剩 −31°（又不够下），且与「上下对称」矛盾。
+     * 是**用户正在看的内容中心**，不是参考系水平线。影院形态下银幕中心比水平线
+     * 高约 7.1°（且随幕宽档位变化）；球面 / 180° / 鱼眼的内容中心就是参考系 0°。
      *
-     * 轴取 0 的另一个理由：它与投影类型无关。`panelSpec` 播放页 pitch 恒 −13°，
-     * 那是「画布挂在哪」的问题；视空间的 0° 在 2D / 180° / 360° 下是同一个物理方向。
+     * 旧版把轴钉在 0°，结果按用户的量法（从银幕中心起算）下区落在约 −85°、
+     * 上区落在约 +71°：真机就是「低头差不多 90° 才看到细条、抬头 78° 完全找不到」。
+     * 轴改到内容中心后，两侧才真的是「低头 / 抬头 78°」。
+     *
+     * `panelSpec` 播放页 pitch 恒 −13° 是「控制台画布挂在哪」，与唤醒轴无关；
+     * 轴只看投影的内容中心。
      *
      * ## 位置
      *
-     * 热区中心 `WAKE_AXIS_DEG ± WAKE_SPAN_DEG` = **±78°**，半高 3°，
+     * 热区中心 = `[wakeAxisDeg] ± WAKE_SPAN_DEG` = **相对内容中心 ±78°**，半高 3°，
      * 即上 **+75°~+81°**、下 **−81°~−75°**（每条 6° 高，横向 25.2° 宽）。
      * 中心与半高都由两条边推导（`(INNER+OUTER)/2`、`(OUTER−INNER)/2`），
      * 不存在「两个字面量碰巧相等」的对称。
@@ -1466,7 +1494,7 @@ class VrUiLayer(
      *
      * 所以这里**只注册命中区**；提示由 `renderWakeBadge` 画成一条细线，写进一张
      * 独立的 1024×64 纹理，再由 `VrRenderer` 挂到热区中心方向的独立 quad 上。
-     * quad 中心就落在那个方向、距眼 2 米，抬头/低头到 ±78° 时正对着它，
+     * quad 中心就落在那个方向、距眼 2 米，从内容正前方抬头/低头到 ±78° 时正对着它，
      * 不需要靠「主画布外延伸」来显示。悬停即出现、离开即消失，不悬停时零像素。
      *
      * 18:5x：提示从胶囊改成细线、并在设置里加了开关（`wakeZoneEnabled`）。
@@ -1498,13 +1526,16 @@ class VrUiLayer(
         val dx =
             (Math.toRadians(WAKE_HALF_WIDTH_DEG.toDouble()) / halfWidth * (W / 2f)).toFloat()
 
-        // 上 +75°~+81°、下 −81°~−75°：以**正前方中心水平线（0°）**对称。
-        // 注意 0° 不是「视频中心线」——影院银幕中心高 7.1°，两者不同。
-        // 两组都远在画布 0~512 之外；这里只注册命中区，视觉全部交给独立徽标 quad。
-        val upTop = yAt((WAKE_UP_DEG + WAKE_HALF_DEG).toDouble())
-        val upBottom = yAt((WAKE_UP_DEG - WAKE_HALF_DEG).toDouble())
-        val downTop = yAt((WAKE_DOWN_DEG + WAKE_HALF_DEG).toDouble())
-        val downBottom = yAt((WAKE_DOWN_DEG - WAKE_HALF_DEG).toDouble())
+        // 上 / 下各离「当前内容正前方」78°，以 [wakeAxisDeg] 对称。
+        // 影院里这条轴是银幕中心（≈+7.1°），球面里是参考系 0°；
+        // 两组都远在画布 0~512 之外，这里只注册命中区，视觉交给独立徽标 quad。
+        val axis = wakeAxisDeg(state)
+        val up = axis + WAKE_SPAN_DEG
+        val down = axis - WAKE_SPAN_DEG
+        val upTop = yAt((up + WAKE_HALF_DEG).toDouble())
+        val upBottom = yAt((up - WAKE_HALF_DEG).toDouble())
+        val downTop = yAt((down + WAKE_HALF_DEG).toDouble())
+        val downBottom = yAt((down - WAKE_HALF_DEG).toDouble())
 
         targets += GazeTarget(
             "wakeConsoleUp", "唤出控制",

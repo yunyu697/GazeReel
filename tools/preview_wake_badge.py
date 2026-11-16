@@ -2,8 +2,8 @@
 """画出唤醒热区在视野中的位置，以及徽标的实际外观。
 
 左栏：垂直剖面（+90°~−90°），标出
-  - **对称轴 = 正前方中心水平线（0°）**
-  - 影院银幕中心（+7.1°）与银幕上下缘 —— 它不是对称轴，两者差 7.1°
+  - **对称轴 = 当前内容正前方**：影院取银幕中心（≈+7.1°），球面取 0°
+  - 基准水平线（0°）与银幕上下缘，用来看清两者的 7.1° 差
   - UI 画布覆盖范围、上下热区
 右栏：悬停提示的实际外观（一条细线，0% / 62% 两个状态）+ 新旧宽度对照。
 
@@ -49,7 +49,7 @@ def font(size):
 src = UI.read_text(encoding="utf-8")
 mesh = MESH.read_text(encoding="utf-8")
 
-AXIS = grab(r"const val WAKE_AXIS_DEG = (-?[\d.]+)f", src, "AXIS")
+BASE_AXIS = grab(r"const val WAKE_AXIS_DEG = (-?[\d.]+)f", src, "AXIS")
 INNER = grab(r"const val WAKE_INNER_DEG = ([\d.]+)f", src, "INNER")
 OUTER = grab(r"const val WAKE_OUTER_DEG = ([\d.]+)f", src, "OUTER")
 SPAN = (INNER + OUTER) / 2
@@ -64,15 +64,17 @@ TEX_LINE_DEG = LINE_PX / TEX_H * math.degrees(2 * math.atan((QUAD_H / 2) / 2.0))
 PITCH = -math.degrees(grab(r"CONSOLE_DROP_RAD = ([\d.]+)f", src, "DROP"))
 PANEL_H = grab(r"val h = ([\d.]+)f \* k", src, "面板高")
 
-UP, DOWN = AXIS + SPAN, AXIS - SPAN
-
-# 影院银幕：中心仰角与上下缘（全部来自 ProjectionMesh 常量）
-SC_CY = grab(r"const val SCREEN_CENTER_Y = ([\d.]+)f", mesh, "SCREEN_CENTER_Y")
+# 影院银幕中心 = 用户认定的「当前正前方」；与 Kotlin 的 screenCenterY(100) 同式。
 SC_D = grab(r"const val SCREEN_DISTANCE = ([\d.]+)f", mesh, "SCREEN_DISTANCE")
 SC_W = grab(r"const val SCREEN_WIDTH = ([\d.]+)f", mesh, "SCREEN_WIDTH")
+FLOOR_Y = grab(r"const val ROOM_FLOOR_Y = (-?[\d.]+)f", mesh, "ROOM_FLOOR_Y")
+SKIRT = grab(r"private const val SCREEN_SKIRT = ([\d.]+)f", mesh, "SCREEN_SKIRT")
 SC_H = SC_W * 9 / 16
-SC_DEG = math.degrees(math.atan(SC_CY / SC_D))
+SC_CY = FLOOR_Y + SC_H / 2 + SKIRT
+SC_DEG = math.degrees(math.atan2(SC_CY, SC_D))
 SC_HALF = math.degrees(math.atan((SC_H / 2) / SC_D))
+AXIS = SC_DEG
+UP, DOWN = AXIS + SPAN, AXIS - SPAN
 
 half_h = math.degrees(math.atan((PANEL_H / 2) / 2.0))
 CANVAS_HI = PITCH + half_h
@@ -117,14 +119,19 @@ for deg in range(-90, 91, 15):
 y_sc = py(SC_DEG)
 for x in range(LX, LX + LW, 14):
     d.line([x, y_sc, x + 7, y_sc], fill=(150, 122, 74), width=2)
-d.text((LX + LW - 8, y_sc - 24),
-       f"影院银幕中心 {SC_DEG:+.1f}°（不是对称轴）", font=font(12), fill=SCREEN,
-       anchor="ra", stroke_width=3, stroke_fill=BG)
+d.text((LX + 8, y_sc - 24),
+       f"影院银幕中心 {SC_DEG:+.1f}° = 当前正前方", font=font(12), fill=SCREEN,
+       anchor="la", stroke_width=3, stroke_fill=BG)
 
-# 对称轴：正前方中心水平线
+# 基准水平线：球面/鱼眼的对称轴，影院里只作参照
+y_base = py(BASE_AXIS)
+d.line([LX, y_base, LX + LW, y_base], fill=(92, 100, 116), width=2)
+d.text((LX + 8, y_base + 8), f"基准水平线 {BASE_AXIS:+.0f}°（球面/鱼眼的轴）",
+       font=font(12), fill=(132, 142, 160), stroke_width=3, stroke_fill=BG)
+
 y_axis = py(AXIS)
 d.line([LX, y_axis, LX + LW, y_axis], fill=(198, 210, 228), width=3)
-d.text((LX + LW - 8, y_axis - 26), f"对称轴：正前方中心水平线 {AXIS:+.0f}°",
+d.text((LX + LW - 8, y_axis - 26), f"对称轴：当前内容正前方 {AXIS:+.1f}°",
        font=font(13), fill=(214, 224, 238), anchor="ra", stroke_width=3, stroke_fill=BG)
 
 # 画布/银幕说明
@@ -153,8 +160,8 @@ d.text((cxm + 8, (py(UP) + y_axis) / 2 - 8), f"{SPAN:.0f}°", font=font(12), fil
 d.text((cxm + 8, (y_axis + py(DOWN)) / 2 - 8), f"{SPAN:.0f}°", font=font(12), fill=(124, 196, 166))
 
 d.text((LX, 40), "视野垂直剖面（100% 缩放）", font=font(17), fill=INK)
-d.text((LX, 66), "对称轴是平视水平线，不是银幕中心 —— 两者差 "
-                 f"{abs(SC_DEG - AXIS):.1f}°", font=font(13), fill=DIM)
+d.text((LX, 66), "影院以银幕中心为正前方，不是平视水平线 —— 两者差 "
+                 f"{abs(SC_DEG - BASE_AXIS):.1f}°", font=font(13), fill=DIM)
 
 # ---------------- 右栏 ----------------
 RX = 620
@@ -196,12 +203,12 @@ for k, ((bw, bh), col, label) in enumerate((
     d.text((bx, sh_y + bh + 8), label, font=font(13), fill=col)
 
 notes = [
-    f"• 轴 {AXIS:+.0f}°：上 {UP:+.0f}° / 下 {DOWN:+.0f}°，各 {HALF*2:.1f}° 高。",
+    f"• 轴 {AXIS:+.1f}°（当前内容正前方）：上 {UP:+.0f}° / 下 {DOWN:+.0f}°，各 {HALF*2:.1f}° 高。",
     "• 从 ±38~44° 外移到 ±75~81°：误触发交给位置挡，不再靠做小热区。",
     f"• 横向 6.4° → {HALFW*2:.1f}°：位置够偏，宽一点更好压中。",
     f"• 半高 {HALF:.1f}° = 抖动(±1.5°)的 {HALF/1.5:.1f} 倍，真去瞄仍压得准。",
     f"• 细线宽 == 命中宽 {HALFW*2:.1f}°，线厚 {TEX_LINE_DEG:.2f}°。",
-    f"• 热区在画布外，细线走独立 quad，抬头/低头到 ±{SPAN:.0f}° 正对着它。",
+    f"• 热区在画布外，细线走独立 quad，从当前正前方抬头/低头 {SPAN:.0f}° 正对着它。",
     "• 设置可关；关掉后连命中区都不注册。",
 ]
 ny = sh_y + old_box[1] + 44
@@ -211,6 +218,6 @@ for line in notes:
 
 img.save(OUT)
 print(f"已生成 {OUT}")
-print(f"  对称轴 {AXIS:+.1f}°   银幕中心 {SC_DEG:+.2f}°   差 {abs(SC_DEG-AXIS):.2f}°")
+print(f"  对称轴 {AXIS:+.2f}°（银幕中心）   基准水平线 {BASE_AXIS:+.1f}°   差 {abs(SC_DEG-BASE_AXIS):.2f}°")
 print(f"  画布 {CANVAS_HI:+.1f}° ~ {CANVAS_LO:+.1f}°")
 print(f"  上 {UP-HALF:+.0f}~{UP+HALF:+.0f}  下 {DOWN-HALF:+.0f}~{DOWN+HALF:+.0f}")

@@ -5,14 +5,14 @@
 脚本**从源码抓常量**，改源码忘改预期会立刻 FAIL。
 
 判据：
-  1) 对称轴 = 正前方中心水平线（WAKE_AXIS_DEG == 0），且**不等于**影院银幕中心
-     仰角 —— 这两条线上一版被混称为「视频中心线」，是错的
-  2) 上下热区由「轴线 ± 单侧张角」推导（源码里必须是这个形式，不许两个独立字面量）
-  3) 上 / 下关于轴线对称
-  4) 热区在画布 [0, H] 之外（100% 与 140% 缩放都成立）
-  5) drawConsoleWakeHint 内零 canvas 绘制（视觉全在独立徽标 quad 上）
-  6) 该函数体不引用 projection（三种投影共用同一组视空间角度）
-  7) VrRenderer 的徽标角度取自 VrUiLayer 常量，没有第二份硬编码
+  1) 基准轴 = 参考系水平线（WAKE_AXIS_DEG == 0），球面 / 鱼眼用它
+  2) 影院（PLANE_2D）的实际轴 = 银幕中心仰角，由 screenCenterY / SCREEN_DISTANCE
+     现算；wakeAxisDeg() 必须按投影分流，命中区与 quad 必须共用它
+  3) 上下热区由「当前轴 ± 单侧张角」推导（不许两个独立字面量）
+  4) 上 / 下关于当前轴对称，且用户从内容正前方低头/抬头 78° 正好命中
+  5) 热区在画布 [0, H] 之外（100% 与 140% 缩放都成立）
+  6) drawConsoleWakeHint 内零 canvas 绘制（视觉全在独立徽标 quad 上）
+  7) VrRenderer 的徽标角度取自 VrUiLayer.wakeUpDeg/wakeDownDeg，无第二份硬编码
   8) 徽标 quad 宽高比 == 纹理宽高比（不等比会拉伸）
   9) 反算角度与源码一致，RectF 上下不颠倒
 """
@@ -59,7 +59,7 @@ def main() -> int:
     pitch_rad = -grab(r"CONSOLE_DROP_RAD = ([\d.]+)f", text, "CONSOLE_DROP_RAD")
     base_h = grab(r"val h = ([\d.]+)f \* k", text, "面板高")
 
-    axis = grab(r"const val WAKE_AXIS_DEG = (-?[\d.]+)f", text, "WAKE_AXIS_DEG")
+    base_axis = grab(r"const val WAKE_AXIS_DEG = (-?[\d.]+)f", text, "WAKE_AXIS_DEG")
     inner = grab(r"const val WAKE_INNER_DEG = ([\d.]+)f", text, "WAKE_INNER_DEG")
     outer = grab(r"const val WAKE_OUTER_DEG = ([\d.]+)f", text, "WAKE_OUTER_DEG")
     span = (inner + outer) / 2.0
@@ -71,37 +71,57 @@ def main() -> int:
     quad_w = grab(r"const val WAKE_QUAD_W = ([\d.]+)f", text, "WAKE_QUAD_W")
     quad_h = grab(r"const val WAKE_QUAD_H = ([\d.]+)f", text, "WAKE_QUAD_H")
 
+    # 影院的「当前正前方」= 银幕中心；centerY 必须和 Kotlin 的 screenCenterY(100) 同式。
+    screen_d = grab(r"const val SCREEN_DISTANCE = ([\d.]+)f", mesh, "SCREEN_DISTANCE")
+    screen_w = grab(r"const val SCREEN_WIDTH = ([\d.]+)f", mesh, "SCREEN_WIDTH")
+    floor_y = grab(r"const val ROOM_FLOOR_Y = (-?[\d.]+)f", mesh, "ROOM_FLOOR_Y")
+    skirt = grab(r"private const val SCREEN_SKIRT = ([\d.]+)f", mesh, "SCREEN_SKIRT")
+    center_y = floor_y + (screen_w * 9 / 16) / 2 + skirt
+    screen_deg = math.degrees(math.atan2(center_y, screen_d))
+    axis = screen_deg
     up, down = axis + span, axis - span
 
-    screen_cy = grab(r"const val SCREEN_CENTER_Y = ([\d.]+)f", mesh, "SCREEN_CENTER_Y")
-    screen_d = grab(r"const val SCREEN_DISTANCE = ([\d.]+)f", mesh, "SCREEN_DISTANCE")
-    screen_deg = math.degrees(math.atan(screen_cy / screen_d))
-
     print(f"播放页面板 pitch {math.degrees(pitch_rad):+.2f}°，基础高 {base_h} m")
-    print(f"对称轴 {axis:+.1f}°   带子内/外缘 ±{inner:.0f}° / ±{outer:.0f}°"
+    print(f"基准轴（球面/鱼眼）{base_axis:+.1f}°；影院轴（银幕中心）{axis:+.2f}°")
+    print(f"带子内/外缘 ±{inner:.0f}° / ±{outer:.0f}°"
           f"（中心 ±{span:.0f}°，半高 {half:.1f}°）")
     print(f"热区 上 {up - half:+.1f}°~{up + half:+.1f}°   下 {down - half:+.1f}°~{down + half:+.1f}°")
-    print(f"影院银幕中心仰角 atan({screen_cy}/{screen_d}) = {screen_deg:+.2f}°（**不是**对称轴）")
+    print(f"用户量法（从当前内容正前方起）：上 +{inner:.0f}~+{outer:.0f}°，下 −{outer:.0f}~−{inner:.0f}°")
     print(f"纹理 {tex_w}×{tex_h}")
     print()
 
     ok = True
 
-    # 1) 轴 = 正前方中心水平线（0°），且与银幕中心明确区分
-    axis_ok = abs(axis) < 1e-6
-    print(f"对称轴取正前方水平线（0°）  {'OK' if axis_ok else f'FAIL 现在是 {axis:+.1f}°'}")
+    # 1) 基准轴必须是参考系水平线；影院轴必须真的从银幕中心现算
+    axis_ok = abs(base_axis) < 1e-6
+    print(f"基准轴取参考系水平线（0°）  {'OK' if axis_ok else f'FAIL 现在是 {base_axis:+.1f}°'}")
     ok &= axis_ok
 
-    distinct = abs(axis - screen_deg) > 1.0
-    print(f"轴 ≠ 银幕中心（差 {abs(axis - screen_deg):.1f}°）  {'OK' if distinct else 'FAIL 混成一条线了'}")
+    axis_impl = bool(
+        re.search(r"fun wakeAxisDeg\(state: VrUiState\): Float\s*=", text)
+        and re.search(r"state\.format\.projection == Projection\.PLANE_2D", text)
+        and re.search(r"ProjectionMesh\.screenCenterY\(state\.settings\.screenWidthPercent\)", text)
+        and re.search(r"ProjectionMesh\.SCREEN_DISTANCE", text)
+        and re.search(r"else WAKE_AXIS_DEG", text)
+    )
+    print(f"wakeAxisDeg 按投影现算影院银幕中心  {'OK' if axis_impl else 'FAIL 轴写死或没跟随幕宽'}")
+    ok &= axis_impl
+
+    distinct = abs(axis - base_axis) > 1.0
+    print(f"影院轴 ≠ 基准轴（差 {abs(axis - base_axis):.1f}°）  "
+          f"{'OK' if distinct else 'FAIL 又钉回水平线了'}")
     ok &= distinct
 
-    # 2) 源码必须用「轴线 ± 张角」推导，不能是两个独立字面量
+    registered = bool(re.search(r"val axis = wakeAxisDeg\(state\)", text))
+    print(f"命中区注册用当前轴  {'OK' if registered else 'FAIL 命中区与 quad 会用不同轴'}")
+    ok &= registered
+
+    # 2) 源码必须用「当前轴 ± 张角」推导，不能是两个独立字面量
     derived = bool(
-        re.search(r"const val WAKE_UP_DEG = WAKE_AXIS_DEG \+ WAKE_SPAN_DEG", text)
-        and re.search(r"const val WAKE_DOWN_DEG = WAKE_AXIS_DEG - WAKE_SPAN_DEG", text)
+        re.search(r"fun wakeUpDeg\(state: VrUiState\): Float = wakeAxisDeg\(state\) \+ WAKE_SPAN_DEG", text)
+        and re.search(r"fun wakeDownDeg\(state: VrUiState\): Float = wakeAxisDeg\(state\) - WAKE_SPAN_DEG", text)
     )
-    print(f"上下由轴线推导（非独立字面量）  {'OK' if derived else 'FAIL 又写回两个字面量了'}")
+    print(f"上下由当前轴推导（非独立字面量）  {'OK' if derived else 'FAIL 又写回两个字面量了'}")
     ok &= derived
 
     # 2b) 中心与半高必须由两条边推导，不许写死 41 / 3
@@ -112,10 +132,16 @@ def main() -> int:
     print(f"中心/半高由 内缘+外缘 推导  {'OK' if edges_derived else 'FAIL 又写死中心或半高了'}")
     ok &= edges_derived
 
-    # 3) 对称
-    sym = abs(up + down) < 1e-6
-    print(f"上下关于轴 {axis:+.1f}° 对称（{up:+.0f} / {down:+.0f}）  {'OK' if sym else 'FAIL'}")
+    # 3) 关于当前轴对称；用户从内容正前方低头/抬头 78° 必须正好落进带子
+    sym = abs((up + down) - 2 * axis) < 1e-6
+    print(f"上下关于当前轴 {axis:+.1f}° 对称（{up:+.1f} / {down:+.1f}）  {'OK' if sym else 'FAIL'}")
     ok &= sym
+
+    mapped_up, mapped_down = up - axis, axis - down
+    map_ok = abs(mapped_up - span) < 1e-6 and abs(mapped_down - span) < 1e-6
+    print(f"从当前正前方抬头/低头 {mapped_up:.0f}° / {mapped_down:.0f}° 命中  "
+          f"{'OK' if map_ok else 'FAIL 用户量法与热区不一致'}")
+    ok &= map_ok
 
     # 3b) 用户 20:1x 给的口径：上下都落在 75°~81°（此前 38°~44° 判「太靠中间」）。
     # 这两个数就是需求本身，改它们必须是有意为之 —— 钉在脚本里，随手漂移会 FAIL。
@@ -220,10 +246,10 @@ def main() -> int:
     ok &= gate
 
     hard = re.findall(r"Math\.toRadians\(-?\d+\.?\d*\)", gl)
-    uses_const = "WAKE_UP_DEG" in gl and "WAKE_DOWN_DEG" in gl
-    print(f"渲染器引用 WAKE_*_DEG 常量  {'OK' if uses_const else 'FAIL'}")
+    uses_axis = "uiLayer.wakeUpDeg(state)" in gl and "uiLayer.wakeDownDeg(state)" in gl
+    print(f"渲染器 quad 角度取自 wakeUpDeg/wakeDownDeg  {'OK' if uses_axis else 'FAIL 与命中区不同轴'}")
     print(f"渲染器无硬编码角度        {'OK' if not hard else 'FAIL ' + str(hard)}")
-    ok &= uses_const and not hard
+    ok &= uses_axis and not hard
 
     print()
     print("结论：" + ("全部通过" if ok else "存在 FAIL"))

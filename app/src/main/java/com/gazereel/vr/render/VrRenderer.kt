@@ -320,14 +320,15 @@ class VrRenderer(
             uiGeometry = mesh.uiQuad(specKey.yaw, specKey.pitch, specKey.width, specKey.height)
         }
 
-        // 17:6x：唤出徽标。热区在 ±75°~±81°（中心 ±78°），主画布画不到那里，
-        // 所以单独一个 quad，中心就挂在热区方向、距眼 2 米。角度全部取
-        // `VrUiLayer.WAKE_*`，这里不写死数字。
+        // 17:6x：唤出徽标。热区离「当前内容正前方」±75°~±81°（中心 ±78°），
+        // 主画布画不到那里，所以单独一个 quad，中心挂在热区方向、距眼 2 米。
+        // 轴由 uiLayer.wakeAxisDeg(state) 按投影现算（影院 = 银幕中心），
+        // 必须与命中区注册用同一个函数，这里不写死数字、也不另算银幕仰角。
         // 纹理在循环外上传一次（两只眼共用），进度量化到 2% 再上传 ——
         // 1024×64×4B = 256KB，每帧都传会白烧带宽。
         val wakeDeg = when (gazeId) {
-            "wakeConsoleUp" -> VrUiLayer.WAKE_UP_DEG
-            "wakeConsoleDown" -> VrUiLayer.WAKE_DOWN_DEG
+            "wakeConsoleUp" -> uiLayer.wakeUpDeg(state)
+            "wakeConsoleDown" -> uiLayer.wakeDownDeg(state)
             else -> null
         }
         val wakeGeometry: ProjectionMesh.Geometry?
