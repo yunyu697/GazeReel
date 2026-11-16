@@ -102,21 +102,42 @@ cp "$APK" "$DEST"
 SIZE=$(wc -c < "$DEST" | tr -d ' ')
 say "产物 $DEST（$SIZE B）"
 
-# ── 5. 核对：版本号与新特性字符串确实进了包 ──────────────────────────────
-say "核对 dex"
+# ── 5. 核对：版本名进清单、新特性符号进 dex ──────────────────────────────
+# 注意：版本名在 AndroidManifest（二进制 AXML），**不在 dex** —— App.kt 是运行时
+# 读 PackageManager.versionName，编译期常量不进 dex。曾经在这里 grep dex 导致误报。
+say "核对包内容"
+AAPT=""
+for cand in "${ANDROID_HOME:-}/build-tools/"*/aapt2* \
+            "${LOCALAPPDATA:-}/Android/Sdk/build-tools/"*/aapt2*; do
+    [ -e "$cand" ] && AAPT="$cand"
+done
+if [ -n "$AAPT" ]; then
+    BADGE=$("$AAPT" dump badging "$DEST" 2>/dev/null | head -1 || true)
+    case "$BADGE" in
+        *"versionName='$VERSION'"*)
+            printf '  %-24s OK\n' "manifest versionName" ;;
+        *)
+            printf '  %-24s MISMATCH\n' "manifest versionName"
+            echo "    实际：$BADGE"
+            die "清单里的 versionName 与 $VERSION 不一致" ;;
+    esac
+else
+    printf '  %-24s 跳过（没找到 aapt2）\n' "manifest versionName"
+fi
+
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 unzip -o -q "$DEST" 'classes*.dex' -d "$TMP" || die "解不开 dex"
 missing=0
-for s in "$VERSION" fisheye; do
+for s in fisheye FisheyePreset; do
     if grep -a -q -l -- "$s" "$TMP"/*.dex > /dev/null 2>&1; then
-        printf '  %-24s OK\n' "$s"
+        printf '  %-24s OK\n' "dex:$s"
     else
-        printf '  %-24s MISSING\n' "$s"
+        printf '  %-24s MISSING\n' "dex:$s"
         missing=1
     fi
 done
-[ "$missing" = "0" ] || die "包内缺少预期字符串，产物可疑"
+[ "$missing" = "0" ] || die "包内缺少预期符号，产物可疑"
 
 # ── 6. 提交与打 tag（仅 --commit）────────────────────────────────────────
 if [ "$COMMIT" = "1" ]; then
