@@ -192,6 +192,76 @@ fun main() {
         expect("中文「双鱼眼」也认", c.isDualFish.toString(), "true")
     }
 
+    println("[10] 19:3x：真实相机命名语料（品牌名 ≠ 未缝合）")
+    run {
+        // Insta360 机内原片：后缀 .insv 本身就是「没缝」，最硬的证据。
+        val r = d.detect("VID_20260712_160512_00_001.insv")
+        expect("Insta360 原片被拒", r.refusal?.key ?: "-", "dual_fisheye_360")
+    }
+    run {
+        // 关键回归：Insta360 Studio 导出已缝合的 360，文件名照样常带 INSTA360。
+        // 一律拒绝等于把用户导出好的成品片挡在门外。
+        val r = d.detect("INSTA360_X3_360_export.mp4", 5760, 2880)
+        expect("Insta360 已缝合导出不拒", (r.refusal == null).toString(), "true")
+        expect("Insta360 已缝合导出是球面", r.format.projection.name, "SPHERE_360")
+    }
+    run {
+        // 同一品牌，但名字里没有任何「已缝合」标记 → 只能当机内原片拒。
+        val r = d.detect("INSTA360_myvideo.mp4", 3840, 1920)
+        expect("INSTA360 无 360 标记仍被拒", r.refusal?.key ?: "-", "dual_fisheye_360")
+    }
+    run {
+        // 容器自己声明是球面时，品牌名不该覆盖容器证据。
+        val r = d.detect("INSTA360_myvideo.mp4", 3840, 1920, probe(3840, 1920, spherical = true))
+        expect("容器说球面时不拒品牌名", (r.refusal == null).toString(), "true")
+        expect("容器说球面时按球面播", r.format.projection.name, "SPHERE_360")
+    }
+    run {
+        // GoPro Max 的 .360 是**已缝合**的等距柱状，扩展名里的 360 就是证据。
+        val r = d.detect("GX010001.360", 5376, 2688)
+        expect("GoPro .360 认 360", r.format.projection.name, "SPHERE_360")
+        expect("GoPro .360 不拒", (r.refusal == null).toString(), "true")
+    }
+    run {
+        val r = d.detect("MKX200_fisheye_sbs.mp4", 3840, 1920)
+        expect("MKX 圆图仍认鱼眼", short(r.format), "FISHEYE/SBS/FOV_FISHEYE")
+    }
+    run {
+        // VRCA220 里的 220 是镜头型号，不是等距柱状 220° 张角。
+        val r = d.detect("VRCA220_fisheye.mp4", 3840, 1920)
+        expect("VRCA 的 220 不当张角", r.format.fov.name, "FOV_FISHEYE")
+    }
+    run {
+        // rf52 分不出「机身原片（双圆）」还是「导出成品（单眼圆图）」→ 必须问一次。
+        val r = d.detect("rf52_export_sbs.mp4", 3840, 1920)
+        expect("rf52 给鱼眼", r.format.projection.name, "FISHEYE")
+        expect("rf52 要求确认", r.needsConfirmation.toString(), "true")
+    }
+    run {
+        val r = d.detect("全景视频_测试.mp4", 5760, 2880)
+        expect("中文「全景」认 360", r.format.projection.name, "SPHERE_360")
+    }
+    run {
+        val r = d.detect("VR180_test_sbs.mp4", 3840, 1920)
+        expect("VR180 认 180 SBS", short(r.format), "HALF_SPHERE_180/SBS/FOV_180")
+    }
+    run {
+        // 陷阱：1800p 里的 180 不能被当成 180°，否则整幅按半球贴。
+        val r = d.detect("1800p_4k.mp4", 1920, 1080)
+        expect("1800p 不认作 180°", r.format.projection.name, "PLANE_2D")
+        expect("1800p 要问一次", r.needsConfirmation.toString(), "true")
+    }
+    run {
+        // 陷阱：QooCam 原片命名无任何提示，只能落几何 + 确认，不能猜成鱼眼。
+        val r = d.detect("QooCam_QCM_001.mp4", 3840, 2160)
+        expect("QooCam 无提示不猜鱼眼", r.format.projection.name, "PLANE_2D")
+        expect("QooCam 要问一次", r.needsConfirmation.toString(), "true")
+    }
+    run {
+        val r = d.detect("equirect_360_mono.mp4", 5760, 2880)
+        expect("equirect 360 mono 不切幅", r.format.layout.name, "MONO")
+    }
+
     println()
     println("通过 $passed · 失败 $failed")
     if (failed > 0) throw AssertionError("$failed 条断言未通过")

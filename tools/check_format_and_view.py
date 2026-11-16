@@ -418,7 +418,21 @@ ref, coord, act = txt["refusal"], txt["coordinator"], txt["action"]
 ck("拒绝枚举有稳定 key 且文案齐全",
    all(x in ref for x in ('key = "dual_fisheye_360"', "val title", "val body", "val hint")))
 ck("拒绝判定排在鱼眼判定之前（否则会被当单镜头鱼眼播）",
-   d.index("if (marks.isDualFish)") < d.index("marks.isFish -> FieldOfView.FOV_FISHEYE"))
+   d.index("if (marks.hardDualFish || brandUnstitched)") <
+   d.index("marks.isFish -> FieldOfView.FOV_FISHEYE"))
+# 19:3x：品牌名（INSTA360）不是「未缝合」的证据 —— 已缝合的导出片文件名也带它。
+ck("品牌线索不硬拒，容器声明球面即放行",
+   "marks.isDualFish && !marks.hardDualFish && probe?.spherical != true" in d)
+ck("硬证据与品牌线索分层（.insv 无条件拒）",
+   "val hardDualFish = has(\"dfisheye\", \"dualfisheye\") || suffixRaw" in d)
+ck("已缝合标记能让品牌线索失效",
+   "val isDualFish = hardDualFish || (brandRaw && !stitchedToken)" in d)
+# 19:3x：rf52 是镜头型号，分不出机身原片与导出成品，必须问一次。
+ck("rf52 触发确认而不是静默当单眼", "needsConfirmation = marks.fishAmbiguous" in d)
+ck("中文「全景」认作 360", 'name.contains("全景")' in d)
+# 语料规模：真实命名样本表必须一直在长，不能删到只剩构造用例。
+ck("识别器自检含真实命名语料组",
+   'println("[10] 19:3x：真实相机命名语料' in Path("tools/FormatDetectorCheck.kt").read_text(encoding="utf-8"))
 ck("拒绝结果降级成 2D 银幕 Mono",
    "VrFormat(Projection.PLANE_2D, StereoLayout.MONO, FieldOfView.FLAT, 0.95f)" in d and
    "refusal = Refusal.DUAL_FISHEYE_360" in d)

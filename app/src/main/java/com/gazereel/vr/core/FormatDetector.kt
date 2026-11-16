@@ -87,7 +87,10 @@ class FormatDetector {
         // 那个结果比拒绝更糟 —— 用户看不出是播放器算错了，只会以为片子废了。
         //
         // 布局一律 MONO：两个圆是**同一只眼的前后镜头**，切半幅只会再错一次。
-        if (marks.isDualFish) {
+        // 19:3x：品牌线索（`INSTA360_xxx.mp4`）不硬拒 —— 若容器已声明是球面，
+        // 那就是**已缝合**的成品，拒它等于把用户导出好的片子挡在门外。
+        val brandUnstitched = marks.isDualFish && !marks.hardDualFish && probe?.spherical != true
+        if (marks.hardDualFish || brandUnstitched) {
             return Result(
                 VrFormat(Projection.PLANE_2D, StereoLayout.MONO, FieldOfView.FLAT, 0.95f),
                 needsConfirmation = false,
@@ -127,7 +130,9 @@ class FormatDetector {
         if (fovHint != null) {
             return Result(
                 VrFormat(projectionOf(fovHint), layout, fovHint, 0.97f),
-                needsConfirmation = false,
+                // 19:3x：`rf52` 分不出「机身原片（双圆）」还是「导出成品（单眼圆图）」，
+                // 猜错的代价是整幅变形，所以问一次。
+                needsConfirmation = marks.fishAmbiguous,
                 source = if (marks.isFish) "文件名鱼眼"
                 else if (marks.is180 || marks.is360 || marks.is220 || marks.is270)
                     "文件名视场" else "容器视场"
@@ -317,6 +322,25 @@ class FormatDetector {
         /** 19:0x：单镜头鱼眼。命名标记或中文「鱼眼」。 */
         val isFish: Boolean = false,
         /**
+         * 19:3x：**硬证据**级未缝合（`.insv` / `dfisheye` / `dual fisheye` / 中文「双鱼眼」）。
+         * 这些一眼就是「没缝」，不看容器也要拒。
+         */
+        val hardDualFish: Boolean = false,
+        /**
+         * 19:3x：`insta360` / `gear360` / `onex*` —— 只是**品牌机型**，不等于没缝。
+         * Insta360 Studio 导出已缝合的 360 之后，文件名照样常带 `INSTA360`。
+         * 所以这些只在「没有任何已缝合标记」时才算未缝（见 [isDualFish]）。
+         */
+        val dualFishBrand: Boolean = false,
+        /** 19:3x：名字里有已缝合的明确标记（`360` / `equirect` / `stitched` / 中文「等距柱状」）。 */
+        val stitchedToken: Boolean = false,
+        /**
+         * 19:3x：`rf52` 是 Canon RF5.2mm 双鱼眼**镜头型号**。
+         * 机身原片是两个圆并排（未缝），而 EOS VR Utility 导出的单眼圆图也可能沿用这个命名 ——
+         * 名字分不出来。所以不静默当单眼播，给鱼眼 + **要求确认一次**。
+         */
+        val fishAmbiguous: Boolean = false,
+        /**
          * 19:2x：**未缝合的双鱼眼 360**。这类片源要明确拒绝，不能按单镜头鱼眼解。
          * 与 [isFish] 同时为真是正常的（名字里两个词都在）。
          */
@@ -364,8 +388,9 @@ class FormatDetector {
 
                 val is180 = has("180", "180x180", "vr180", "180vr", "fov180", "180sbs", "180tb") ||
                     name.contains("180°") || HAS_180.containsMatchIn(name)
+                // 19:3x：中文「全景」是真实命名里最常见的一种（「全景视频」「全景测试」）。
                 val is360 = has("360", "360x360", "vr360", "360vr", "fov360", "360sbs") ||
-                    HAS_360.containsMatchIn(name)
+                    HAS_360.containsMatchIn(name) || name.contains("全景")
                 // 18:2x：只认等距柱状张角档的写法。`mkx220` / `vrca220` 是**鱼眼镜头**档，
                 // 本工程没有径向反畸变与镜头内参，故意不认 —— 认了只会给出变形的画面。
                 val is220 = has("220", "pano220", "fov220", "220sbs", "220tb", "vr220") ||
@@ -385,14 +410,17 @@ class FormatDetector {
                 //      —— 这些后缀本身就是「还没缝」的意思，不需要再看到 fish；
                 //   3. 鱼眼标记 + `dual`（英文 `dual fisheye` 会被切成两个 token）。
                 // 只认 `dual` 一个词是不够的：`Dual Audio` 这种普通片会被误伤。
-                val rawDual = has(
-                    "insv", "insta360", "gear360", "onex2", "onex3", "onex4",
-                    "unstitched", "unstitch"
-                )
-                val isDualFish = has("dfisheye", "dualfisheye") || rawDual ||
+                // 19:3x：把「品牌」与「后缀」分开。`insta360` 只是机型名 ——
+                // Insta360 Studio 导出已缝合的 360 后文件名仍常带它，一律拒绝会误杀成品片。
+                val stitchedToken = has("360", "equirect", "equirectangular", "stitched") ||
+                    name.contains("等距柱状")
+                val brandRaw = has("insta360", "gear360", "onex2", "onex3", "onex4")
+                val suffixRaw = has("insv", "unstitched", "unstitch")
+                val hardDualFish = has("dfisheye", "dualfisheye") || suffixRaw ||
                     (isFish && has("dual")) ||
                     listOf("dual fisheye", "dual-fisheye", "双鱼眼", "前后鱼眼")
                         .any { name.contains(it) }
+                val isDualFish = hardDualFish || (brandRaw && !stitchedToken)
 
                 val isFlat = has("2d", "flat", "plane", "screen")
                 val monoExplicit = has("mono", "monoscopic", "2d180", "2d360")
@@ -404,6 +432,10 @@ class FormatDetector {
                     is270 = is270,
                     isFish = isFish,
                     isDualFish = isDualFish,
+                    hardDualFish = hardDualFish,
+                    dualFishBrand = brandRaw,
+                    stitchedToken = stitchedToken,
+                    fishAmbiguous = has("rf52"),
                     sbs = flatWord || flatPhrase.any { name.contains(it) },
                     tab = tabWord || tabPhrase.any { name.contains(it) },
                     isFlat = isFlat,
