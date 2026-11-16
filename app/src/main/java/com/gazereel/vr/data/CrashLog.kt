@@ -1,5 +1,7 @@
 package com.gazereel.vr.data
 
+import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.content.Context
 import android.os.Build
 import java.io.File
@@ -19,10 +21,7 @@ object CrashLog {
 
     private const val FILE_NAME = "last_crash.txt"
     private const val MARKER = "boot_in_progress"
-    private const val BLOCKED = "cardboard_blocked"
-
-    /** 降级判据版本：判据一改就换标签，旧的封锁自动失效。 */
-    private const val BLOCK_TAG = "stage-aware-v1"
+    private const val NATIVE_CLEARED = "native_exit_cleared_at"
 
     /** 上次启动留下的痕迹：用哪种头追、死在哪一步。 */
     data class BootMarker(val mode: String, val stage: String)
@@ -50,29 +49,6 @@ object CrashLog {
         runCatching { File(context.filesDir, MARKER).delete() }
     }
 
-    /**
-     * 崩过一次之后不再赌 Cardboard，改用纯传感器实现，先保证能进去。
-     * 封锁带上判据版本：判据一改（比如这次的 V2.7 修），旧封锁自动作废重试，
-     * 不让用户背着一个早就修好的问题一直用降级实现。
-     */
-    fun blockCardboard(context: Context) {
-        runCatching { File(context.filesDir, BLOCKED).writeText(BLOCK_TAG) }
-    }
-
-    fun isCardboardBlocked(context: Context): Boolean = runCatching {
-        val file = File(context.filesDir, BLOCKED)
-        if (!file.exists()) return@runCatching false
-        if (file.readText().trim() != BLOCK_TAG) {
-            file.delete()
-            return@runCatching false
-        }
-        true
-    }.getOrDefault(false)
-
-    fun unblockCardboard(context: Context) {
-        runCatching { File(context.filesDir, BLOCKED).delete() }
-    }
-
     fun write(context: Context, throwable: Throwable, stage: String = "") {
         runCatching {
             val time = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
@@ -92,8 +68,52 @@ object CrashLog {
         File(context.filesDir, FILE_NAME).takeIf { it.exists() }?.readText()
     }.getOrNull()
 
+    /**
+     * alpha41：系统记录的 **native 崩溃**（SIGABRT / SIGSEGV / CheckJNI abort）。
+     *
+     * 这类崩溃直接杀进程，Java 的 try-catch 和 [write] 都来不及执行，所以配置页
+     * 过去「什么都看不到」——alpha40 两次闪退却没有任何日志，就是这个盲区。
+     * API 30+ 用系统 [ActivityManager.getHistoricalProcessExitReasons] 读回本进程
+     * 的退出原因与 tombstone 摘要，不需要权限、不依赖我们自己写好时机的日志。
+     */
+    fun nativeExit(context: Context): String? = runCatching {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        val am = context.getSystemService(ActivityManager::class.java) ?: return null
+        val clearedAt = runCatching {
+            File(context.filesDir, NATIVE_CLEARED).takeIf { it.exists() }
+                ?.readText()?.trim()?.toLongOrNull() ?: 0L
+        }.getOrDefault(0L)
+        val exit = am.getHistoricalProcessExitReasons(null, 0, 10)
+            .firstOrNull {
+                it.reason == ApplicationExitInfo.REASON_CRASH_NATIVE &&
+                    it.timestamp > clearedAt
+            } ?: return null
+        buildString {
+            appendLine("reason: REASON_CRASH_NATIVE（native 崩溃，Java 异常日志接不住）")
+            appendLine(
+                "time: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(exit.timestamp))}"
+            )
+            appendLine("process: ${exit.processName}")
+            appendLine("description: ${exit.description}")
+            appendLine(
+                "device: ${Build.MANUFACTURER} ${Build.MODEL} / API ${Build.VERSION.SDK_INT}"
+            )
+            runCatching {
+                exit.traceInputStream?.bufferedReader()?.use { reader ->
+                    appendLine("--- tombstone 摘要 ---")
+                    appendLine(reader.readText().take(6000))
+                }
+            }.onFailure { appendLine("(tombstone 读取失败: ${it.message})") }
+        }
+    }.getOrNull()
+
     fun clear(context: Context) {
         runCatching { File(context.filesDir, FILE_NAME).delete() }
+        // 系统里的 native 崩溃记录删不掉，记一个水位线，让「清空记录」真的生效。
+        runCatching {
+            File(context.filesDir, NATIVE_CLEARED)
+                .writeText(System.currentTimeMillis().toString())
+        }
     }
 
     /** 给用户看的一行原因：异常类型 + 消息，不带堆栈。 */

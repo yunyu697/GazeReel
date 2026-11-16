@@ -49,6 +49,19 @@ class GazeDetector(
          * 250ms 的连续离开是为了避免准星在矩形边缘抖动被当成「已经离开」。
          */
         private const val LEAVE_MS = 250L
+
+        /**
+         * 17:5x：唤醒控制台的停留时长。
+         *
+         * 这一条与投影类型无关 —— 2D / 180° / 360° 都是同一块面板、同一个角度带
+         * （上 +38°~+44°、下 −44°~−38°，各 6° 高，见 `VrUiLayer.WAKE_*`）。所以判据不能按影院形态算，要按最坏情况：
+         * **球面模式下任何角度都是画面内容**，抬头看上方画面时视线停在 +35° 一带
+         * 一两秒是常态。1.2 秒会误触，因此给到 2.4 秒（约为默认值的两倍）。
+         *
+         * 想唤出的人有两条近路：触发键单击（零延迟），以及真在热区里停住 2.4 秒。
+         */
+        private const val WAKE_ID_PREFIX = "wakeConsole"
+        private const val WAKE_HOLD_MS = 2_400L
     }
 
     @Volatile var currentId: String? = null
@@ -104,6 +117,19 @@ class GazeDetector(
     private var wasArmed = false
 
     /**
+     * 17:2x：唤醒区专用的「必须先离开」闸门。
+     *
+     * 原来的死循环：控制台显示期间唤醒目标不注册，于是 [mustLeave] 会把它当成
+     * 「用户已经移开」，250ms 后自动作废；控制台约 8 秒淡出、目标重新注册时，
+     * 准星若还停在原处，就会立刻从头累积、再次唤出。用户盯着画面那一块看内容时，
+     * 看到的就是控制台周期性往出弹（原话：「一直误唤醒，不胜其烦」）。
+     *
+     * 独立的标志位解决它：触发一次之后，必须**视线离开唤醒区且控制台已经收起**
+     * 才解锁。用户一直盯着同一处，就只会触发那一次。
+     */
+    private var wakeMustLeave = false
+
+    /**
      * V2.4：参考系跳变（重置正前方 / 未来的姿态缓转）后清空停留进度与上一帧落点。
      * 否则 update() 会把参考系切换造成的准星位移当成「仍在原目标上」，首帧误触发。
      */
@@ -118,6 +144,7 @@ class GazeDetector(
         mustLeave = null
         mustLeaveSince = 0L
         mustClear = false
+        wakeMustLeave = false
     }
 
     fun update(now: Long = SystemClock.elapsedRealtime()) {
@@ -132,6 +159,11 @@ class GazeDetector(
 
         val target = uiLayer.currentTargets().firstOrNull { it.rect.contains(point.x, point.y) }
         hoveredId = target?.id
+
+        // 17:2x：唤醒区闸门。解锁要同时满足「控制台已经收起」与「视线已离开唤醒区」。
+        // 少写前半个条件，就会形成「控制台一消失就立刻重来」的死循环。
+        val hitWake = target?.id?.startsWith(WAKE_ID_PREFIX) == true
+        if (!state.consoleVisible && !hitWake) wakeMustLeave = false
 
         // V2.9：没上膛就只记录落点，绝不累计停留。
         if (!state.gazeArmed) {
@@ -227,12 +259,32 @@ class GazeDetector(
             progress = 0f
             return
         }
-        progress = ((now - startedAt).toFloat() / settings.current.gazeDurationMs).coerceIn(0f, 1f)
+        // 17:2x：触发过唤醒之后，准星还压在同一处（或另一侧唤醒区）就不允许再累积。
+        // 这一条才是「盯着画面某一块看内容不会反复弹控制台」的真正保障，
+        // 单靠时长做不到 —— 用户看片本来就会长时间停在同一处。
+        if (hitWake && wakeMustLeave) {
+            currentId = null
+            progress = 0f
+            return
+        }
+        // 15:5x / 17:2x：唤醒控制台仍比普通按钮慢一点。现在热区可见、且有闸门兜底，
+        // 不必再给 2.6 秒；1.2 秒足够区分「主动去瞄」和「顺手扫过」。
+        val holdMs =
+            if (hitWake) WAKE_HOLD_MS else settings.current.gazeDurationMs
+        progress = ((now - startedAt).toFloat() / holdMs).coerceIn(0f, 1f)
         if (progress >= 1f) {
-            dispatcher.dispatch(target.action, InputChannel.GAZE, gazeCompleted = true)
+            // alpha35：SeekAt 这类动态动作在确认这一刻按真实落点换成具体值，
+            // 凝视与触发键两条通道共用同一个换算点（VrUiLayer.resolveAction）。
+            dispatcher.dispatch(
+                uiLayer.resolveAction(target.action, rotation, state),
+                InputChannel.GAZE,
+                gazeCompleted = true
+            )
             // V2.46 / P0：同一次停留只算一次。想再按，必须把视线移开再回来。
             mustLeave = target.id
             mustLeaveSince = 0L
+            // 17:2x：唤醒区更严 —— 必须等控制台收起并且视线离开，见 wakeMustLeave。
+            if (hitWake) wakeMustLeave = true
             currentId = null
             progress = 0f
             startedAt = now

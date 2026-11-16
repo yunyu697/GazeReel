@@ -113,9 +113,15 @@ class TriggerDispatcher(
                     return
                 }
                 val state = stateProvider()
-                val target = uiLayer.targetAt(headset.headRotation(), state)
+                val rotation = headset.headRotation()
+                val target = uiLayer.targetAt(rotation, state)
                 when {
-                    target != null -> dispatcher.dispatch(target.action, InputChannel.TRIGGER)
+                    // alpha35：与凝视通道共用同一个换算点，物理键点进度条也按
+                    // 准星那一刻的真实 x 连续跳，不会落到某个段中心。
+                    target != null -> dispatcher.dispatch(
+                        uiLayer.resolveAction(target.action, rotation, state),
+                        InputChannel.TRIGGER
+                    )
                     // V2.33 / B13：空白处单击 = 切粗/微，绝不落到「播放页单击 = 暂停」。
                     tuning -> dispatcher.dispatch(VrAction.ToggleIpdMode, InputChannel.TRIGGER)
                     state.screen == VrScreen.PLAYER && state.overlay == VrOverlay.NONE ->

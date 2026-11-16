@@ -69,6 +69,29 @@ data class PlayProgressEntity(
 /** `sourceId:path` —— 断点与格式记忆共用这一把钥匙。 */
 fun mediaKeyOf(item: MediaItemEntity): String = "${item.sourceId}:${item.path}"
 
+/**
+ * alpha35：片库唯一的默认排序 —— **按文件名升序**。
+ *
+ * 产品本体是 `VID_20260712_143022.mp4` / `GOPR0231.MP4` 这类自拍与相机片段，
+ * 没有片名、同前缀成百上千，用户找片子靠的是「文件名连不连得上」。
+ * 之前 DAO 按 `ORDER BY title`、集合内却 `sortedByDescending { it.title }`，
+ * 日期集合又按 key 降序，三处各排各的，真机上就是「排序是乱的」。
+ *
+ * 用 `title`（扫描时就是文件名）大小写不敏感升序，同名再用 `path` 兜底保证稳定；
+ * 不新增 `fileName` 列、不按 path 最后一段重算——那会把 content:// URI 也搅乱。
+ * DAO 的 `ORDER BY title COLLATE NOCASE ASC, path ASC` 与这里语义一致，
+ * 业务层再排一次是幂等的，保证片库页、集合内、自动连播看到的是同一个顺序。
+ */
+object FileNameOrder {
+    val COMPARATOR: Comparator<MediaItemEntity> = Comparator { a, b ->
+        val byTitle = a.title.compareTo(b.title, ignoreCase = true)
+        if (byTitle != 0) byTitle else a.path.compareTo(b.path)
+    }
+
+    fun sorted(items: List<MediaItemEntity>): List<MediaItemEntity> =
+        items.sortedWith(COMPARATOR)
+}
+
 /** 用户手动覆盖的格式，键为 media_key（sourceId:path）。 */
 @Entity(tableName = "format_override")
 data class FormatOverrideEntity(

@@ -162,10 +162,13 @@ class MediaIndexer(
             .associateBy { it.path }
 
         val changed = mutableListOf<MediaItemEntity>()
+        // alpha35 / 数据层：本次真正看到的视频路径，用来和库里做差集。
+        val seen = HashSet<String>(entries.size)
         for (entry in entries) {
             if (entry.isDirectory) continue
             // V2.7：手机视频的 path 是 content:// URI，不以扩展名结尾，不能按扩展名过滤。
             if (!entry.path.startsWith("content://") && !hasVideoExtension(entry.path)) continue
+            seen += entry.path
             val old = existing[entry.path]
             // 增量判据：路径 + 大小；DLNA 等不提供大小的源每次都刷新标题。
             if (old != null && entry.sizeBytes > 0L && old.sizeBytes == entry.sizeBytes) continue
@@ -188,6 +191,35 @@ class MediaIndexer(
         }
 
         changed.chunked(PAGE_SIZE).forEach { page -> db.mediaDao().upsert(page) }
+
+        // alpha35 / 数据层：重扫只 upsert 会让 NAS 上删掉的文件永远留成打不开的幽灵卡片，
+        // 播放失败还会写 last_crash.txt，首屏从此常挂「上次进 VR 没成功」。
+        // 差集删除必须在 list() 完整返回、upsert 成功之后做。
+        // 一条视频都没读到但库里原本有片子时**整批跳过**：那更可能是设备临时断连、
+        // 权限或协议半失败，不是用户把整个目录清空了；宁可留旧卡片也不能把库删光。
+        if (seen.isNotEmpty() || existing.isEmpty()) {
+            val stale = existing.keys - seen
+            if (stale.isNotEmpty()) {
+                val keys = stale.map { "${source.id}:$it" }
+                stale.chunked(PAGE_SIZE).forEach { page ->
+                    db.mediaDao().deleteByPaths(source.id, page)
+                }
+                keys.chunked(PAGE_SIZE).forEach { page ->
+                    db.progressDao().deleteByKeys(page)
+                    db.formatOverrideDao().deleteByKeys(page)
+                }
+                RunLog.append(
+                    "scan",
+                    "重扫差集 · ${source.address} 清掉 ${stale.size} 个已不存在的文件"
+                )
+            }
+        } else {
+            RunLog.append(
+                "scan",
+                "重扫差集跳过 · ${source.address} 本次一个视频都没读到，保留库内 ${existing.size} 条"
+            )
+        }
+
         db.sourceDao().touchScan(source.id, System.currentTimeMillis())
         // 海报是低优先级增强：失败只记录在日志，绝不让扫描整体失败。
         updatePosters(source, credentials)

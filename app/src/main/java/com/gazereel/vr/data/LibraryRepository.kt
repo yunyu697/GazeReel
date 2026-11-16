@@ -4,10 +4,12 @@ import com.gazereel.vr.core.FieldOfView
 import com.gazereel.vr.core.FormatDetector
 import com.gazereel.vr.core.MediaRef
 import com.gazereel.vr.core.Projection
+import com.gazereel.vr.core.Refusal
 import com.gazereel.vr.core.SphericalMetadata
 import com.gazereel.vr.core.StereoLayout
 import com.gazereel.vr.core.VrFormat
 import com.gazereel.vr.data.db.AppDatabase
+import com.gazereel.vr.data.db.FileNameOrder
 import com.gazereel.vr.data.db.FormatOverrideEntity
 import com.gazereel.vr.data.db.MediaItemEntity
 import com.gazereel.vr.data.db.PlayProgressEntity
@@ -37,7 +39,12 @@ class LibraryRepository(private val db: AppDatabase) {
         const val MEMORY_VERSION_KEY = "format_memory_version"
     }
 
-    data class FormatResolution(val format: VrFormat, val needsConfirmation: Boolean)
+    data class FormatResolution(
+        val format: VrFormat,
+        val needsConfirmation: Boolean,
+        /** 19:2x：明确拒绝的片源（未缝合双鱼眼 360）。非 null 时 format 已是 2D 银幕。 */
+        val refusal: Refusal? = null
+    )
 
     /** 已经确认过的格式：命中就不必再去文件里探测，播放可以立刻开始。 */
     suspend fun cachedFormat(ref: MediaRef): VrFormat? {
@@ -75,10 +82,16 @@ class LibraryRepository(private val db: AppDatabase) {
                 "${width}x$height · ${probe?.describe() ?: "无元数据"}"
         )
         // 高置信度结论直接记住：少弹一次确认，也省掉下次的探测开销。
-        if (!detected.needsConfirmation && detected.format.confidence >= 0.85f) {
+        //
+        // 19:2x：**拒绝的结论不写进记忆**。记忆的语义是「用户/证据确认过这部片是什么」，
+        // 而拒绝是我们这一版算不出来 —— 将来支持双鱼眼了，旧记忆会把片子永久钉在 2D 上，
+        // 用户还得手动清一次格式记忆。每次打开现判一次，代价只有一个字符串匹配。
+        if (!detected.needsConfirmation && detected.format.confidence >= 0.85f &&
+            detected.refusal == null
+        ) {
             rememberFormat(ref, detected.format)
         }
-        return FormatResolution(detected.format, detected.needsConfirmation)
+        return FormatResolution(detected.format, detected.needsConfirmation, detected.refusal)
     }
 
     /** 用户六选一确认后，按文件记住，下次播放不再弹确认。 */
@@ -112,20 +125,34 @@ class LibraryRepository(private val db: AppDatabase) {
         )
     }
 
-    /** 目录内自动连播：按标题序取下一项，末尾回到第一项。 */
-    suspend fun nextOf(mediaId: Long): MediaItemEntity? {
-        val list = db.mediaDao().all()
+    /**
+     * alpha35 + 数据层：自动连播的顺序只有这一份 —— **未隐藏片源 + 文件名升序**。
+     *
+     * 原来 `nextOf()/previousOf()` 直接 `all()` 查全表：隐藏掉的片源照样会被
+     * 连播出来（用户藏了它，过一会儿它自己又播上了），而且 DAO 无序、片库页按
+     * 另一套规则排，「下一部」和屏幕上看到的顺序对不上。
+     */
+    private suspend fun playbackOrder(): List<MediaItemEntity> =
+        FileNameOrder.sorted(db.mediaDao().allVisible())
+
+    private fun neighbourOf(
+        list: List<MediaItemEntity>,
+        mediaId: Long,
+        step: Int
+    ): MediaItemEntity? {
         if (list.isEmpty()) return null
         val index = list.indexOfFirst { it.id == mediaId }
-        return list[(index + 1).coerceAtLeast(0) % list.size]
+        // 当前片来自已隐藏 / 已删除的片源：不猜位置，从可见列表第一部重新开始。
+        if (index < 0) return list.first()
+        return list[(index + step + list.size) % list.size]
     }
 
-    suspend fun previousOf(mediaId: Long): MediaItemEntity? {
-        val list = db.mediaDao().all()
-        if (list.isEmpty()) return null
-        val index = list.indexOfFirst { it.id == mediaId }
-        return list[(index - 1 + list.size) % list.size]
-    }
+    /** 自动连播：按文件名序取下一项，末尾回到第一项。 */
+    suspend fun nextOf(mediaId: Long): MediaItemEntity? =
+        neighbourOf(playbackOrder(), mediaId, 1)
+
+    suspend fun previousOf(mediaId: Long): MediaItemEntity? =
+        neighbourOf(playbackOrder(), mediaId, -1)
 
     private fun parse(parts: String): VrFormat {
         val split = parts.split("/")
