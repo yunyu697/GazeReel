@@ -149,12 +149,22 @@ Cardboard SDK 以本地 aar 形式随仓库提供（`app/libs/cardboard-sdk.aar`
 | 视场 360 | `360` `360x360` `vr360` `360vr` `fov360` `360sbs` |
 | 视场 220 | `220` `pano220` `fov220` `220sbs` `220tb` `vr220` |
 | 鱼眼（单镜头） | `fisheye` `fish` `mkx200` `mkx220` `vrca220` `rf52` `鱼眼` |
-| 未缝合双鱼眼 360（会被拒绝） | `dfisheye` `dualfisheye` `insv` `insta360` `gear360` `onex2/3/4` `unstitched` `双鱼眼` |
+| 未缝合双鱼眼 360（**硬证据，一定拒绝**） | `dfisheye` `dualfisheye` `insv` `unstitched` `双鱼眼` `前后鱼眼` |
+| 同一类，但只有**品牌线索**（没有 `360`/`equirect` 才拒） | `insta360` `gear360` `onex2` `onex3` `onex4` |
 | 视场 270 | `270` `pano270` `fov270` `270sbs` `270tb` `vr270` |
 | SBS 左右 | `sbs` `lr` `hsbs` `halfsbs` `3dh`；`side_by_side` / `side-by-side` / `left_right` / `left-right` |
 | TAB 上下 | `tb` `ou` `htab` `3dv`；`over_under` / `over-under` / `top_bottom` / `top-bottom` |
 | Mono（别切两半） | `mono` `monoscopic` `2d180` `2d360` |
 | 2D 平面 | `2d` `flat` `plane` `screen` |
+
+**品牌名不等于「没缝」**：Insta360 Studio / GoPro Player 导出已缝合的 360 之后，文件名常常还带着
+`INSTA360`。所以品牌名只在「名字里没有任何已缝合标记」时才当作机内原片拒绝；一旦出现 `360` /
+`equirect` / 容器声明的球面元数据，就按正常 360 播。`.insv` 这类后缀不受此限——它本身就是「没缝」。
+
+**`rf52` 会多问一次**：Canon RF5.2mm 双鱼眼是**镜头型号**。机身原片是两个圆并排（未缝），
+而 EOS VR Utility 导出的单眼圆图也可能沿用这个命名，名字分不出来。所以按鱼眼给画面，但要求
+确认一次——猜错的代价是整幅变形。**Canon 机身原片（`CRM_xxxx.mp4`，名字里没有 rf52）无法从
+命名识别**，会按 2:1 几何当成 180，看到两团圆就是它；改名带上 `rf52` 或手动选鱼眼即可。
 
 `3dh` / `3dv` 只说「是 3D」没说怎么排，算歧义，会再问一次确认。
 
