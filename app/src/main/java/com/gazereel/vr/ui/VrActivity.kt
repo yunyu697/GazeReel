@@ -10,6 +10,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.gazereel.vr.R
@@ -38,7 +39,7 @@ import com.gazereel.vr.player.PlaybackService
 import com.gazereel.vr.player.PlayerController
 import com.gazereel.vr.player.SystemVolume
 import com.gazereel.vr.player.SubtitleRepository
-import com.gazereel.vr.render.SensorHeadsetProvider
+import com.gazereel.vr.render.CenterLineView
 import com.gazereel.vr.render.VrRenderer
 import com.gazereel.vr.render.VrSurfaceView
 import com.gazereel.vr.render.VrUiLayer
@@ -63,6 +64,15 @@ class VrActivity : AppCompatActivity() {
     private lateinit var headset: VrHeadsetProvider
     private lateinit var glView: VrSurfaceView
 
+    /**
+     * alpha35：手机物理屏幕中心线。
+     *
+     * 屏幕空间 overlay，叠在 `GLSurfaceView` 之上，只在「还没上膛」时可见。
+     * 详情见 [CenterLineView] 的类注释：它不能画进 `VrUiLayer` 的 UI 纹理，
+     * 那张纹理左右眼各画一份，`W/2` 是每眼视口中心，不是物理屏幕中线。
+     */
+    private var centerLine: CenterLineView? = null
+
     private val handler = Handler(Looper.getMainLooper())
     private var downAt = 0L
     private val longPress = Runnable { injectTrigger(TriggerKind.LONG_PRESS) }
@@ -70,55 +80,37 @@ class VrActivity : AppCompatActivity() {
     /** 当前初始化阶段，崩溃时写进日志，用来定位是哪一步。 */
     private var bootStage = "start"
 
-    /** 本次实际使用的头追实现，写进启动标记，供下次判断是否需要降级。 */
-    private var bootMode = "pending"
-
     /**
      * 进入某个阶段：既更新屏幕上的失败说明，也刷新落盘标记。
-     * 标记必须跟着阶段走，否则「崩在哪一步」这个信息就丢了，
-     * 下次启动也就没法区分是 Cardboard native 崩还是我们自己的 bug。
+     * 标记必须跟着阶段走，否则 native 崩溃时「崩在哪一步」这个信息就丢了。
      */
     private fun stage(name: String) {
         bootStage = name
-        CrashLog.markBooting(this, bootMode, name)
-        RunLog.append(this, "vr", "stage=$name mode=$bootMode")
+        CrashLog.markBooting(this, "cardboard", name)
+        RunLog.append(this, "vr", "stage=$name mode=cardboard")
     }
 
     /**
-     * V2.30：优先用官方 Cardboard SDK 的头追。
+     * alpha39 纯复刻：官方 Cardboard SDK 是**唯一**的头追与光学底座。
      *
-     * 用反射而不是直接 new：app/build.gradle.kts 只在 `libs/cardboard-sdk.aar`
-     * 存在时才把 `src/cardboard/java` 并入 sourceSet，直接引用会让「没放 AAR」的
-     * 机器编译不过。反射同时能兜住 arm64 之外的 ABI 缺 native 库、以及 SDK
-     * 自己初始化失败的情况——这些都退回原来那套纯传感器实现，不会白屏。
+     * 反射只用于跨 sourceSet 装配（`src/cardboard/java` 由 AAR 是否存在条件加入），
+     * 不是回退手段。初始化失败就让它失败，把真因写进日志即可——按「先复刻、
+     * 再观察、后谈兜底」的顺序，要不要兜底得等真机暴露出问题之后再决定。
      */
     private fun createHeadset(): VrHeadsetProvider {
-        val sdk = runCatching {
+        return runCatching {
             Class.forName("com.gazereel.vr.render.CardboardHeadsetProvider")
                 .getConstructor(Context::class.java)
                 .newInstance(this) as VrHeadsetProvider
-        }.onFailure {
+        }.getOrElse { t ->
+            val cause = t.cause ?: t
             RunLog.append(
                 this, "headset",
-                "SDK 不可用，回退传感器：${it.javaClass.simpleName}: ${it.message?.take(120)}"
+                "官方 SDK 底座初始化失败（不回退）：" +
+                    "${cause.javaClass.simpleName}: ${cause.message?.take(160)}"
             )
-        }.getOrNull()
-
-        if (sdk != null) {
-            val active = runCatching {
-                sdk.javaClass.getMethod("getSdkActive").invoke(sdk) as? Boolean ?: false
-            }.getOrDefault(false)
-            if (active) {
-                bootMode = "cardboard"
-                RunLog.append(this, "headset", "mode=cardboard · 官方 SDK 头追")
-                return sdk
-            }
-            RunLog.append(this, "headset", "SDK 初始化未成功，改用传感器头追")
-            runCatching { sdk.stop() }
+            throw t
         }
-        bootMode = "sensor"
-        RunLog.append(this, "headset", "mode=sensor · 传感器头追")
-        return SensorHeadsetProvider(this)
     }
 
     private val tick = object : Runnable {
@@ -129,6 +121,12 @@ class VrActivity : AppCompatActivity() {
             gaze.update(now)
             // B14：把准星原始落点交给状态机，调节条据此判断 hover 续时。
             coordinator.tick(gaze.hoveredId)
+            // alpha35：上膛后立刻收起物理中心线，别让它压在看片画面正中。
+            // 只在状态真的翻转时改 visibility，避免每帧触发一次重绘。
+            centerLine?.let { line ->
+                val next = if (coordinator.uiState.gazeArmed) View.GONE else View.VISIBLE
+                if (line.visibility != next) line.visibility = next
+            }
             logUiIfChanged()
             handler.postDelayed(this, 33L)
         }
@@ -214,15 +212,15 @@ class VrActivity : AppCompatActivity() {
         // V2.7.6：播放前读一次容器里的球面声明与真实宽高，不再靠文件名猜格式。
         val prober = FormatProber(sourceFactory, this)
 
-        // V2.30：头追整体交给官方 Cardboard SDK（EKF 融合、陀螺零偏估计、50ms 姿态预测、
-        // 显示空间旋转补偿、neck model）。手写 TYPE_ROTATION_VECTOR 链路一件都没有，
-        // 这是「转头拖尾 / 平躺慢慢歪 / 方向反」的根源。缺 AAR 或缺 native so 时自动降级。
+        // alpha39 纯复刻：头追与光学整体交给官方 Cardboard SDK（EKF 融合、陀螺零偏
+        // 估计、50ms 姿态预测、显示空间旋转补偿、neck model、每眼矩阵与桶形畸变）。
+        // 工程里没有手写 TYPE_ROTATION_VECTOR 链路，也没有自研离轴视锥。
         headset = createHeadset()
         run {
             val s = settings.current
             RunLog.append(
                 this, "pose",
-                "mode=$bootMode · 头追坐标=Y-up（Cardboard SDK 约定，无方向开关）" +
+                "mode=cardboard · 头追坐标=Y-up（Cardboard SDK 约定，无方向开关）" +
                     " · 瞳距 ${VrSettings.ipdLabel(s.ipdHalfMm)}" +
                     "（每眼光轴位移 ${"%.1f".format(Optics.lensShiftDeg(s.ipdMm))}°）"
             )
@@ -268,7 +266,13 @@ class VrActivity : AppCompatActivity() {
         )
         renderer.onGlReady = { surface ->
             RunLog.append(this, "gl", "surface ready")
-            runOnUiThread { player.setSurface(surface) }
+            runOnUiThread {
+                // alpha35：GL 真正起来了才算「这次进 VR 成功」，
+                // 清掉首屏常挂的「上次进 VR 没成功」。播放失败会在这之后另写，
+                // 启动失败走 showFailure() 也会重写，两者都不会被误清。
+                CrashLog.clear(this)
+                player.setSurface(surface)
+            }
         }
         renderer.onGlError = { t ->
             RunLog.append(this, "gl", "失败 ${t.javaClass.simpleName}: ${t.message?.take(200)}")
@@ -278,14 +282,36 @@ class VrActivity : AppCompatActivity() {
         glView = VrSurfaceView(this)
         // 必须 setRenderer 之后才能设 renderMode（GLSurfaceView 的 GLThread 此时才存在）。
         glView.bind(renderer)
-        setContentView(glView)
+        // alpha35：屏幕空间中心线叠在 GL 之上。GL 画面先加、中心线后加，
+        // 后者透明，两眼各画各的，中间这条竖线始终落在**物理屏幕**中线上。
+        val root = FrameLayout(this)
+        root.addView(
+            glView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+        val line = CenterLineView(this)
+        root.addView(
+            line,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+        centerLine = line
+        setContentView(root)
 
         stage("headset-start")
         headset.attachTriggerListener { event ->
             runOnUiThread { trigger.onTrigger(event) }
         }
         headset.start()
-        // 正前方由 Provider 在「姿态稳定后」自动定一次基准（SDK 与传感器路径都是）。
+        // alpha35：正前方由戴稳后按下的**纸盒物理触发键**定一次
+        // （ArmGaze → recenterTo(当前姿态, 400ms)）。Provider 的「姿态稳定后自动定基准」
+        // 只是没按过触发键时的兜底；任何显式 recenterTo / recenter / recenterYaw
+        // 都会撤销它，不会在几秒后把用户定的方向覆盖掉。
         // 这里不能直接调 recenter()：此刻还没收到过姿态数据，rotation 仍是单位矩阵，
         // 第一帧真数据一到画面就跳到手机的绝对朝向。
         player.onEnded = { mediaId -> coordinator.autoPlayNext(mediaId) }
@@ -331,6 +357,9 @@ class VrActivity : AppCompatActivity() {
      */
     private fun showFailure(t: Throwable) {
         CrashLog.write(this, t, bootStage)
+        // alpha35：Java 层异常已被 onCreate 接住，进程没死，不是 native 崩溃。
+        // 不清标记的话，下次启动会拿它当「Cardboard 崩过」把官方头追白禁掉。
+        CrashLog.clearBootMarker(this)
         RunLog.append(
             this,
             "FAIL",

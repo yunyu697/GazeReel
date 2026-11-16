@@ -84,10 +84,12 @@
     <string name="log_copy">复制</string>
     <string name="log_clear">清空</string>
     <string name="log_back">返回</string>
+    <string name="log_snapshot">界面快照</string>
+    <string name="log_snapshot_hint">不戴眼镜看 VR 界面：这一张就是左右眼各看到的画布（1024×512 × 5 屏）。截图发出去即可。</string>
     <string name="log_copied">已复制</string>
     <string name="log_hint">进 VR 出的问题都记在这里：崩在哪一步、打开的是哪个文件、播放器报了什么。截图即可。</string>
 
-    <!-- V2.34 / B13 补齐：戴镜前的设置（目前只有瞳距） -->
+    <!-- V2.34 / B13 建立，alpha43 扩到四项：戴镜前定好的参数 -->
     <string name="settings_entry">设置</string>
     <string name="settings_title">设置</string>
     <string name="settings_lead">戴镜前定好，进 VR 后也能边看边调</string>
@@ -106,6 +108,29 @@
     <string name="settings_align_minus">− 1 秒</string>
     <string name="settings_align_plus">+ 1 秒</string>
     <string name="settings_align_note">VR 里点「正前方」后，倒计时会跟着视线走；归零那一刻你看向哪儿，哪儿就是新的正前方。双击触发键可立刻重定，不等倒计时。</string>
+
+    <!-- alpha43：真机反馈「UI 有点小」「前进/后退步长也做成可设置」 -->
+    <string name="settings_ui_scale_title">界面大小</string>
+    <string name="settings_ui_scale_minus">− 一档</string>
+    <string name="settings_ui_scale_plus">+ 一档</string>
+    <string name="settings_ui_scale_note">放大整块 VR 界面在视野里的占比，文字和图标一起变大，按钮位置不变。默认已放到 115%；放到太大时片库边缘可能被纸盒裁掉，往回退一档即可。</string>
+    <string name="settings_seek_step_title">前进 / 后退步长</string>
+    <string name="settings_seek_step_minus">− 一档</string>
+    <string name="settings_seek_step_plus">+ 一档</string>
+    <string name="settings_view_title">画面与鱼眼</string>
+    <string name="settings_screen_width">2D 银幕宽度</string>
+    <string name="settings_content_scale">球面画面缩放</string>
+    <string name="settings_fish_fov">鱼眼张角</string>
+    <string name="settings_fish_circle">鱼眼画面圆</string>
+    <string name="settings_step_minus">−</string>
+    <string name="settings_step_plus">+</string>
+    <string name="settings_fish_frame">鱼眼画幅形态</string>
+    <string name="settings_fish_frame_circle">圆形 · 贴边</string>
+    <string name="settings_fish_frame_full">全画幅</string>
+    <string name="settings_fish_frame_note">画幅里能看见完整的圆、圆外有黑边，选「圆形」；圆大到被画幅切掉四角、整幅都是画面（单反/微单装鱼眼、机内裁切），选「全画幅」。选全画幅时「画面圆」不计，拨它任意一下会自动退回圆形。</string>
+    <string name="settings_fish_preset_title">鱼眼镜头预设（同时改张角与画面圆）</string>
+    <string name="settings_view_note">银幕宽度只影响 2D 影院；画面缩放只影响 180/220/270/360 球面，鱼眼不叠加；鱼眼四项只在片子格式标为「鱼眼」时生效。圆的边缘没贴到画面边（外圈有黑）就把画面圆往下调，直到黑边消失。</string>
+    <string name="settings_seek_step_note">控制台「前进 / 后退」一次跳多久。短片用 5~15 秒好找镜头，长片用 1~5 分钟跳过片头。戴镜后控制台左上角会显示当前值。</string>
 
     <!--
       V2.45：手机端（非 VR）整体重做。

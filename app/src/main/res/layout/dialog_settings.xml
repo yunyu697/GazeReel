@@ -158,6 +158,434 @@
             android:layout_marginTop="18dp"
             android:background="@color/setup_divider" />
 
+        <!-- 19:0x：画面与鱼眼。这四项以前只有 VR 内设置浮层能改，戴镜前想预设
+             必须戴上头再摸进去；现在手机端也能定，且写入的是同一份 SettingsRepository。 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="@string/settings_view_title"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="@color/setup_text" />
+
+        <!-- 19:0x：2D 银幕宽度 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/settings_screen_width"
+                android:textSize="13sp"
+                android:textColor="@color/setup_text" />
+
+            <TextView
+                android:id="@+id/screenWidthValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="64dp"
+                android:gravity="end"
+                android:paddingEnd="8dp"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="@color/setup_cyan"
+                tools:text="100%" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/screenWidthMinus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="44dp"
+                android:layout_height="40dp"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:padding="0dp"
+                android:text="@string/settings_step_minus"
+                android:textSize="16sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="10dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/screenWidthPlus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="44dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="6dp"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:padding="0dp"
+                android:text="@string/settings_step_plus"
+                android:textSize="16sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="10dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+        </LinearLayout>
+
+        <!-- 19:0x：球面画面缩放 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/settings_content_scale"
+                android:textSize="13sp"
+                android:textColor="@color/setup_text" />
+
+            <TextView
+                android:id="@+id/contentScaleValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="64dp"
+                android:gravity="end"
+                android:paddingEnd="8dp"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="@color/setup_cyan"
+                tools:text="100%" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/contentScaleMinus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="44dp"
+                android:layout_height="40dp"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:padding="0dp"
+                android:text="@string/settings_step_minus"
+                android:textSize="16sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="10dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/contentScalePlus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="44dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="6dp"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:padding="0dp"
+                android:text="@string/settings_step_plus"
+                android:textSize="16sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="10dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+        </LinearLayout>
+
+        <!-- 19:0x：鱼眼张角 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/settings_fish_fov"
+                android:textSize="13sp"
+                android:textColor="@color/setup_text" />
+
+            <TextView
+                android:id="@+id/fishFovValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="64dp"
+                android:gravity="end"
+                android:paddingEnd="8dp"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="@color/setup_cyan"
+                tools:text="100%" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/fishFovMinus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="44dp"
+                android:layout_height="40dp"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:padding="0dp"
+                android:text="@string/settings_step_minus"
+                android:textSize="16sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="10dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/fishFovPlus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="44dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="6dp"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:padding="0dp"
+                android:text="@string/settings_step_plus"
+                android:textSize="16sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="10dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+        </LinearLayout>
+
+        <!-- 19:0x：鱼眼画面圆 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/settings_fish_circle"
+                android:textSize="13sp"
+                android:textColor="@color/setup_text" />
+
+            <TextView
+                android:id="@+id/fishCircleValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="64dp"
+                android:gravity="end"
+                android:paddingEnd="8dp"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="@color/setup_cyan"
+                tools:text="100%" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/fishCircleMinus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="44dp"
+                android:layout_height="40dp"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:padding="0dp"
+                android:text="@string/settings_step_minus"
+                android:textSize="16sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="10dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/fishCirclePlus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="44dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="6dp"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:padding="0dp"
+                android:text="@string/settings_step_plus"
+                android:textSize="16sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="10dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+        </LinearLayout>
+
+        <!-- 19:2x：画幅形态。这两个是互斥的两种画幅，不是两个旋钮：
+             圆形 = 画幅里看得见完整的圆（VR180 相机 / MKX / VRCA 的圆图）；
+             全画幅 = 圆大到被画幅切掉四角，整幅都是画面（单反/微单装鱼眼、机内裁切）。 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1.2"
+                android:text="@string/settings_fish_frame"
+                android:textSize="13sp"
+                android:textColor="@color/setup_text" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/fishFrameCircle"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:paddingStart="2dp"
+                android:paddingEnd="2dp"
+                android:text="@string/settings_fish_frame_circle"
+                android:textSize="11sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="10dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/fishFrameFull"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:paddingStart="2dp"
+                android:paddingEnd="2dp"
+                android:text="@string/settings_fish_frame_full"
+                android:textSize="11sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="10dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/settings_fish_frame_note"
+            android:textSize="11sp"
+            android:textColor="@color/setup_muted" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/settings_fish_preset_title"
+            android:textSize="12sp"
+            android:textColor="@color/setup_muted" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/fishPreset0"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:paddingStart="2dp"
+                android:paddingEnd="2dp"
+                android:textSize="11sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="10dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp"
+                tools:text="180 通用" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/fishPreset1"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:paddingStart="2dp"
+                android:paddingEnd="2dp"
+                android:textSize="11sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="10dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp"
+                tools:text="190 RF" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/fishPreset2"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:paddingStart="2dp"
+                android:paddingEnd="2dp"
+                android:textSize="11sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="10dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp"
+                tools:text="200 MKX" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/fishPreset3"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:paddingStart="2dp"
+                android:paddingEnd="2dp"
+                android:textSize="11sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="10dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp"
+                tools:text="220 VRCA" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/settings_view_note"
+            android:textSize="11sp"
+            android:lineSpacingExtra="2dp"
+            android:textColor="@color/setup_muted" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="18dp"
+            android:background="@color/setup_divider" />
+
         <!-- 重定「正前方」倒计时 -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -229,6 +657,164 @@
             android:textSize="11sp"
             android:lineSpacingExtra="2dp"
             android:textColor="@color/setup_muted" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="18dp"
+            android:background="@color/setup_divider" />
+
+        <!-- alpha43：界面大小（UI 整体缩放） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/settings_ui_scale_title"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="@color/setup_text" />
+
+            <TextView
+                android:id="@+id/uiScaleValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="56dp"
+                android:gravity="end"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="@color/setup_cyan"
+                tools:text="115%" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/uiScaleMinus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="@string/settings_ui_scale_minus"
+                android:textSize="13sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="12dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/uiScalePlus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="@string/settings_ui_scale_plus"
+                android:textSize="13sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="12dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/settings_ui_scale_note"
+            android:textSize="11sp"
+            android:lineSpacingExtra="2dp"
+            android:textColor="@color/setup_muted" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="18dp"
+            android:background="@color/setup_divider" />
+
+        <!-- alpha43：前进 / 后退步长 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/settings_seek_step_title"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="@color/setup_text" />
+
+            <TextView
+                android:id="@+id/seekStepValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="72dp"
+                android:gravity="end"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="@color/setup_cyan"
+                tools:text="60 秒" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/seekStepMinus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="@string/settings_seek_step_minus"
+                android:textSize="13sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="12dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/seekStepPlus"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="@string/settings_seek_step_plus"
+                android:textSize="13sp"
+                android:textColor="@color/setup_text"
+                app:cornerRadius="12dp"
+                app:strokeColor="@color/setup_border"
+                app:strokeWidth="1dp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/settings_seek_step_note"
+            android:textSize="11sp"
+            android:lineSpacingExtra="2dp"
+            android:textColor="@color/setup_muted" />
+
+
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/settingsDone"

@@ -1,5 +1,6 @@
 package com.gazereel.vr.ui
 
+import com.gazereel.vr.data.db.FileNameOrder
 import com.gazereel.vr.data.db.MediaItemEntity
 
 /**
@@ -84,7 +85,8 @@ object StackBuilder {
                 key = "dir:$folder",
                 label = name.ifBlank { folder },
                 detail = "${list.size} 部",
-                items = list.sortedByDescending { it.title }
+                // alpha35：集合内与片库页、自动连播共用同一份文件名升序。
+                items = FileNameOrder.sorted(list)
             )
         }.sortedBy { it.label.lowercase() }
     }
@@ -108,9 +110,11 @@ object StackBuilder {
                     "${parts[1].trimStart('0')} 月 ${parts[2].trimStart('0')} 日"
                 } else stamp,
                 detail = "${list.size} 部",
-                items = list.sortedByDescending { it.title }
+                items = FileNameOrder.sorted(list)
             )
-        }.sortedByDescending { it.key }
+            // alpha35：日期集合也按时间升序。原来按 key 降序、文件夹集合却按名升序，
+            // 同一个片库里两套反向顺序，用户看到的就是「排序乱」。
+        }.sortedBy { it.key }
     }
 
     private fun stampOf(title: String): String? {

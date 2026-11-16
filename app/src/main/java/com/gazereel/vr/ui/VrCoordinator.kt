@@ -10,11 +10,13 @@ import com.gazereel.vr.core.VrHeadsetProvider
 import com.gazereel.vr.data.FormatProber
 import com.gazereel.vr.data.LibraryRepository
 import com.gazereel.vr.data.RunLog
+import com.gazereel.vr.data.db.FileNameOrder
 import com.gazereel.vr.data.db.MediaItemEntity
 import com.gazereel.vr.data.db.PlayProgressEntity
 import com.gazereel.vr.data.db.SourceEntity
 import com.gazereel.vr.data.parseUnc
 import com.gazereel.vr.input.SettingsRepository
+import com.gazereel.vr.player.DecoderCaps
 import com.gazereel.vr.player.PlaybackState
 import com.gazereel.vr.player.PlayerController
 import com.gazereel.vr.player.SubtitleRepository
@@ -49,6 +51,14 @@ class VrCoordinator(
     @Volatile
     var uiState: VrUiState = VrUiState()
         private set
+
+    init {
+        // alpha43：手机端设置（瞳距 / 缩放 / 快进步长 / 倒计时…）必须在进 VR 那一刻
+        // 就进 state。原来这里一直是 VrSettings() 的构造默认值，只有 VR 内主动 toggle
+        // 过一次才会 copy(settings = next) 同步 —— 于是戴镜前设好的值在 state 里读不到
+        // （连设置页显示的瞳距都是假的 62.0mm）。新增两项设置同样依赖这条同步。
+        uiState = VrUiState(settings = settings.current)
+    }
 
     private companion object {
         /**
@@ -133,14 +143,19 @@ class VrCoordinator(
      * 按开始、挑片时各定一次正前方，抬头看片就偏十来度；切换视频时再动一次头
      * 又「突然回到画面中央」。真机反馈「更严重了、非常混乱」就是它。
      *
-     * 正前方改为只在进 VR 时定一次——Provider 等姿态稳定下来的第一个瞬间
-     * （见 SensorHeadsetProvider.pendingInitialRecenter），之后不再自动动画面。
+     * 正前方改为只在进 VR 时定一次——`HeadRig` 等姿态稳定下来的第一个瞬间
+     * （见 HeadRig.submit 的首次基准），之后不再自动动画面。
      * 用户仍可以自己重定，两条路都不需要瞄准任何按钮（见 [startAlignCountdown]）。
      *
-     * 这个方法现在只做一件事：**驱动重定倒计时**。它每帧被 VrActivity 的 tick 调用，
-     * 拿到的就是当前姿态，所以「归零那一刻头朝哪儿」不需要任何额外采样。
+     * 这个方法每帧被 VrActivity 的 tick 调用，拿到的就是当前姿态，所以
+     * 「归零那一刻头朝哪儿」不需要任何额外采样。
+     *
+     * alpha35 / 02：**还没上膛**时不再每帧写视线——「戴稳了？」改成头锁定层
+     * （VrRenderer 用相机空间渲染），与姿态零耦合，从而消除「闪」。
      */
     fun updatePosture(rotation: FloatArray, nowMs: Long) {
+        // alpha35 / 02：「戴稳了？」改为头锁定层后，不再需要每帧把视线写进状态。
+        if (!uiState.gazeArmed) return
         val cd = uiState.alignCountdown ?: return
         val dt = (nowMs - alignLastAtMs).coerceIn(0L, 200L)
         if (dt > 0L) {
@@ -316,6 +331,25 @@ class VrCoordinator(
     private var pendingOpen: Triple<MediaItemEntity, MediaRef, com.gazereel.vr.core.VrFormat>? = null
 
     /**
+     * alpha35：正前方是否已经由**纸盒物理触发键**定过。
+     *
+     * 定过之后 `startPlayback()` 不能再调 `recenterYaw()`：V2.35 那条修复的前提是
+     * 「基准定在塞手机那一刻」，本轮基准改由戴稳后的触发键给定，前提已消失；
+     * 再在打开新片时把 yaw 对齐到「凝视卡片那一刻」，反而会转走刚定好的正前方。
+     * 没经过 ArmGaze 的异常恢复路径仍保留 V2.35 的兜底。
+     */
+    private var forwardAnchored = false
+
+    /**
+     * alpha35：正在播放这一部的 MediaRef。
+     *
+     * `applyFormat()` 原来只从 `pendingOpen` 取 ref，而它在 `startPlayback()` 里
+     * 已经置 null —— 于是「播放中手选格式」只对本次生效，下次又回到错判。
+     * 格式记忆的钥匙是 `sourceId:path`，播放中的当前片必须一直拿得到。
+     */
+    private var currentRef: MediaRef? = null
+
+    /**
      * V2.17：被隐藏的片库不进 VR 的片库页。
      *
      * `null` 表示「还不知道有哪些片库」——首帧时片源列表可能比媒体列表晚到，
@@ -360,9 +394,11 @@ class VrCoordinator(
      * 现在只要当前页还存在就原地不动，选中项尽量保住。
      */
     fun loadItems(items: List<MediaItemEntity>) {
-        rawItems = items
+        // alpha35：不管数据从哪条 Flow 来，进片库页之前都收口到同一份文件名升序，
+        // 与集合内、自动连播完全一致。DAO 已经这么排了，这里再排一次是幂等保险。
+        rawItems = FileNameOrder.sorted(items)
         // V2.17：隐藏的片库连它的片子一起不进片库页。索引与断点都还在库里，只是不显示。
-        val allowed = enabledSourceIds?.let { ids -> items.filter { it.sourceId in ids } } ?: items
+        val allowed = enabledSourceIds?.let { ids -> rawItems.filter { it.sourceId in ids } } ?: rawItems
 
         // V2.18：柜子那一层。选中的柜子要是已经没片子了（片源被删/被隐藏），回落到「全部」，
         // 否则用户会看到一个空片库，而且不知道为什么会空。
@@ -390,6 +426,49 @@ class VrCoordinator(
         )
         // 页码要按「这一屏现在有几个格子」收敛：成叠之后页数会少一大截。
         uiState = next.copy(page = uiState.page.coerceIn(0, next.pageCount - 1))
+        probeUnsupportedForCurrentPage()
+    }
+
+    /** 20:2x：已经问过一次的片子，失败也算问过，避免后台反复读 SMB 文件头。 */
+    private val unsupportedProbed = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * 20:2x：给片库当前页打「本机解不了」标记。
+     *
+     * 只探当前页 9 部 + 下一页 9 部做预取，后台串行读文件头，不阻塞 UI、不写 Room。
+     * `FormatProber` 自带 LRU 缓存与 2.5s 墙钟上限，最坏一部坏片也只拖 2.5 秒，
+     * 而且只拖后台线程。真实 mime 与宽高来自 **stsd**（不是文件名 —— 真机上
+     * 标 `_4K_HEVC_` 的片子实际是 VP9 或 H.264），判定交给
+     * `DecoderCaps.isUnsupported`，它只认平台明确说不支持的那一支。
+     *
+     * 这里不新增数据库列：设备能力是静态的，这是「片源规格 × 本机能力」的派生结果，
+     * 加列要动 migration，本工程曾因手写 DDL 与 Room 生成结果不一致把库删了。
+     */
+    private fun probeUnsupportedForCurrentPage() {
+        val p = prober ?: return
+        val all = uiState.visibleItems
+        val from = uiState.page * VrUiState.PAGE_SIZE
+        if (from >= all.size) return
+        val batch = all.subList(from, minOf(all.size, from + VrUiState.PAGE_SIZE * 2))
+        // buildRef 读 sources 映射，必须在主线程先做好再交给 IO。
+        val jobs = batch.mapNotNull { item -> buildRef(item)?.let { item to it } }
+        if (jobs.isEmpty()) return
+        scope.launch {
+            val bad = withContext(Dispatchers.IO) {
+                jobs.mapNotNull { (item, ref) ->
+                    val key = mediaKeyOf(item)
+                    if (!unsupportedProbed.add(key)) return@mapNotNull null
+                    val probe = runCatching { p.probe(ref) }.getOrNull() ?: return@mapNotNull null
+                    if (probe.width > 0 && probe.mime != null &&
+                        DecoderCaps.isUnsupported(probe.mime, probe.width, probe.height)
+                    ) key else null
+                }.toSet()
+            }
+            if (bad.isNotEmpty()) {
+                uiState = uiState.copy(unsupportedKeys = uiState.unsupportedKeys + bad)
+                RunLog.append("codec", "片库标记 ${bad.size} 部：本机解不了")
+            }
+        }
     }
 
     /** 阶段二 FR-10：片库卡片据此显示「上次看到 mm:ss」。 */
@@ -520,6 +599,12 @@ class VrCoordinator(
             VrAction.Previous ->
                 if (uiState.screen == VrScreen.LIBRARY) flipPage(-1) else playRelative(-1)
             is VrAction.SeekTo -> player.seekToFraction(action.fraction)
+            // alpha35：输入层必须在 dispatch 前经 VrUiLayer.resolveAction() 把
+            // SeekAt 换成带 fraction 的 SeekTo。能走到这里说明有第三条输入通道漏接线，
+            // 宁可不跳也不要按猜的位置跳，日志留痕方便定位。
+            VrAction.SeekAt -> RunLog.append(
+                "ui", "SeekAt 未经 resolve 到达 coordinator，本次跳转已忽略"
+            )
             is VrAction.SeekBy -> player.seekBy(action.seconds)
             is VrAction.SetFormat -> applyFormat(action.format)
             VrAction.OpenFormat -> uiState = uiState.copy(overlay = VrOverlay.FORMAT)
@@ -540,18 +625,64 @@ class VrCoordinator(
             VrAction.ArmGaze -> {
                 // V2.9：戴稳之后的第一次触发键。这里只负责解锁凝视，
                 // 不顺带确认任何目标——准星此刻压着的东西要重新「进入」才算数。
-                // V2.27 只读诊断：这一刻偏离「首帧基准」多少度，就是用户感觉到的
-                // 「不正对」的量。校准生效后，这行数字应该被后面的稳定姿态吃掉。
+                //
+                // alpha35：这一刻同时**定正前方**。用户澄清过「按键」是纸盒上的
+                // 物理触发键——纸盒已扣好、人已戴稳、正看着「戴稳了？」卡片，
+                // 此刻的朝向就是他想看的方向。V2.23「基准绝不能取按键那一刻」
+                // 说的是手机端入盒引导页按钮（按完还要往沙发里靠，几秒差 40°–50°），
+                // 不是同一时刻、同一界面、同一输入通道，不冲突。
+                val pose = headset.headRotation()
                 RunLog.append(
                     "posture",
-                    "戴稳 · 当前偏离首帧基准 ${degrees(posture.offsetOf(headset.headRotation()))}°"
+                    "戴稳 · 物理触发键定正前方 · 原偏离首帧基准 " +
+                        "${degrees(posture.offsetOf(pose))}°"
                 )
+                headset.recenterTo(pose, RECENTER_NOW_MS)
+                // 缓转期间必须把凝视停留与手势窗口清零；参考系一变，
+                // 旧落点会在首帧当场误触发一次。
+                onRecenter()
+                posture.suppress(SystemClock.elapsedRealtime())
+                forwardAnchored = true
                 uiState = uiState.copy(gazeArmed = true, consoleVisible = true)
-                RunLog.append("ui", "凝视已上膛 via $channel")
+                RunLog.append("ui", "凝视已上膛 via $channel · 正前方已锚定")
                 showMessage("已开始 · 凝视 ${settings.current.gazeDurationMs} 毫秒即确认", 2_200L)
             }
             VrAction.LockView -> toggleViewLock()
             is VrAction.Adjust -> adjust(action.key, action.delta)
+            is VrAction.SettingsPage -> uiState = uiState.copy(settingsPage = action.page)
+            is VrAction.ApplyFisheye -> {
+                // 预设只改张角与画面圆，不动当前片子的格式 —— 是否鱼眼由格式决定，
+                // 预设是「我用的是哪支镜头」的全局偏好。
+                // 19:2x：预设描述的是「圆 + 贴边」那条形态（180/190/200/220 四个镜头档），
+                // 所以它顺带把全画幅关掉 —— 不然选了 MKX200 却仍是全画幅网格，
+                // 张角写 200° 但画面不是这支镜头该有的样子。
+                val next = settings.update {
+                    it.copy(
+                        fisheyeFovDeg = action.preset.fovDeg,
+                        fisheyeCirclePercent = action.preset.circlePercent,
+                        fisheyeFullFrame = false
+                    )
+                }
+                uiState = uiState.copy(settings = next)
+                RunLog.append("ui", "鱼眼预设 → ${action.preset.label} / ${action.preset.fovDeg}° · 圆形")
+            }
+            VrAction.ResetFisheye -> {
+                val next = settings.update {
+                    it.copy(
+                        fisheyeFovDeg = VrSettings.FISHEYE_FOV_DEFAULT,
+                        fisheyeCirclePercent = VrSettings.FISHEYE_CIRCLE_DEFAULT,
+                        fisheyeFullFrame = false
+                    )
+                }
+                uiState = uiState.copy(settings = next)
+                RunLog.append("ui", "鱼眼已恢复默认 · ${VrSettings.FISHEYE_FOV_DEFAULT}° / 圆形 / 100%")
+            }
+            VrAction.DismissRefusal -> {
+                // 「就这样看」：拒绝卡收起，画面继续按 2D 银幕原样放着。
+                // 不改成鱼眼 —— 那正是这张卡要挡住的事。
+                uiState = uiState.copy(refusal = null)
+                RunLog.append("fmt", "拒绝卡已收起 · 按 2D 银幕原样显示")
+            }
             is VrAction.ToggleOption -> toggleOption(action.key)
             VrAction.StartIpdTuning -> startIpdTuning()
             VrAction.StopIpdTuning -> stopIpdTuning()
@@ -601,6 +732,9 @@ class VrCoordinator(
             uiState = uiState.copy(
                 suggestedFormat = resolution.format,
                 format = resolution.format,
+                // 19:2x：拒绝是「这一次打开的结论」，必须跟片走 —— 换到别的片子要清掉，
+                // 否则上一部片的说明卡会跟着出现在下一部上。
+                refusal = resolution.refusal,
                 overlay = if (resolution.needsConfirmation) VrOverlay.FORMAT else VrOverlay.NONE
             )
             if (!resolution.needsConfirmation) startPlayback()
@@ -638,6 +772,8 @@ class VrCoordinator(
         val pending = pendingOpen ?: return
         pendingOpen = null
         val (item, ref, format) = pending
+        // alpha35：播放中的格式确认要靠它落记忆，不能只认 pendingOpen。
+        currentRef = ref
         // 这次打开的格式只属于这部片：currentMediaId 是片库页断点与进度归属的依据。
         uiState = uiState.copy(
             screen = VrScreen.PLAYER,
@@ -648,6 +784,9 @@ class VrCoordinator(
             currentTitle = item.title,
             consoleVisible = true,
             subtitles = emptyList(),
+            // 19:2x：换片要把上一部的缓冲信息清掉，否则新片起播前会看到旧片的缓冲段。
+            buffering = false,
+            bufferedMs = 0L,
             lastActivityMs = SystemClock.elapsedRealtime()
         )
         // V2.35：把「画面中心」钉在用户此刻看的方向上。
@@ -660,11 +799,19 @@ class VrCoordinator(
         // 打开一部新片是唯一「整块画面被换掉」的时刻：在这里对齐方位角，
         // 前一帧还是片库、后一帧已经是视频，用户看不到任何跳变。
         // 只转 Y 轴，俯仰与横滚不动 —— 低头点开下一部时地平线也不会跟着歪。
-        val yawBefore = degrees(posture.yawOf(headset.headRotation()))
-        headset.recenterYaw()
-        // 参考系一变，凝视停留与手势窗口必须清零，否则会拿旧落点当场再触发一次。
-        onRecenter()
-        RunLog.append("posture", "画面中心对齐 · 打开前偏航 ${yawBefore}°")
+        //
+        // alpha35：正前方已由戴稳后的物理触发键定过时**跳过这一步**。
+        // 那条修复的前提（基准定在塞手机那一刻）已经消失，再对齐一次会把
+        // 刚定好的方向转走；没经过 ArmGaze 的异常恢复路径仍按旧逻辑兜底。
+        if (forwardAnchored) {
+            RunLog.append("posture", "画面中心对齐 · 正前方已由触发键锚定，跳过二次 recenterYaw")
+        } else {
+            val yawBefore = degrees(posture.yawOf(headset.headRotation()))
+            headset.recenterYaw()
+            // 参考系一变，凝视停留与手势窗口必须清零，否则会拿旧落点当场再触发一次。
+            onRecenter()
+            RunLog.append("posture", "画面中心对齐 · 打开前偏航 ${yawBefore}°")
+        }
         scope.launch {
             val resume = withContext(Dispatchers.IO) { library.resumePosition(mediaKeyOf(item)) }
             // V2.14：播放器自身固定满增益，音量交给系统媒体音量，
@@ -683,11 +830,18 @@ class VrCoordinator(
     }
 
     private fun applyFormat(format: com.gazereel.vr.core.VrFormat) {
-        val ref = pendingOpen?.second
+        // alpha35：播放中改格式时 pendingOpen 已是 null，必须回落到当前片。
+        // 原来只认 pendingOpen，于是「手选一次只管这一次」，下次打开又回到错判。
+        val ref = pendingOpen?.second ?: currentRef
         if (ref != null) {
             scope.launch(Dispatchers.IO) { library.rememberFormat(ref, format) }
+            RunLog.append("fmt", "手选格式已记住 · ${ref.mediaKey} → ${format.label}")
         }
-        uiState = uiState.copy(format = format, overlay = VrOverlay.NONE)
+        // 19:2x：手动选格式 = 用户明确表态，拒绝卡必须撤掉（他可能就想看那两个圆）。
+        // 这不是「放行」而是「把决定权交回给他」——卡片的职责是说明，不是把关。
+        val refusing = uiState.refusal != null
+        uiState = uiState.copy(format = format, overlay = VrOverlay.NONE, refusal = null)
+        if (refusing) RunLog.append("fmt", "用户手选格式，已撤掉拒绝卡 · ${format.label}")
         // 仅「首次选片」需要继续启动播放；播放中改格式不重开片源。
         if (pendingOpen != null) startPlayback()
     }
@@ -695,7 +849,9 @@ class VrCoordinator(
     /** 自动连播：不弹格式确认，直接套用识别结果并复用共享会话（PRD 5.2）。 */
     fun autoPlayNext(mediaId: Long) {
         if (!settings.current.autoNext) {
-            uiState = uiState.copy(screen = VrScreen.LIBRARY, playing = false)
+            uiState = uiState.copy(
+                screen = VrScreen.LIBRARY, playing = false, wantPlay = false
+            )
             return
         }
         scope.launch {
@@ -708,6 +864,7 @@ class VrCoordinator(
                 selectedIndex = uiState.items.indexOfFirst { it.id == next.id }.coerceAtLeast(0),
                 format = resolution.format,
                 suggestedFormat = resolution.format,
+                refusal = resolution.refusal,
                 overlay = VrOverlay.NONE,
                 consoleVisible = false
             )
@@ -739,7 +896,11 @@ class VrCoordinator(
         when {
             next < 0 -> showMessage("已经是第一页")
             next >= state.pageCount -> showMessage("已经是最后一页")
-            else -> uiState = state.copy(page = next)
+            else -> {
+                uiState = state.copy(page = next)
+                // 20:2x：翻到新的一页就补探那 9 部，角标才不会只出现在第一页。
+                probeUnsupportedForCurrentPage()
+            }
         }
     }
 
@@ -748,6 +909,7 @@ class VrCoordinator(
     private fun openStack(key: String) {
         val stack = uiState.stacks.firstOrNull { it.key == key } ?: return
         uiState = uiState.copy(activeStack = key, page = 0, consoleVisible = true)
+        probeUnsupportedForCurrentPage()
         RunLog.append("ui", "进入集合 ${stack.label}（${stack.items.size} 部）")
     }
 
@@ -776,6 +938,8 @@ class VrCoordinator(
         uiState = state.copy(
             screen = VrScreen.PLAYER,
             playing = true,
+            // 19:2x：键形看的是意图，这里要一起乐观置位，否则键会先闪一下「播放」。
+            wantPlay = true,
             consoleVisible = true,
             lastActivityMs = SystemClock.elapsedRealtime()
         )
@@ -790,6 +954,8 @@ class VrCoordinator(
         if (uiState.message != null && uiState.messageUntilMs == 0L) {
             uiState = uiState.copy(message = null, messageUntilMs = 0L)
         }
+        // 19:2x：拒绝卡同样是最上层，返回时一起撤，别让它跟着到片库去。
+        if (uiState.refusal != null) uiState = uiState.copy(refusal = null)
         val state = uiState
         when {
             // V2.33 / B13：瞳距「边看边调」是最上层的一层，长按先退它，
@@ -810,6 +976,7 @@ class VrCoordinator(
                 uiState = state.copy(
                     screen = VrScreen.LIBRARY,
                     playing = false,
+                    wantPlay = false,
                     consoleVisible = true,
                     selectedIndex = if (global >= 0) global else state.selectedIndex,
                     page = if (index >= 0) index / VrUiState.PAGE_SIZE else state.page
@@ -923,6 +1090,49 @@ class VrCoordinator(
                     it.copy(gazeDurationMs = (it.gazeDurationMs + delta * 200L).coerceIn(600L, 2_400L))
                 }
                 uiState = uiState.copy(settings = next)
+            }
+            // 18:2x：两个新档位。循环而不是钳位 —— 到头按不动会让人以为按钮坏了。
+            // 不弹 showAdjust 浮层：设置页本身就显示当前值，浮层会盖住列表。
+            "screenWidth" -> {
+                val steps = VrSettings.SCREEN_WIDTH_STEPS
+                val idx = VrSettings.stepOf(steps, settings.current.screenWidthPercent)
+                val value = steps[(idx + delta + steps.size) % steps.size]
+                val next = settings.update { it.copy(screenWidthPercent = value) }
+                uiState = uiState.copy(settings = next)
+                RunLog.append("ui", "银幕宽度 → ${VrSettings.screenWidthLabel(value)}")
+            }
+            "contentZoom" -> {
+                val steps = VrSettings.CONTENT_SCALE_STEPS
+                val idx = VrSettings.stepOf(steps, settings.current.contentScalePercent)
+                val value = steps[(idx + delta + steps.size) % steps.size]
+                val next = settings.update { it.copy(contentScalePercent = value) }
+                uiState = uiState.copy(settings = next)
+                RunLog.append("ui", "画面缩放 → ${value}%")
+            }
+            "fisheyeFov" -> {
+                val steps = VrSettings.FISHEYE_FOV_STEPS
+                val idx = VrSettings.stepOf(steps, settings.current.fisheyeFovDeg)
+                val value = steps[(idx + delta + steps.size) % steps.size]
+                val next = settings.update { it.copy(fisheyeFovDeg = value) }
+                uiState = uiState.copy(settings = next)
+                RunLog.append("ui", "鱼眼张角 → ${VrSettings.fisheyeFovLabel(value)}")
+            }
+            "fisheyeCircle" -> {
+                val steps = VrSettings.FISHEYE_CIRCLE_STEPS
+                val idx = VrSettings.stepOf(steps, settings.current.fisheyeCirclePercent)
+                val value = steps[(idx + delta + steps.size) % steps.size]
+                // 19:2x：全画幅下画面圆不参与几何。用户来拨它，意思是「我要圆那种形态」——
+                // 直接跟着退回圆形，比让他先去找开关、再回来拨两下更省事，页面也写了这句。
+                val wasFull = settings.current.fisheyeFullFrame
+                val next = settings.update {
+                    it.copy(fisheyeCirclePercent = value, fisheyeFullFrame = false)
+                }
+                uiState = uiState.copy(settings = next)
+                RunLog.append(
+                    "ui",
+                    "鱼眼画面圆 → ${VrSettings.fisheyeCircleLabel(value)}" +
+                        if (wasFull) " · 已退出全画幅" else ""
+                )
             }
         }
     }
@@ -1047,6 +1257,9 @@ class VrCoordinator(
                 "autoFade" -> current.copy(autoFade = !current.autoFade)
                 "subtitles" -> current.copy(subtitlesEnabled = !current.subtitlesEnabled)
                 "cursor" -> current.copy(cursorEnabled = !current.cursorEnabled)
+                "wakeZone" -> current.copy(wakeZoneEnabled = !current.wakeZoneEnabled)
+                // 19:2x：全画幅是模式开关（换一只网格），不是叠加在画面圆上的旋钮。
+                "fisheyeFullFrame" -> current.copy(fisheyeFullFrame = !current.fisheyeFullFrame)
                 else -> current
             }
         }
@@ -1059,10 +1272,17 @@ class VrCoordinator(
         val error = state.error?.takeIf { it.isNotBlank() }
         uiState = uiState.copy(
             playing = state.playing,
+            // 19:2x：意图 / 缓冲 / 缓冲进度分开存，控制台按各自语义用。
+            wantPlay = state.playWhenReady,
+            buffering = state.buffering,
+            bufferedMs = state.bufferedMs,
             positionMs = state.positionMs,
             durationMs = state.durationMs,
             message = error ?: uiState.message,
-            messageUntilMs = if (error != null) 0L else uiState.messageUntilMs
+            messageUntilMs = if (error != null) 0L else uiState.messageUntilMs,
+            // 2.1.0：错误卡第二行跟第一行走同一条「有错才覆盖、否则保留」的规则，
+            // 否则下一帧的 emitState(null) 会把建议抹掉，只剩一句没有出路的结论。
+            errorHint = if (error != null) state.errorHint else uiState.errorHint
         )
         // V2.39：第一次真的播起来时问一次方向。放在这里而不是进 VR 时，
         // 是因为「抬头看到什么」必须有画面才能判断。
@@ -1174,7 +1394,9 @@ class VrCoordinator(
             RunLog.append("posture", "重定倒计时作废（离开 VR）")
         }
         if (uiState.screen == VrScreen.PLAYER) {
-            if (uiState.playing) player.pause()
+            // 19:2x：看「意图」不看 `isPlaying` —— 缓冲中 isPlaying 也是 false，
+            // 旧写法会放过一次暂停，用户回到前台时片子自己又放起来。
+            if (uiState.wantPlay) player.pause()
             player.saveProgress()
             RunLog.append("ui", "离开前台 · 已暂停并保存断点")
         }
@@ -1189,7 +1411,7 @@ class VrCoordinator(
         // 常驻播放错误（messageUntilMs == 0）比「已暂停」重要，别用短提示盖掉它。
         val hasError = uiState.message != null && uiState.messageUntilMs == 0L
         if (!hasError && uiState.screen == VrScreen.PLAYER &&
-            !uiState.playing && uiState.gazeArmed
+            !uiState.wantPlay && uiState.gazeArmed
         ) {
             showMessage("已为你暂停 · 凝视「播放」继续")
         }

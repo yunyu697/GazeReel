@@ -52,6 +52,7 @@ class LogActivity : AppCompatActivity() {
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         )
         bar.addView(action(R.string.log_copy) { copyToClipboard() })
+        bar.addView(action(R.string.log_snapshot) { showSnapshot() })
         bar.addView(action(R.string.log_clear) {
             RunLog.clear(this)
             CrashLog.clear(this)
@@ -101,6 +102,37 @@ class LogActivity : AppCompatActivity() {
             appendLine("— 运行日志（新 → 旧顺序倒着看更省事）—")
             append(run.takeIf { it.isNotBlank() } ?: "（还没有记录。进一次 VR 再回来看）")
         }
+    }
+
+    /**
+     * V2.50 / 01：不戴眼镜看 VR 界面。
+     *
+     * 用**真实的绘制代码**把五个屏画出来拼成一张长图。改版式之后点一下就能看到结果，
+     * 不用再「装机 → 戴镜 → 觉得不对 → 再猜」。同时写一份 PNG 到私有目录备查。
+     */
+    private fun showSnapshot() {
+        val bmp = runCatching { UiSnapshot.build(this) }.getOrNull()
+        if (bmp == null) {
+            android.widget.Toast.makeText(this, "快照生成失败，看运行日志", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        UiSnapshot.save(this, bmp)
+
+        val image = android.widget.ImageView(this).apply {
+            setImageBitmap(bmp)
+            adjustViewBounds = true
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+        }
+        val scroll = ScrollView(this).apply {
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            addView(image)
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.log_snapshot)
+            .setMessage(R.string.log_snapshot_hint)
+            .setView(scroll)
+            .setPositiveButton(R.string.log_back, null)
+            .show()
     }
 
     private fun copyToClipboard() {

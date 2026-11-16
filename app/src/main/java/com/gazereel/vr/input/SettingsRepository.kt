@@ -27,11 +27,30 @@ class SettingsRepository(context: Context) {
         lockView = prefs.getBoolean("lock_view", false),
         subtitlesEnabled = prefs.getBoolean("subtitles", true),
         cursorEnabled = prefs.getBoolean("cursor", true),
+        // 18:5x：默认开（与旧行为一致）。关掉后唤醒热区连命中区都不注册。
+        wakeZoneEnabled = prefs.getBoolean("wake_zone", true),
         // V2.38：旧安装没有这一项，默认 10 秒；读到的值一律夹进合法范围，
         // 免得某次写坏了（0 秒 / 999 秒）让倒计时变成「立刻定」或「永远不定」。
         alignCountdownMs = prefs.getLong("align_countdown_ms", 10_000L).coerceIn(
             VrSettings.ALIGN_MIN_MS, VrSettings.ALIGN_MAX_MS
-        )
+        ),
+        // alpha43：两项新增设置。读到非档位值（写坏过 / 旧版本残留）一律落回默认值，
+        // 免得 UI 加减按 index 走时指向不存在的档。
+        uiScalePercent = prefs.getInt("ui_scale_percent", VrSettings.UI_SCALE_DEFAULT)
+            .coerceIn(VrSettings.UI_SCALE_MIN, VrSettings.UI_SCALE_MAX),
+        seekStepSeconds = prefs.getInt("seek_step_seconds", VrSettings.SEEK_STEP_DEFAULT)
+            .takeIf { it in VrSettings.SEEK_STEP_CHOICES } ?: VrSettings.SEEK_STEP_DEFAULT,
+        // 18:2x：旧安装没有这两项，一律落回 100%；读到非档位值也落回默认。
+        screenWidthPercent = prefs.getInt("screen_width_percent", VrSettings.SCREEN_WIDTH_DEFAULT)
+            .takeIf { it in VrSettings.SCREEN_WIDTH_STEPS } ?: VrSettings.SCREEN_WIDTH_DEFAULT,
+        contentScalePercent = prefs.getInt("content_scale_percent", VrSettings.CONTENT_SCALE_DEFAULT)
+            .takeIf { it in VrSettings.CONTENT_SCALE_STEPS } ?: VrSettings.CONTENT_SCALE_DEFAULT,
+        fisheyeFovDeg = prefs.getInt("fisheye_fov_deg", VrSettings.FISHEYE_FOV_DEFAULT)
+            .takeIf { it in VrSettings.FISHEYE_FOV_STEPS } ?: VrSettings.FISHEYE_FOV_DEFAULT,
+        fisheyeCirclePercent = prefs.getInt("fisheye_circle_percent", VrSettings.FISHEYE_CIRCLE_DEFAULT)
+            .takeIf { it in VrSettings.FISHEYE_CIRCLE_STEPS } ?: VrSettings.FISHEYE_CIRCLE_DEFAULT,
+        // 19:2x：全画幅鱼眼开关。旧安装没有这一项，默认关（圆形/贴边，与 alpha3 行为一致）。
+        fisheyeFullFrame = prefs.getBoolean("fisheye_full_frame", false)
     )
 
     private fun legacyIpdHalf(): Int {
@@ -57,10 +76,18 @@ class SettingsRepository(context: Context) {
             .putBoolean("lock_view", next.lockView)
             .putBoolean("subtitles", next.subtitlesEnabled)
             .putBoolean("cursor", next.cursorEnabled)
+            .putBoolean("wake_zone", next.wakeZoneEnabled)
             // V2.44：两个旧方向开关键一并清掉，避免旧安装的残留值被以后的代码误读。
             .remove("flip_vertical")
             .remove("invert_pitch")
             .putLong("align_countdown_ms", next.alignCountdownMs)
+            .putInt("ui_scale_percent", next.uiScalePercent)
+            .putInt("seek_step_seconds", next.seekStepSeconds)
+            .putInt("screen_width_percent", next.screenWidthPercent)
+            .putInt("content_scale_percent", next.contentScalePercent)
+            .putInt("fisheye_fov_deg", next.fisheyeFovDeg)
+            .putInt("fisheye_circle_percent", next.fisheyeCirclePercent)
+            .putBoolean("fisheye_full_frame", next.fisheyeFullFrame)
             .apply()
         return next
     }

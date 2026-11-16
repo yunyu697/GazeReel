@@ -12,6 +12,7 @@ import android.provider.Settings
 import android.view.View
 import android.view.WindowManager
 import android.widget.AdapterView
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -20,6 +21,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import com.gazereel.vr.R
+import com.gazereel.vr.core.FisheyePreset
 import com.gazereel.vr.core.SourceType
 import com.gazereel.vr.data.BrowseState
 import com.gazereel.vr.data.CrashLog
@@ -281,66 +283,50 @@ class SetupActivity : AppCompatActivity() {
     }
 
     /**
-     * V2.7：上次进 VR 失败过，就把原因直接摆回第一屏。
+     * 上次进 VR 失败过，就把原因直接摆回第一屏。
      * 用户不需要连电脑、不需要懂 adb，点一下就能把内容发出来。
-     * 如果是初始化把进程带崩的（native 崩溃接不住），这里还会告诉他
-     * 已经自动切到兼容模式，以及怎么恢复。
+     *
+     * alpha39 起官方 SDK 是唯一底座，没有兼容模式可切，
+     * 所以这里只保留「看详情 / 清空记录」，不再给一个点了没反应的恢复按钮。
      */
     private fun showLastCrash() {
-        val blocked = CrashLog.isCardboardBlocked(this)
-        val raw = CrashLog.read(this)
-
-        if (raw != null) {
-            val head = CrashLog.headline(raw) ?: "原因没记下来"
-            // V2.45：状态条的点击动作记进 StatusLine。横竖屏换整套 view 之后
-            // applyStatus 会重新挂上，不会出现「转一下横屏详情就点不开了」。
-            val showDetail: () -> Unit = {
-                AlertDialog.Builder(this, R.style.SetupDialog)
-                    .setTitle("上次进入 VR 的失败记录")
-                    .setMessage(raw.take(4000))
-                    .setNegativeButton("知道了", null)
-                    .setNeutralButton("清空并重试官方头追") { _, _ ->
-                        CrashLog.clear(this)
-                        CrashLog.unblockCardboard(this)
-                        CrashLog.clearBootMarker(this)
-                        renderStatus(
-                            Status.IDLE,
-                            "点一个就行，不用填东西",
-                            "手机里的视频，或者同一 Wi-Fi 下的设备。",
-                            "未添加"
-                        )
-                    }
-                    .show()
+        // alpha41：native 崩溃（SIGABRT/SIGSEGV）杀进程时，Java 异常日志根本来不及写。
+        // 一并展示系统的 ApplicationExitInfo + tombstone 摘要，以及启动阶段标记。
+        val native = CrashLog.nativeExit(this)
+        val java = CrashLog.read(this)
+        if (native == null && java == null) return
+        val marker = CrashLog.bootMarker(this)
+        val detail = buildString {
+            native?.let { appendLine(it); appendLine() }
+            marker?.let {
+                appendLine("上次启动停在 stage=${it.stage}（mode=${it.mode}）")
+                appendLine()
             }
-            renderStatus(Status.ERR, "上次进 VR 没成功", head, "看详情", showDetail)
-            return
+            java?.let { appendLine("--- Java 异常记录 ---"); append(it) }
+        }.trim()
+        val head = if (native != null) {
+            "native 崩溃 · 点详情看 tombstone"
+        } else {
+            CrashLog.headline(java) ?: "原因没记下来"
         }
-
-        if (blocked) {
-            val restore: () -> Unit = {
-                AlertDialog.Builder(this, R.style.SetupDialog)
-                    .setTitle("恢复官方头追？")
-                    .setMessage("恢复后如果还是进不去，会自动再退回兼容模式。")
-                    .setNegativeButton("先这样", null)
-                    .setPositiveButton("恢复") { _, _ ->
-                        CrashLog.unblockCardboard(this)
-                        renderStatus(
-                            Status.IDLE,
-                            "点一个就行，不用填东西",
-                            "手机里的视频，或者同一 Wi-Fi 下的设备。",
-                            "未添加"
-                        )
-                    }
-                    .show()
-            }
-            renderStatus(
-                Status.OK,
-                "已切到兼容模式",
-                "官方头追上次没能起来，现在用手机传感器，一样能看。想恢复点这里。",
-                "兼容模式",
-                restore
-            )
+        val showDetail: () -> Unit = {
+            AlertDialog.Builder(this, R.style.SetupDialog)
+                .setTitle("上次进入 VR 的失败记录")
+                .setMessage(detail.take(8000))
+                .setNegativeButton("知道了", null)
+                .setNeutralButton("清空记录") { _, _ ->
+                    CrashLog.clear(this)
+                    CrashLog.clearBootMarker(this)
+                    renderStatus(
+                        Status.IDLE,
+                        "点一个就行，不用填东西",
+                        "手机里的视频，或者同一 Wi-Fi 下的设备。",
+                        "未添加"
+                    )
+                }
+                .show()
         }
+        renderStatus(Status.ERR, "上次进 VR 没成功", head, "看详情", showDetail)
     }
 
     // ------------------------------------------------------------ 权限
@@ -876,7 +862,24 @@ class SetupActivity : AppCompatActivity() {
     ) {
         setBusy(true, "正在扫描「${state.displayName}」…")
         lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) {
+            val outcome: Pair<Int, Boolean> = withContext(Dispatchers.IO) {
+                // alpha35 / 数据层：`source` 表没有唯一约束，原来同一个地址每点一次
+                // 「添加」就 INSERT 一行，还会顺手多造一份没人引用的凭证。
+                // 没有并发写、老库里可能已经有重复行，所以不用 Room 唯一索引 + 迁移，
+                // 直接在业务层按 type + address + recursive 判重，零迁移风险。
+                val duplicate = currentSources.firstOrNull {
+                    it.type == type.name && it.address == state.address &&
+                        it.recursive == recursive
+                }
+                if (duplicate != null) {
+                    val refreshed = duplicate.copy(displayName = state.displayName)
+                    if (refreshed != duplicate) database.sourceDao().update(refreshed)
+                    val count = runCatching { indexer.scan(refreshed) }.getOrElse { error ->
+                        RunLog.append("scan", "重扫失败 · ${refreshed.address} · ${error.message}")
+                        -1
+                    }
+                    return@withContext count to false
+                }
                 // V2.17：同一台设备上再开一个文件夹时，不必再造一份凭证。
                 val reusable = currentSources.firstOrNull {
                     it.type == type.name && it.credentialRef.isNotBlank() &&
@@ -902,14 +905,18 @@ class SetupActivity : AppCompatActivity() {
                     recursive = recursive
                 )
                 val id = database.sourceDao().upsert(entity)
-                runCatching { indexer.scan(entity.copy(id = id)) }.getOrElse { error ->
+                val count = runCatching { indexer.scan(entity.copy(id = id)) }.getOrElse { error ->
                     // V2.18：失败原因必须落到日志里，否则用户只能看到「扫描没成功」。
                     RunLog.append("scan", "扫描失败 · ${entity.address} · ${error.message}")
                     -1
                 }
+                count to true
             }
             setBusy(false)
-            renderScanResult(result, "已添加「${state.displayName}」")
+            val (result, isNew) = outcome
+            val prefix = if (isNew) "已添加「${state.displayName}」"
+            else "「${state.displayName}」已经在片库里，已为它重扫"
+            renderScanResult(result, prefix)
         }
     }
 
@@ -1015,6 +1022,195 @@ class SetupActivity : AppCompatActivity() {
         view.alignMinus.setOnClickListener { applyAlign(-VrSettings.ALIGN_STEP_MS) }
         view.alignPlus.setOnClickListener { applyAlign(VrSettings.ALIGN_STEP_MS) }
         renderAlign()
+
+        // alpha43：界面大小。按档位加减而不是连续滑杆 —— 这是戴镜前一次定好的参数，
+        // 连续值要按十几次才到头，而且看不出「退一档」到底退了多少。
+        var scaleIndex = VrSettings.stepOf(
+            VrSettings.UI_SCALE_STEPS, repo.current.uiScalePercent
+        )
+        val scaleLast = VrSettings.UI_SCALE_STEPS.lastIndex
+
+        fun renderScale() {
+            view.uiScaleValue.text = VrSettings.uiScaleLabel(VrSettings.UI_SCALE_STEPS[scaleIndex])
+            view.uiScaleMinus.isEnabled = scaleIndex > 0
+            view.uiScalePlus.isEnabled = scaleIndex < scaleLast
+        }
+
+        fun applyScale(delta: Int) {
+            val next = (scaleIndex + delta).coerceIn(0, scaleLast)
+            if (next != scaleIndex) {
+                scaleIndex = next
+                val value = VrSettings.UI_SCALE_STEPS[next]
+                repo.update { it.copy(uiScalePercent = value) }
+                RunLog.append("ui", "界面大小 → ${VrSettings.uiScaleLabel(value)}")
+            }
+            renderScale()
+        }
+        view.uiScaleMinus.setOnClickListener { applyScale(-1) }
+        view.uiScalePlus.setOnClickListener { applyScale(1) }
+        renderScale()
+
+        // alpha43：前进 / 后退步长，同样是档位；写进 VrSettings.seekStepSeconds，
+        // 控制台两个按钮与左上角文案每帧从 state.settings 读，改完进 VR 即生效。
+        val stepChoices = VrSettings.SEEK_STEP_CHOICES
+        var stepIndex = stepChoices.indexOf(repo.current.seekStepSeconds)
+            .takeIf { it >= 0 } ?: stepChoices.indexOf(VrSettings.SEEK_STEP_DEFAULT)
+        val stepLast = stepChoices.lastIndex
+
+        fun renderStep() {
+            view.seekStepValue.text = VrSettings.seekStepLabel(stepChoices[stepIndex])
+            view.seekStepMinus.isEnabled = stepIndex > 0
+            view.seekStepPlus.isEnabled = stepIndex < stepLast
+        }
+
+        fun applyStep(delta: Int) {
+            val next = (stepIndex + delta).coerceIn(0, stepLast)
+            if (next != stepIndex) {
+                stepIndex = next
+                val value = stepChoices[next]
+                repo.update { it.copy(seekStepSeconds = value) }
+                RunLog.append("ui", "快退/快进步长 → ${VrSettings.seekStepLabel(value)}")
+            }
+            renderStep()
+        }
+        view.seekStepMinus.setOnClickListener { applyStep(-1) }
+        view.seekStepPlus.setOnClickListener { applyStep(1) }
+        renderStep()
+
+        // 19:0x：画面与鱼眼四项。以前只有 VR 内设置浮层第 2 页能改，想预设必须先戴上头
+        // 摸进去；现在手机端也能定，写的是同一份 SettingsRepository，不存在两份真相。
+        val stepRefreshers = mutableListOf<() -> Unit>()
+        fun bindStepper(
+            steps: IntArray,
+            read: () -> Int,
+            format: (Int) -> String,
+            valueView: TextView,
+            minusView: View,
+            plusView: View,
+            onPick: (Int) -> Unit
+        ) {
+            var index = VrSettings.stepOf(steps, read())
+            fun renderStepper() {
+                index = VrSettings.stepOf(steps, read())
+                valueView.text = format(steps[index])
+                minusView.isEnabled = index > 0
+                plusView.isEnabled = index < steps.lastIndex
+            }
+            minusView.setOnClickListener {
+                if (index > 0) {
+                    index -= 1
+                    onPick(steps[index])
+                    renderStepper()
+                }
+            }
+            plusView.setOnClickListener {
+                if (index < steps.lastIndex) {
+                    index += 1
+                    onPick(steps[index])
+                    renderStepper()
+                }
+            }
+            renderStepper()
+            stepRefreshers += { renderStepper() }
+        }
+
+        bindStepper(
+            VrSettings.SCREEN_WIDTH_STEPS,
+            { repo.current.screenWidthPercent },
+            { VrSettings.screenWidthLabel(it) },
+            view.screenWidthValue, view.screenWidthMinus, view.screenWidthPlus
+        ) { value ->
+            repo.update { it.copy(screenWidthPercent = value) }
+            RunLog.append("ui", "银幕宽度 → ${VrSettings.screenWidthLabel(value)}")
+        }
+        bindStepper(
+            VrSettings.CONTENT_SCALE_STEPS,
+            { repo.current.contentScalePercent },
+            { VrSettings.contentScaleLabel(it) },
+            view.contentScaleValue, view.contentScaleMinus, view.contentScalePlus
+        ) { value ->
+            repo.update { it.copy(contentScalePercent = value) }
+            RunLog.append("ui", "画面缩放 → ${VrSettings.contentScaleLabel(value)}")
+        }
+        bindStepper(
+            VrSettings.FISHEYE_FOV_STEPS,
+            { repo.current.fisheyeFovDeg },
+            { VrSettings.fisheyeFovLabel(it) },
+            view.fishFovValue, view.fishFovMinus, view.fishFovPlus
+        ) { value ->
+            repo.update { it.copy(fisheyeFovDeg = value) }
+            RunLog.append("ui", "鱼眼张角 → ${VrSettings.fisheyeFovLabel(value)}")
+        }
+        bindStepper(
+            VrSettings.FISHEYE_CIRCLE_STEPS,
+            { repo.current.fisheyeCirclePercent },
+            { if (repo.current.fisheyeFullFrame) "不计" else VrSettings.fisheyeCircleLabel(it) },
+            view.fishCircleValue, view.fishCircleMinus, view.fishCirclePlus
+        ) { value ->
+            // 19:2x：全画幅下画面圆不参与几何；用户来拨它即表示要圆那种形态，
+            // 所以这里跟着退出全画幅（与 VR 内第 2 页同一条语义）。
+            val wasFull = repo.current.fisheyeFullFrame
+            repo.update { it.copy(fisheyeCirclePercent = value, fisheyeFullFrame = false) }
+            if (wasFull) RunLog.append("ui", "已退出全画幅 · 画面圆 ${value}%")
+            else RunLog.append("ui", "鱼眼画面圆 → ${VrSettings.fisheyeCircleLabel(value)}")
+        }
+
+        // 预设：一下同时改张角与画面圆，和 VR 内那四个按钮是同一条动作语义。
+        val presets = FisheyePreset.entries
+        val presetButtons = listOf(view.fishPreset0, view.fishPreset1, view.fishPreset2, view.fishPreset3)
+        fun renderPresets() {
+            val now = repo.current
+            presets.forEachIndexed { i, preset ->
+                if (i >= presetButtons.size) return@forEachIndexed
+                val button = presetButtons[i]
+                button.text = preset.label
+                val active = now.fisheyeFovDeg == preset.fovDeg &&
+                    now.fisheyeCirclePercent == preset.circlePercent &&
+                    !now.fisheyeFullFrame
+                button.isSelected = active
+                button.alpha = if (active) 1f else 0.72f
+            }
+        }
+        // 19:2x：画幅形态（圆形 / 全画幅）。与四个预设同一行宽，两段互斥。
+        // 局部函数必须先声明后使用 —— 预设的点击回调里也要调它（预设会退回圆形）。
+        fun renderFrame() {
+            val full = repo.current.fisheyeFullFrame
+            view.fishFrameCircle.isSelected = !full
+            view.fishFrameFull.isSelected = full
+            view.fishFrameCircle.alpha = if (full) 0.72f else 1f
+            view.fishFrameFull.alpha = if (full) 1f else 0.72f
+        }
+        presets.forEachIndexed { i, preset ->
+            if (i >= presetButtons.size) return@forEachIndexed
+            presetButtons[i].setOnClickListener {
+                repo.update {
+                    it.copy(
+                        fisheyeFovDeg = preset.fovDeg,
+                        fisheyeCirclePercent = preset.circlePercent,
+                        fisheyeFullFrame = false
+                    )
+                }
+                RunLog.append("ui", "鱼眼预设 → ${preset.label} / ${preset.fovDeg}° · 圆形")
+                stepRefreshers.forEach { it() }
+                renderPresets()
+                renderFrame()
+            }
+        }
+        renderPresets()
+
+        view.fishFrameCircle.setOnClickListener {
+            repo.update { it.copy(fisheyeFullFrame = false) }
+            RunLog.append("ui", "鱼眼画幅 → 圆形（圆贴边，四角不采样）")
+            stepRefreshers.forEach { it() }
+            renderFrame()
+        }
+        view.fishFrameFull.setOnClickListener {
+            repo.update { it.copy(fisheyeFullFrame = true) }
+            RunLog.append("ui", "鱼眼画幅 → 全画幅（四角也采样）")
+            stepRefreshers.forEach { it() }
+            renderFrame()
+        }
+        renderFrame()
 
         render()
         dialog.show()
@@ -1186,20 +1382,23 @@ class SetupActivity : AppCompatActivity() {
             val result = withContext(Dispatchers.IO) {
                 val type = runCatching { SourceType.valueOf(source.type) }
                     .getOrDefault(SourceType.LOCAL)
+                val oldRef = source.credentialRef
                 val newRef = if (user.isNotBlank() || pass.isNotEmpty()) {
                     val alias = "src_${type.name.lowercase()}_${System.currentTimeMillis()}"
                     credentials.put(alias, encodeCredentials(user, pass))
-                    if (source.credentialRef.isNotBlank() &&
-                        source.credentialRef != alias
-                    ) credentials.remove(source.credentialRef)
                     alias
-                } else source.credentialRef
+                } else oldRef
                 val label = name.ifBlank { SourceAddress.displayName(type, address) }
                 val updated = source.copy(
                     address = address, displayName = label, credentialRef = newRef,
                     recursive = recursive
                 )
                 database.sourceDao().update(updated)
+                // alpha35 / 数据层：旧凭证可能还被同一台设备的其它文件夹片库共用。
+                // update 之后再数引用，归零才删；原来无条件 remove，删一个其它全断。
+                if (oldRef.isNotBlank() && oldRef != newRef &&
+                    database.sourceDao().countByCredentialRef(oldRef) == 0
+                ) credentials.remove(oldRef)
                 // 换了目录、或者改了递归范围，旧索引都要丢掉，否则会留下打不开的幽灵条目。
                 if (address != source.address || recursive != source.recursive) {
                     purgeMedia(source.id)
@@ -1305,8 +1504,11 @@ class SetupActivity : AppCompatActivity() {
             withContext(Dispatchers.IO) {
                 purgeEverything(source.id)
                 database.sourceDao().deleteById(source.id)
-                if (source.credentialRef.isNotBlank()) {
-                    credentials.remove(source.credentialRef)
+                // alpha35 / 数据层：先删行、再数引用，只有没人用了才动凭证。
+                // 同主机多文件夹共用一个 credentialRef，无条件删会集体连不上。
+                val ref = source.credentialRef
+                if (ref.isNotBlank() && database.sourceDao().countByCredentialRef(ref) == 0) {
+                    credentials.remove(ref)
                 }
             }
             setBusy(false)
