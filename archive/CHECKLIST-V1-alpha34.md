@@ -11,9 +11,12 @@
 >    `[设计]` 只有设计、代码没动 · `[已实现]` 代码改了、编译过 · `[真机]` 用户在真机上确认过 · `[回归]` 曾经可用、后来坏了
 > 5. **动任何功能前先核查成熟方案**（官方 SDK / 平台 API / 成熟库 / 行业标准），结论写进《附录 · 成熟方案核查》；自研只做成熟方案不覆盖的那部分，并在裁决记录里写清边界。
 >
-> 最后更新：V2.46 / 1.1.0-alpha33（2026-11-12 下午，用户要求「模拟用户从打开 app 开始之后的各种操作，提出需要改善的地方」，随后指定「先修 P0 全部」。本轮按真实操作链路修掉 8 条 P0，**未改 `HeadPose` 与球面渲染链路**）
+> 最后更新：V2.47 / 1.1.0-alpha34（2026-11-12 晚，用户「这些和数据层问题一起修复，现在可以开始了」：四项改善 —— 「戴稳了？」手机物理屏幕中心线 / 跟随视线 / **按纸盒物理触发键定正前方**，凝视进度条落点与凝视点一致，片库默认按文件名排序 —— 加上 alpha33 明确「这轮没动、等定范围」的**数据会悄悄错五条**。先核查成熟方案、先立编号与裁决，再动代码。**仍未改 `HeadPose` 与球面渲染链路，仍未上真机**）
 >
-> **当前基线**：`V2.46 / 1.1.0-alpha33`（上一版 `da40463` / alpha32）；产物 `GazeReel-1.1.0-alpha33.apk`（**本轮改动未上真机**）。方向问题已于 alpha31 由用户真机确认修好，不需要复验。**先看「本轮新增（alpha33）」再上机**。
+> **当前基线**：`V2.47 / 1.1.0-alpha34`（上一版 `56ed8b3` / alpha33）；产物 `GazeReel-1.1.0-alpha34.apk`。
+> ⚠️ **2026-11-12 22:0x 真机反馈，前提被推翻**：用户报「抬头/低头时视频画面还是反的」，并说明「alpha31 时我弄错了，也可能当时确实对了、现在又复现，不确定」。因此 **alpha31「方向已真机通过、不需要复验」的结论作废**，方向必须重新上机验。同批还有两条：「戴稳了？」跟随视线**很闪**、**控制台不再自动隐藏**。用户要求：重定向 / UI 跟随 / 俯仰方向一律参考成熟 App（最后指定 **SourceVR**，未实测；此前也提过 VRTV、SKYBOX），**「用成熟的方案，不要再自己乱写」**。**方案未裁决前不改代码**，见裁决记录 V2.48。
+>
+> **本轮最重要的前提更正**：「按触发键定正前方」指的是**纸盒上的物理触发键**（`TriggerDispatcher` 未上膛时 CLICK → `ArmGaze`），不是手机端入盒引导页的按钮。V2.23「基准绝不能取按键那一刻」针对的是后者（按完还要往沙发靠、几秒差 40°–50°），**不推翻，只补适用范围**。详见裁决记录。
 
 ---
 
@@ -45,6 +48,8 @@
 | A16c | **横屏的主次不能颠倒**（V2.19b）：「进入 VR」是唯一主行动，做成 132dp×52dp、17sp 加粗；「日志」降级成 11sp 无底色小字（竖屏本来就是文字链，横屏上一版给它加了 chip 底色，反而比主按钮显眼）；状态条从「圆点 + 两行字 + 胶囊」套 16dp 卡片底（纵向吃 82dp）压成**一行 + 8dp 细条**（`bg_setup_strip`，约 34dp） | `[已实现]` 待真机 | V2.19b 真机反馈「日志那么大个按钮、进入 VR 却很小；状态条占纵向 1/4」 | 横屏下状态条不超过纵向 1/10，进入 VR 是视线第一个落点 |
 | A17 | **预览图是真画面**（V2.19）：本地视频用 `MediaMetadataRetriever` 抽 1 秒处关键帧（`content://` 直接 `setDataSource(context, uri)`），铺满后居中裁切；抽不到时生成带身份的封面（色相按文件名散列、中间是时刻、上面日期、下面时长），**不再画首字母**；封面文件名带代际 `g2`，旧封面自动失效；有真画面时底部压渐变压条补回「日期 + 时刻 + 时长」 | `[已实现]` 待真机 | V2.19 真机反馈「片库的预览图真是难尽，也太敷衍了」 | 一屏八格能靠画面本身分开；`VID_...` 的片子不再全是同一张「V」 |
 | A17b | **封面换代要主动补，不能等重扫**（V2.19b）：`refreshPosters()` 原来只有定义、没有任何调用点，封面重生成只挂在 `scan()` 后面——用户不重扫，旧封面永远留在手机上。现在配置页启动时串行补一次（IO、只处理路径代号不是当前的条目、`shouldContinue` 在 Activity 离开 RESUMED 时立刻停手，不和播放抢 CPU），每批结果写 `RunLog` | `[已实现]` 待真机 | V2.19b 真机反馈「封面没换」 | 打开 App 几秒后片库封面开始成片变化；日志里有「新封面 N 张」 |
+| A18 | **「戴稳了？」这一屏：对齐、看得见、定方向**（V2.47 / 用户 2026-11-12 需求）。三件事：① **手机物理屏幕中心线**：`VrActivity` 的 `GLSurfaceView` 之上叠一层屏幕空间 `CenterLineView`（物理屏正中一条竖线 + 上下端标），只在 `!gazeArmed` 显示，用来把手机中线对准纸盒隔板；**不能画在 `VrUiLayer` 的 `W/2`** —— 那张 1024×512 UI 纹理左右眼各画一份，`W/2` 是每眼视口中心，不是物理屏幕中心。② **跟随视线**：未上膛时 `panelSpec()` 返回当前姿态的 yaw/pitch，整块 UI 平面转向（复用 `ProjectionMesh.uiQuad` 的成熟几何，不新增第二块 quad），卡片仍居中画在画布正中，戴镜后转头也始终在眼前。③ **按物理触发键定正前方**：`ArmGaze` 取 `headRotation()` → `recenterTo(pose, 400ms)`，并撤销 Provider 的 `pendingInitialRecenter`。**注**：V2.20 / alpha4 变更记录里那个「A18 入盒引导」是手机端 `AlignActivity`，已随 alpha9 回滚，与本条不是同一件事 | `[已实现]` 待真机 | V2.47 / 用户 2026-11-12「戴稳了？」需求 / 附录 §7 / 裁决 V2.47 | 塞手机时能看到屏幕正中一条竖线，对准盒子隔板；戴上眼镜后无论头怎么偏「戴稳了？」卡片都在眼前；按一次触发键后画面正对着刚才看的方向，且此后再不自己转 |
+| A19 | **片库数据不会悄悄错**（V2.47 / alpha33 走查「数据会悄悄错」五条）：① `nextOf()/previousOf()` 与片库页共用「未隐藏片源 + 文件名升序」同一份列表，隐藏的片源不再被自动连播 / 上一部下一部播出；② 加片库查重幂等（同 `type/address/recursive` 复用 id，不重复 INSERT）、删片库前对 `credentialRef` 做引用计数，别的片库还在用就不删凭证；③ 播放中手选格式落格式记忆（`applyFormat()` 不再只认 `pendingOpen`）；④ 重扫做差集删除（NAS 上删掉的文件不留幽灵卡片），成功进 VR 清掉 `last_crash.txt` 旧失败记录；⑤ `CrashLog.bootMarker()` / `blockCardboard()` / `isCardboardBlocked()` 接线，native 崩过下次自动降级传感器，两个「兼容模式」按钮不再是装饰 | `[已实现]` 待真机 | V2.47 / alpha33 UX 走查「数据会悄悄错」/ 附录 §7 | 隐藏一个片库后自动连播 / 下一部跳过它；同一地址重复添加不会多出一行、删掉其中一个片库其它同主机片库仍能连上；播放中改一次格式下次打开还是它；NAS 上删一部片子重扫后卡片消失；崩过一次再进 VR 自动走传感器且首屏能说清原因 |
 
 ---
 
@@ -58,7 +63,7 @@
 | B1 | 找片三层：柜子（设备）→ 叠（一次拍摄 / 一个文件夹）→ 格（一条片）。**V2.16 已落地「叠」这一层**：部数 ≥24 且能分出 ≥3 叠时，片库第一屏就是一叠一格；判据按内容形态（网络源按文件夹、拍摄素材按文件名日期），不按协议 | `[部分实现]` 待真机 | 08.2 / 08.4 / V2.16 | 832 部片源里能在 3 次动作内到达任意一条 |
 | B2 | **换柜子整层**：片库底栏「换片库」→ 一屏 3×2 六个目标（第一个固定「全部片库」），凝视一次换整柜，不弹菜单、不重新扫描；只有两个以上真实片源时才出现；换柜后回到「全部集合」 | `[已实现]` 待真机 | 08.2 / V2.18 | 多片源时换设备不超过 2 次凝视，且片库标题写着当前柜名 |
 | B3 | 每柜记住游标：切回某柜直接落回上次那一叠 | `[设计]` | 08.2 第 02 条 | 换柜往返后位置不丢 |
-| B4 | **正前方只在进 VR 时定一次**（V2.29 全量改写，V2.19c 的自动闭环已作废）：Provider 等姿态稳定的第一个瞬间（`pendingInitialRecenter`，连续约 0.5s 视线几乎不动，最长 4s 兜底）定基准，**之后不再自动动画面**——alpha14 的「6 秒内持续静默校准」会让塞手机、按开始、挑片各定一次正前方，真机反馈「更严重了、非常混乱」。自动 40° 候选 / 首次基准静默缓转 / 忽略后不追问全部停用，`ResetForward`、点头摇头手势已删。用户微调只有一条明路：控制台 / 设置的「正前方」→ `AlignForward` 确认卡 → 按**候选姿态** `recenterTo`（`O' = H⁻¹·O`）0.8s 四元数 slerp 缓转。确认卡仍摆在新姿态的视线正前方（整块平面**转向**候选方向，不是平移），两个按钮在画布正中留 32px 缝，卡片挂着时下层整块不画、单击 = 确认。**V2.30 起头追来源为官方 Cardboard SDK 1.36.0**（`USE_SDK_OPTICS=false`，只换姿态源） | `[已实现]` 待真机 | V2.29 / V2.30 / V2.19c / 第 09 章 | 躺好戴稳后一进 VR 画面就正对着你（不用等缓转）；之后看片、抬头、换片都不再出现自己转走的画面；想微调按「正前方」，卡出现在**此刻视线正前方**、不用转头找，确认后 0.8s 缓转落到刚才那个方向且视频与界面一起动 |
+| B4 | **正前方由纸盒物理触发键定一次**（V2.47 改写；V2.29「Provider 等姿态稳定自动定基准」作废，两个 Provider 的 `pendingInitialRecenter` 在任何显式 `recenterTo` 时撤销，避免几秒后自动基准把用户定的方向覆盖掉）：用户戴稳后按一下**纸盒上的物理触发键**，`ArmGaze` 取当时的 `headRotation()` → `recenterTo(pose, 400ms)` 定基准，**之后不再自动动画面**；`startPlayback()` 的 `recenterYaw()` 在这条路径上跳过（否则「打开新片」又会二次改参考系），只在没经过 `ArmGaze` 的异常恢复路径保留兜底。旧 V2.23「基准绝不能取按键那一刻」针对的是**手机端入盒引导页按钮**，不推翻、只补适用范围。原 V2.29 记录留档：Provider 曾等姿态稳定的第一个瞬间（`pendingInitialRecenter`，连续约 0.5s 视线几乎不动，最长 4s 兜底）定基准，**之后不再自动动画面**——alpha14 的「6 秒内持续静默校准」会让塞手机、按开始、挑片各定一次正前方，真机反馈「更严重了、非常混乱」。自动 40° 候选 / 首次基准静默缓转 / 忽略后不追问全部停用，`ResetForward`、点头摇头手势已删。用户微调只有一条明路：控制台 / 设置的「正前方」→ `AlignForward` 确认卡 → 按**候选姿态** `recenterTo`（`O' = H⁻¹·O`）0.8s 四元数 slerp 缓转。确认卡仍摆在新姿态的视线正前方（整块平面**转向**候选方向，不是平移），两个按钮在画布正中留 32px 缝，卡片挂着时下层整块不画、单击 = 确认。**V2.30 起头追来源为官方 Cardboard SDK 1.36.0**（`USE_SDK_OPTICS=false`，只换姿态源） | `[已实现]` 待真机 | V2.47 / V2.29 / V2.30 / V2.19c / 第 09 章 | 戴稳、按一下纸盒触发键之后画面正对着你；打开新片不会把刚定好的正前方再转走；之后看片、抬头、换片都不再出现自己转走的画面；想微调按「正前方」，卡出现在**此刻视线正前方**、不用转头找，确认后 0.8s 缓转落到刚才那个方向且视频与界面一起动 |
 | B5 | 舒适俯角：**V2.19 推翻「挪 UI 平面」**（那样只有 UI 飞走、视频留原地，用户反而要仰头找）。俯角只保留「控制台比正前方低 13°」这一条**相对**规则，舒适中心靠缓转整个参考系实现。**V2.29 更正前提**：自动缓转闭环已停，现在由「进 VR 时定一次基准」+「手动 `AlignForward` 时缓转」两步达成，不再有自动跟随舒适中心 | `[已实现]` 待真机 | 第 09 章 / V2.19 裁决 / V2.29 | 躺姿下控制台不压在画面边缘；手动确认后视频与 UI 一起落在舒服的方向，且此后不会自己再转 |
 | B6 | UI 三层拆分：世界锁定平面 / 屏幕空间层（准星、字幕）/ 视频层。**V2.19c 曾试过第二块 quad 的屏幕空间层，随该方案一起回退删除**（准星与卡的相对偏移恒定，凝视几何上点不中按钮）；准星与字幕至今仍画在世界锁定层 | `[设计]` | V2.3.1 复核 / V2.19c 裁决 | 准星与字幕不随世界参考系重定而漂移 |
 | B7 | 格式确认改「看图选」：一句人话 + 画面示意，不让人学 SBS / TAB / EAC | `[设计]` | 08.3 | 没听过这些词的人能自己选对 |
@@ -70,6 +75,8 @@
 | B12 | **播放中调出片库要有回头路**：片库底栏出现「返回播放」，一个动作回到正在看的那一部（播放器只暂停、不重开文件） | `[已实现]` 待真机 | V2.16 真机反馈 | 播放中按「片库」再按「返回播放」，画面与进度接上 |
 | B13 | **瞳距调节（粗调 + 微调组合）**：**戴镜前**在手机配置页底部「设置」里拖到大致值（V2.34 / alpha21 补：50.0–75.0mm、0.5mm 步进、± 微调、一键回默认 62.0，写的是同一个 `ipdHalfMm`）；**戴镜后**设置浮层「瞳距」行显示当前值（0.5mm 精度）并给出「瞳距 · 边看边调」入口 → 播放中不遮挡视频的调节条（卡片 `212,48–812,252`，底边在画布中线 256 之上；不铺压暗层、视频不暂停不重开），`VrRenderer` 每帧读 `ipdMm` 故即时生效。**V2.33 已落地**：`VrSettings.ipdHalfMm` 统一 0.5mm 整数单位（100–150 half = 50.0–75.0mm），**粗调 2.0mm / 微调 0.5mm 叠加到同一个值**，`val ipdMm: Float get() = ipdHalfMm / 2f` 保持每帧读取不变；`SettingsRepository` 把旧 `ipd_mm` 迁移到 `ipd_half_mm`。触发键单击切粗/微（无凝视目标时）、双击 / 长按退出，音量键在调节态内临时借用做加/减、退出即归还；瞳距态调节条注册 `adjDec` / `adjInc` / `adjMode` / `adjClose` 四个凝视目标（普通音量/亮度条只有三个、无 `adjMode`）且排在 `targets` 最前，避免被下层控制台抢命中。**成熟方案核查**：QR 设备参数（`QrCode.getSavedDeviceParams()` → `DeviceParams.getInterLensDistance()`）是硬件透镜中心距、**不是生理瞳距**，没扫码回落 Cardboard V1，本次不接，列为 C3/C5 的 QR 专项（附录 §6） | `[已实现]` 待真机 | V2.33 / V2.34 / alpha20 / alpha21 / 用户 2026-11-11 需求 / 附录 §6 | 戴镜前在平面页先把瞳距拖到大致范围；戴镜看片时按入口，视频继续播、画面不被盖住；先粗调跨到大致范围再切微调修到 0.5mm，左右画面能合上且数值与显示一致；退出后音量键立刻恢复调音量 |
 | B14 | **调节条交互契约（修 B8 两个真机问题）**：照 AOSP `VolumeDialogImpl.rescheduleTimeoutH()` 的成熟契约——每次调节/凝视交互都取消旧计时重排，准星停在 `adj*` 目标上时按 hover 长保持（`ADJUST_HOVER_MS = 16_000`），离开后回到静止 `FEEDBACK_MS = 2_600` 才淡出；准星原始落点用 `GazeDetector.hoveredId`（不受上膛 / 静默期 / `mustLeave` 清空影响），不是会被清掉的 `currentId`。照 Android `SeekBar` / Material `Slider` 把**真实值比例**映射到轨道：**最终实现删掉段条小点**，`AdjustFeedback` 去掉 `level`，只留 `steps`（是否画刻度）+ `fraction`（唯一填充依据），`fraction=0` 时轨道零填充、音量 0 显示「静音」。调节条同时是**可操作控件**（四个 `adj*` 凝视目标 + 主动「完成」`DismissAdjust`），不再是纯反馈卡 | `[已实现]` 待真机 | V2.33 / alpha20 / 用户 2026-11-11 真机反馈 / 附录 §6 | 按一次音量/亮度后慢慢找按钮、凝视 1.2 秒完成第二次调节，条仍在且值变了；准星离开后 2.6 秒才淡出；把音量调到 0 时轨道无高亮填充、显示「静音」 |
+| B15 | **凝视进度条落点 = 真实凝视点**（V2.47 / 用户「调节位置与凝视点不一致，在凝视点左右两侧飘」）。两处根因：① `render()` 把凝视进度环画在 `target.rect.centerX/Y()`，而准星 `drawCursor()` 画在真实 `cursor` 上；② 进度条把细线切成 5 段，每段触发**段中心**的固定 `SeekTo((i+0.5)/5)`（10% / 30% / 50% / 70% / 90%），与用户实际盯着的 x 无关。照 Android `SeekBar` / Material `Slider`「触点 x 连续映射 value」的契约改：进度环改画在真实 `cursor` 上；5 段合并为一条 `seekBar` 目标 + `VrAction.SeekAt`，dispatch 那一刻按 `uiLayer.gazePoint()` 连续换算 fraction | `[已实现]` 待真机 | V2.47 / 用户 2026-11-12 反馈 / 附录 §7 | 准星停在进度条任意位置，进度环都围着准星而不是飘去段中心；凝视确认后跳到的就是准星所在的比例（不是五档之一） |
+| B16 | **片库默认按文件名排序**（V2.47 / 用户「片库里的文件排序也是乱的」）。原来 DAO 是 `ORDER BY title`（大小写敏感、无稳定次级键），`StackBuilder` 集合内却 `sortedByDescending { it.title }`（降序），柜子层又按 `label` 升序，三处口径打架。统一成 `FILE_NAME_ORDER`：`title` 大小写不敏感升序 + `path` 兜底；DAO 加 `COLLATE NOCASE, path ASC`；`loadItems` / `StackBuilder` / `LibraryRepository.nextOf,previousOf` 共用同一个比较器。集合（叠）的顺序是语义分组、不是文件排序，保持按文件夹名升序 / 按日期降序 | `[已实现]` 待真机 | V2.47 / 用户 2026-11-12 反馈 / 附录 §7 | `VID_20260712_143022` 这类同前缀文件严格按名字先后排，翻页 / 进集合 / 换柜子来回切顺序不变，大小写不同的名字不会跳到列表两端 |
 
 ---
 
@@ -116,7 +123,46 @@
 
 ## 已知未验证（真机一跑就可能翻案）
 
-**总口径**：当前代码 `V2.46 / 1.1.0-alpha33`。**例外**：`V2.44 / alpha31` 的头追方向已由用户真机确认「这次方向对了」，这是四轮方向返工后第一条真机通过的结论。其余 alpha4–alpha33 的改动多数只做了编译、静态校验或静态推演；表里的 `[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+**总口径**：当前代码 `V2.47 / 1.1.0-alpha34`。~~**例外**：`V2.44 / alpha31` 的头追方向已由用户真机确认「这次方向对了」，这是四轮方向返工后第一条真机通过的结论。~~ **【2026-11-12 22:0x 撤销】** 用户撤回该确认：抬头/低头仍是反的（且不排除「当时对、后来复现」）。**alpha4–alpha34 没有任何一条方向结论是真机通过的**；`run-pose-check.sh` 75/75 只覆盖「姿态 → 球面 v」，没覆盖「球面 v → 视频纹理采样」和真机俯仰，自检全过不等于方向对。其余改动多数只做了编译、静态校验或静态推演；`[已实现] 待真机` **一律不等于「能用」**。要按版本分开说，不要含糊。
+
+### 本轮新增（alpha34 / V2.47，四项改善 + 数据层五条，未上真机）
+
+**零、来源**：用户 2026-11-12 晚「这些和数据层问题一起修复，现在可以开始了」。四项改善来自用户对「戴稳了？」、进度条、片库排序的直接描述；数据层五条来自 alpha33 走查「数据会悄悄错」，当时明确「这轮没动、等你定范围」。用户随后补两条澄清：「我说的按键指的是那个物理触发键」「我说的中心线是手机屏幕的中心线，用来方便用户把手机放进盒子的时候对准盒子的」——这两条改变了 A18 / B4 的实现层，详见裁决记录 V2.47。**`HeadPose.kt` 与球面渲染链路一行未动。**
+
+**一、本轮改动与落地位置**
+
+| 编号 | 改了什么 | 落点 |
+|---|---|---|
+| A18 / B4 | 物理屏幕中心线 + 「戴稳了？」跟随视线 + 纸盒物理触发键定正前方 | 屏幕空间 `CenterLineView`（叠在 `GLSurfaceView` 上）；`VrUiState.armPromptYaw/Pitch` 每帧写入 → `VrUiLayer.panelSpec()` 对 `!gazeArmed` 转向；`VrCoordinator.ArmGaze` 取 `headRotation()` → `recenterTo(pose, 400ms)`；两个 Provider 的 `recenterTo()` 撤销 `pendingInitialRecenter`；`forwardAnchored` 让 `startPlayback()` 跳过二次 `recenterYaw()` |
+| B15 | 凝视进度条落点 = 真实凝视点 | 进度环改画在 `cursor`；5 段固定 fraction 合并成一条 `seekBar` + `VrAction.SeekAt`，dispatch 前经 `VrUiLayer.resolveAction()` 用 `gazePoint().x` 连续换算（凝视 / 触发键两条通道共用）；轨道上画准星位置的落点竖线 |
+| B16 | 片库默认按文件名排序 | `FileNameOrder.COMPARATOR` 单一比较器（`title` 忽略大小写升序 + `path` 兜底）；DAO `COLLATE NOCASE, path ASC`；`StackBuilder` / `loadItems` / `nextOf,previousOf` 共用；集合内与集合之间统一升序 |
+| A19 | 数据层五条 | `MediaDao.allVisible()`（JOIN `enabled=1`）过滤隐藏片源；`SetupActivity` 加片库幂等 + `credentialRef` 引用计数；`applyFormat()` 用 `currentRef` 记住播放中手选格式；`MediaIndexer` 重扫差集删除（连带断点 / 格式记忆）+ 成功进 VR 清 `last_crash.txt`；`CrashLog.bootMarker()/blockCardboard()/isCardboardBlocked()` 接线 |
+
+**二、验证（离线，全部在本轮代码改完之后重跑）**
+
+| 项目 | 结果 |
+|---|---|
+| `./gradlew :app:assembleDebug --offline --rerun-tasks` | 首轮**失败**：`VrCoordinator.handle()` 是穷尽 `when`，新增 `SeekAt` 缺分支；补「记日志并忽略」的兜底分支后 `BUILD SUCCESSFUL`（40 tasks，仅 `MdnsNames` 一条与本轮无关的历史弃用警告） |
+| 升版本 + 竞态重构后全量重编 | `python3 tools/bump_version.py alpha` → `1.1.0-alpha34` / `versionCode 101000034`；`assembleDebug` **BUILD SUCCESSFUL** |
+| `tools/check_structure.py` | 通过（65 Kotlin / 16548 行 / 30 XML） |
+| `tools/run-pose-check.sh` | 75 / 75 |
+| 格式判定 30 条断言（`tools/FormatDetectorCheck.kt`） | 30 / 30（等价命令，见下注） |
+| aapt2 badging | `com.gazereel.vr` · `1.1.0-alpha34` · `101000034` |
+| 产物 | `output/GazeReel-1.1.0-alpha34.apk`（15 MB） |
+
+> 收尾复核时把三项自检**在竞态重构后的最终代码上重跑了一遍**，结果不变。`run-format-check.sh` 原脚本第一行 `rm -rf build/format-check` 要一次删掉 57 个上轮遗留的临时 `.class`，被环境安全策略拦在删除步、编译尚未开始；改用同一份 `tools/FormatDetectorCheck.kt` 的等价编译命令、输出到新建的 `build/format-check-alpha34` 跑通 **30/30**，**脚本本体一行未改**。这是环境限制下的等价验证，不是「脚本自己跑过了」，照实记。
+
+本轮**一次真机都没跑**；编译与静态校验只能证明代码自洽，证明不了戴镜后的手感。`HeadPose.kt` / `ProjectionMesh.kt` / `GlUtils.kt` 一行未动；`SensorHeadsetProvider.kt` 只加了 `pendingInitialRecenter = false` 三处，**姿态数学与球面渲染链路未动**。
+
+**三、仍需真机复验（按上机顺序）**
+1. 未上膛时屏幕正中能看到一条竖线，把手机塞进纸盒能靠它对准隔板；戴上眼镜后左右眼不该看到「每眼各一条线」。
+2. 头往左 / 右 / 上偏，「戴稳了？」卡片始终在眼前，不压扁、不透视拉伸。
+3. 按一次纸盒物理触发键后画面正对刚才看的方向；随后打开新片、换集合、切后台回来，正前方都不再自己转走。
+4. 准星停在进度条任意 x，进度环围着准星；凝视确认后跳到的就是这个比例，不是 10/30/50/70/90 五档之一。
+5. 片库里 `VID_...` 同前缀文件按名字先后排，翻页 / 进集合 / 换柜来回切顺序不变；隐藏一个片库后自动连播跳过它。
+6. 同一地址重复添加不多出一行；删掉同主机的一个片库后其它片库仍能连上；播放中改一次格式，下次打开还是它；NAS 上删一部片重扫后卡片消失；首屏不再常挂旧的红色失败记录。
+
+**方向不用复验**（alpha31 已真机通过）；但**本轮动了 `recenterTo` 的调用时机**，第 3 条必须重新走一遍，别拿旧结论当挡箭牌。
 
 ### 本轮新增（alpha33 / V2.46，P0 八条，未上真机）
 
@@ -775,6 +821,21 @@ SKYBOX 是 Quest 手柄/指针操作，右栏那些小条目点得到。我们�
 | V2.39 | 瞳距为什么以前「能拖但没变化」 | 参数没传到渲染层 | **传到了，而且在数学上是正确的**：`eyeParams(eye, aspect, ipdMeters)` 一直在用。无效是因为**用错了地方**——相机间距在半径 10 的球上只有 0.04° 视差。瞳距在纸盒里管的是「画面落在镜片中心」，所以必须作用在光轴（离轴视锥）上。这一条把「参数没接上」和「接了但没用」彻底分开。 |
 | V2.39 | 瞳距为什么以 63mm 为参考 | 应该以纸盒实际镜距为准 | 镜距无从得知（纸盒各异），而**参考点只决定零点，不决定方向**：0 点取 63mm 时，默认 62mm 几乎不动（不改变现有观感），用户往大调就是「画面各自向外」。等真机确认方向反了，把符号翻一次即可。 |
 | V2.38 | 双击为什么让给「立刻重定」，设置去哪了 | 双击一直是打开设置 | 「立刻重定」必须有一个**不经过任何瞄准**的触发方式，而双击是唯一一个：它不落在任何凝视目标上，记下的就是用户此刻看的方向。设置并没有丢入口——片库右上角齿轮、播放控制台「设置」都还在（V2.11 就有），双击那条只是重复的第三条近路。调瞳距时双击仍是「快速结束」，那条没动。 |
+| V2.47 / 2026-11-12 | 「按触发键」指的是哪个按键 | 一度读成「手机端入盒引导页的按钮」，于是和 V2.23 铁律撞车 | **用户澄清：「我说的按键指的是那个物理触发键」** —— 是纸盒上那颗，落点在 `TriggerDispatcher` 未上膛时 `CLICK → VrAction.ArmGaze`。那一刻纸盒已扣好、人已戴稳、正在看「戴稳了？」提示，朝向就是他想看的方向。**别再按「入盒引导页按钮」去理解本轮任何一条。** |
+| V2.47 | V2.23「基准绝不能取按键那一刻」要不要推翻 | 上一轮把它当成与「按触发键定正前方」直接冲突、准备改表推翻 | **不推翻，补适用范围。** V2.23 说的是**手机端入盒引导页**：按完还要往沙发里靠、把手机放到枕头上，几秒差 40°–50°，那个姿势写进基准画面就永久歪着。本轮说的是**戴镜后纸盒已扣好**按物理触发键，两者不是同一时刻、不是同一界面、更不是同一个输入通道。铁律原文保留，B4 条目里注明边界。教训：看到「两个结论打架」先去核对**它们说的是不是同一个对象**。 |
+| V2.49 | **「之前定的规则，现在没有什么是不能推翻的，甚至从头开始做都可以」**（用户 2026-11-12 22:2x） | 本表既有大量铁律：`HeadPose` 不许动、VR 交互铁律、B6 被否掉的屏幕空间层、片库 2×4 格与 1024×512 画布、格式证据链、A18 入盒引导、「正式版前只打 tag」…… 历次都是「补一条裁决、再补一个功能」 | **用户明确授权全部可推翻，包括整体重写。但这是「允许」，不是「已经决定换成什么」。** ① 触发原因原话：「我对目前的产品表现非常不满意，除了解码稍微满意一点之外，从 UI 和头追都非常不满意，尤其是头追，改来改去就是搞不定」——**唯一被认可的只有解码**，其余都是待重做对象。② 不再逐条补功能：闪烁、方向反、控制台不隐藏是**同一个架构选择**的三处后果（自研姿态数学 + 一层 Canvas 平面模拟本该分层的事物），补符号/加开关/调时序只能挪动症状。③ 但「前提被推翻先改表」这条流程仍成立：本行先落表，**代码一行未动**，等用户在 A（只重做 VR 内 UI）/ B（先换官方 `CardboardHeadTracker` 基座再重做 UI，助手倾向）/ C（另起工程从头来）之间裁决。④ 用户同批要求「有没有可能给我展示 SourceVR 的界面设计」——**已交付** `output/sourcevr-ref/sourcevr-ui-reference.html`（8 张官方截图 + 可点击静态还原 + 设计语言拆解 + 与凝影对照），见附录 §9。⑤ 身份核实：用户说的 SourceVR = **SKYBOX VR Video Player 0.2.3.3**（`xyz.skybox.player`，发行商 Source Technology，2019 Daydream 版），与拆包记录里的 `libSkyBoxMediaMetadataRetriever` 对得上；所以「参考 SourceVR」与「SKYBOX 的表现」是同一个产品，不再当成两个 App。 |
+| V2.48 | **alpha31「方向已真机通过」要不要撤销**（用户 2026-11-12 22:0x） | 曾据用户一句「这次方向对了」把方向列为唯一真机通过项、写进两侧记忆并立「HeadPose 不许再动」铁律；用户现撤回，且不确定是「当年没修好」还是「后来复现」 | **撤销，但不用猜是哪一种。** ① 版本证据：`git diff --stat d841fa0..HEAD` 显示 alpha31→alpha33 之间 `HeadPose.kt` / `PoseMath.kt` / `VrHeadsetProvider.kt` / `SensorHeadsetProvider.kt` / `VrRenderer.kt` / `ProjectionMesh.kt` / `GlUtils.kt` / `CardboardHeadsetProvider.kt` **一行未动**，只有 `VrUiLayer.kt` / `VrCoordinator.kt` 改过；alpha34 工作区也只给两个 Provider 加了「撤销 `pendingInitialRecenter`」，没碰符号。**所以不是 alpha32/33/34 把方向改回去了。** ② 确定性判定：装回 `output/GazeReel-1.1.0-alpha31.apk` 只做抬头/低头即可分辨，不需要真机回忆。③ **自检盲区**：75/75 只断言「姿态 → 球面 v」（抬头 v>0.5），从没断言「球面 v → 视频纹理采样方向」，`GL_TEXTURE_EXTERNAL_OES` + `uSTMatrix` 的 v 原点这一层没进自检，所以全过也会反。④ 用户补「VRTV 平放从不出现奇点」= 架构证据：成熟 App 用卡尔曼融合四元数，从不做欧拉分解 / 重力定 up，不会退化；我们的 `PostureTracker.yawOf/pitchOf` 是 `asin/atan2` 欧拉分解，**换符号修不好架构**。⑤ 用户最后指定以 **SourceVR** 为参考（自述未实测，理由是 SKYBOX 的表现），此前也提过 VRTV、以及「以 VRTV 为基础把 UI 和解码器改了」。**方案未裁决前不改代码**，见附录 §8。 |
+| V2.47 | 中心线画在哪一层 | 直觉是「在 1024×512 UI 画布的 `W/2` 画一条竖线」 | **会变成每眼各一条、且都不在物理屏幕中线上。** `VrRenderer` 对 LEFT/RIGHT 各设一次 `glViewport(0 / width/2, width/2, height)`，UI 纹理每眼各画一遍；`W/2` 是每眼视口中心。而且 `Optics` 的瞳距离轴视锥还会让每眼光轴偏移，画布中心 ≠ 光轴 ≠ 手机物理中线。用户澄清「我说的中心线是手机屏幕的中心线，用来方便用户把手机放进盒子的时候对准盒子的」后定案：走**屏幕空间 overlay**（`FrameLayout` 上叠一个只画一条线的 `View`），不进 GL、不走世界锁定 UI、不参与桶形畸变。它和「卡片跟随视线」分属两层，互不冲突。 |
+| V2.47 | 「戴稳了？」怎么才能一直看得见 | 加第二块 quad 做屏幕空间层（B6 的老想法） | **别回头走 B6。** V2.19c 已判过：屏幕空间层里准星与卡的相对偏移恒定，凝视几何上点不中按钮；而且本屏根本不注册目标。复用工程里已验证的成熟路径 —— `panelSpec()` 给 `ProjectionMesh.uiQuad(yaw,pitch)` 让**整块平面转向**（不是平移，V2.19c 已算过平移在 60° 会压扁到 0.5），卡片仍居中画在画布正中。V2.38 的重定倒计时卡每帧就是这么做的。 |
+| V2.47 | `pendingInitialRecenter` 会不会把用户定的方向覆盖掉 | 以为在 `ArmGaze` 里 `recenterTo` 一次就够了 | **会。** 两个 Provider 的 `start()` 都置 `pendingInitialRecenter = true`，姿态一稳定（约 0.5s，最长 4s）就 `recenterLocked()` 把 `easing` 关掉并覆盖基准。用户慢一点按触发键，自动基准就在他后面落地。定案：在 `SensorHeadsetProvider` 与 `CardboardHeadsetProvider` 的 `recenterTo()` 里撤销 pending —— 「有人显式定过正前方，就不再自动定」这条语义对倒计时 / 双击同样成立。 |
+| V2.47 | `startPlayback()` 的 `recenterYaw()` 要不要留 | V2.35 为修「打开不正对接缝」加的，一直没动过 | **默认路径跳过、异常路径兜底。** V2.35 的根因是「基准定在塞手机那一刻」；本轮基准改由戴稳后的物理触发键给定，根因已消失，再在打开新片时把 yaw 对齐到「凝视卡片那一刻」反而会转走刚定好的正前方。加 `forwardAnchored` 标志：`ArmGaze` 置 true 后跳过二次对齐；没经过 `ArmGaze` 的异常恢复路径仍按旧逻辑兜底，不让 V2.35 的修复变成裸删。 |
+| V2.47 | B15 只把进度环挪到准星上行不行 | 视觉不再飘就够了 | **不够，动作还是飘。** 原来 5 段各带一个固定 `SeekTo((i+0.5)/5)`，准星在第 1 段左缘凝视 1.2 秒仍跳到 10%。照 Android `SeekBar` / `AbsSeekBar` 的「触点 x → 连续 value」契约，把 5 段合成一条带 + `SeekAt`，在 dispatch 那一刻经 `VrUiLayer.resolveAction()` 用 `gazePoint(headRotation(), state).x` 换算 fraction（凝视确认与触发键单击共用这一个换算点）；进度环同时改画在真实 `cursor` 上，轨道上再画一条准星位置的落点竖线。**视觉与数值必须同时对准同一个点。** 编译期还暴露一件事：`VrCoordinator.handle()` 是穷尽 `when`，新增 `SeekAt` 必须补分支；那里定成「记日志并忽略」，绝不在没 resolve 时按猜的位置跳。 |
+| V2.47 | B15 轨道范围能不能用两个 volatile 字段存 | 编译过了就当没问题 | **不能，收尾复核抓到竞态。** 第一版在 `render()` 开头把 `seekBarLeft/Right` 清零、`drawPlayer()` 里才赋值，中间几毫秒若主线程恰好确认一次 `SeekAt`，`right <= left` 就会命中兜底 `SeekTo(0.5f)` —— 用户盯着 30% 却跳到一半，正是本轮要修的「飘」换了个形式。定案：`UiTargets(list, seekLeft, seekRight)` 一个不可变对象，目标列表与轨道范围在 `render()` 末尾**一次 volatile 写**发布；绘制期只动 `pendingSeek*`（仅 GL 线程访问）。读侧拿到的永远是同一帧的组合。顺带把原来单独发布的 `published` 也并了进来。 |
+| V2.47 | B16「按文件名」按哪个字段 | 以为要新增 `fileName` 列 / 按 `path` 最后一段排 | **`title` 就是用户看到的文件名**：`titleOf()` 取 path 最后一段、URL-decode、去扩展名；`content://` 本地片源没有可读的最后一段（只剩自增 id），按 path 排会变成一串数字；HTTP 目录页 path 还可能带 `%20`。定案用 `title` 大小写不敏感升序 + `path` 兜底，DAO / `StackBuilder` / `loadItems` / `nextOf` 四处共用同一个 `FileNameOrder.COMPARATOR`。**实现时纠正开工前的判断**：集合内原本 `sortedByDescending { it.title }`、文件夹集合按名升序、日期集合却按 key 降序，三套方向混在一起正是「乱」的来源；定案集合内一律文件名升序，集合之间也统一升序（日期从早到晚），不再保留两套反向顺序。 |
+| V2.47 | A19 重复片源为什么不加 Room 唯一索引 | 成熟方案明明是 `@Entity(indices=[Index(..., unique=true)])` + `@Insert(onConflict=IGNORE)` | **算过风险，主动不用。** 加索引要把 `AppDatabase` 从 version 3 升到 4，并手写 `MIGRATION_3_4` 逐字照抄 Room 生成的 DDL；本工程 `exportSchema=false` 没有 schema JSON 可抄，而 `MIGRATION_2_3` 曾因多写一个 `DEFAULT 0` 触发 destructive migration **把库删了、断点全丢**。且已有用户库里可能已经有重复行，建唯一索引前还得先清理。本 App 只有 UI 单线程添加片源，没有并发写入，改用 `SourceDao` 查重 + 业务幂等即可达到同样效果、零迁移风险。成熟方案核查了、边界也写清了，不等于必须照搬。 |
+| V2.47 | A19 删片库为什么不能顺手删凭证 | `credentials.remove(source.credentialRef)` 看起来天经地义 | **同主机多文件夹共用一个 `credentialRef`**（`saveNew` 的 `reusable` 就是这么设计的）。删其中一个片库，其它片库集体连不上，而且报错看起来像「NAS 挂了」。删之前按 `SELECT COUNT(*) FROM source WHERE credential_ref = :ref` 引用计数，为 0 才删；编辑片库换凭证时同样要在旧 ref 无人引用后才清。 |
+| V2.47 | A19 重扫差集删除会不会误删 | 「扫到的路径集合」减一下就行 | **只在 `list()` 正常返回之后才删。** 网络抖一下、共享断开，`list()` 抛异常或只返回半层，若无条件做差集会把整库索引清空 —— 比幽灵卡片严重得多。`scanOnce()` 的异常本来就往上冒泡，所以把差集放在 `entries` 拿到、过滤完之后、`upsert` 成功之后执行，天然落在「这次确实列全了」的分支里。**实现时又加了一道更硬的闸门**：`seen` 只收本次真正算作视频的路径（不是含目录的 `entries`），若「一条视频都没读到、库里原本却有片子」整批跳过差集 —— 这更可能是设备临时断连 / 权限半失败，不是用户清空了目录。删行时按精确 `media_key = sourceId:path` 连带清断点与格式记忆；海报是内容寻址缓存、行删掉后不会再被引用，不跟着删，避免为清缓存再引一套按文件删的 API。 |
+| V2.47 | A19 native 崩溃标记为什么一直没生效 | 以为 `CrashLog` 少写了函数 | **函数全在，是零调用。** 而且 `boot()` 第一句 `stage("database")` 就会 `markBooting()` 把上次标记覆盖掉，必须在 `boot()` 之前读。另有第二个坑：Java 层初始化异常被 `onCreate` 的 try-catch 接住后不会清标记，下次启动会被误判成 native 崩溃 —— `showFailure()` 必须补一次 `clearBootMarker()`。判据收在 Cardboard 初始化窗口（`ui-layer` / `headset` / `headset-start`），因为那时 `bootMode` 还没设成 `cardboard`，标记里写的是 `pending`，不能按 mode 判。 |
 
 ---
 
@@ -782,6 +843,7 @@ SKYBOX 是 Quest 手柄/指针操作，右栏那些小条目点得到。我们�
 
 | 版本 | 内容 |
 |---|---|
+| V2.47 | **版本号 1.1.0-alpha34（`versionCode 101000034`）**。用户「这些和数据层问题一起修复，现在可以开始了」：四项改善 + alpha33 明确「这轮没动、等定范围」的数据层五条。**A18 / B4**：新增屏幕空间 `CenterLineView`（`FrameLayout` 叠在 `GLSurfaceView` 上、只在未上膛时可见），画的是手机物理屏幕中线，不是 `VrUiLayer.W/2`；`VrUiState.armPromptYaw/Pitch` 每帧由 `updatePosture()` 量化写入，`VrUiLayer.panelSpec()` 对 `!gazeArmed` 复用 `ProjectionMesh.uiQuad()` 让整块平面转向当前视线；**正前方改由纸盒物理触发键定一次** —— `ArmGaze` 取 `headRotation()` → `recenterTo(pose, 400ms)`，两个 Provider 的显式 recenter 都撤销 `pendingInitialRecenter`，`forwardAnchored` 让 `startPlayback()` 跳过二次 `recenterYaw()`（异常路径仍兜底）。**B15**：新增 `VrAction.SeekAt`，5 段固定 fraction 合并成一条 `seekBar`，`VrUiLayer.resolveAction()` 按真实 `gazePoint().x` 连续换算（凝视 / 触发键共用），进度环从 `target.rect.center` 改画在 `cursor`，轨道上画准星落点竖线；收尾复核抓到「render 开头清零轨道、中途才赋值」的跨线程竞态，改为 `UiTargets(list, seekLeft, seekRight)` 一次 volatile 发布。**B16**：新增 `FileNameOrder.COMPARATOR`（`title` 忽略大小写 + `path` 兜底），DAO 三处 `COLLATE NOCASE, path ASC`，`StackBuilder` 集合内与集合之间统一升序，`VrCoordinator.loadItems()` 与 `LibraryRepository.nextOf/previousOf()` 共用。**A19 数据层五条**：`MediaDao.allVisible()`（JOIN `enabled=1`）挡住隐藏片源被连播；`saveNew()` 按 `type+address+recursive` 幂等、复用 id 不建无引用凭证；`credentialRef` 删/换前 `countByCredentialRef()` 引用计数；`applyFormat()` 用 `currentRef` 记住播放中手选格式；`MediaIndexer.scanOnce()` 在 `list()` 正常返回、`upsert` 成功后做差集删除（`seen` 为空但库里有片子时整批跳过），连带按精确 `media_key` 清断点与格式记忆；`VrActivity` 接通 `CrashLog.bootMarker()/blockCardboard()/isCardboardBlocked()` 自动降级、`onGlReady` 成功进 VR 清 `last_crash.txt`、`showFailure()` 清 boot marker。**验证**：`assembleDebug` 首轮因穷尽 `when` 缺 `SeekAt` 分支失败、补分支后 BUILD SUCCESSFUL；升版本 + 竞态重构后再次 BUILD SUCCESSFUL；收尾在最终代码上重跑 `check_structure.py`（65 Kotlin / 16548 行 / 30 XML）、`run-pose-check.sh` 75/75、格式判定 30/30（`run-format-check.sh` 脚本清理 57 个临时 class 被环境安全策略拦截，改用同一份断言的等价编译命令，见验证段注记）、aapt2 `1.1.0-alpha34 / 101000034`；产物 `output/GazeReel-1.1.0-alpha34.apk`（15 MB）。**未上真机、未 push、未打 tag**；`HeadPose.kt` 与球面渲染链路一行未动。P1 清单只落盘，未进表、未动代码。 |
 | V2.43 | **版本号 1.1.0-alpha30**（`versionCode 101000030`）。真机两件投诉一次修：①「画面上下」拨了整个画面倒过来 → 更正 V2.41 的错误诊断（『只反俯仰是镜像』是错的，`Ry(y)·Rx(−p)·Rz(r)` 是 det=+1 的合法旋转；alpha26『画面在转』的真因是 `yawPitchRollDeg` 的 yaw 负号），删掉内容侧 `flipVertical` 整条链路，新增 `PoseMath.withInvertedPitch()` + `VrSettings.invertPitch`（键 `invert_pitch`，**默认开**），在姿态源头应用并在 VR 内拨开关时即时下发；四元数取反 x 的捷径经数值验证会造出 44.6° yaw / 45.4° roll，否掉。②片库真正落地 `VrUiLayer.drawLibrary/drawLibraryRail`：左栏常驻导航（不可用的行画暗且不注册目标）、卡片 178×100 且片名移到卡外、悬停放大 5%（命中区不变）、卡内文字按 rect 高度算、底栏只留页码；`y=256` 仍落在两行横缝里防误触。稿子按实现坐标重画，出图抓到 3 个问题（齿轮变太阳 / 假高亮 / 白色胶囊假海报）并修。验证：`run-pose-check` 49/49（含连续抬头 41 帧 yaw/roll 偏差 0.00°）、`run-format-check` 30/30、`assembleDebug`、`check_structure`（Kotlin 63 文件 / 15552 行）通过。**未上真机**。 |
 | V2.42 | **版本号 1.1.0-alpha29**（`versionCode 101000029`）。界面按 SKYBOX 演示重做，行为零改动。控制台 `40..984×300..500` → 胶囊 `60..964×366..500`；运输键文字 → 图标（新增 `Glyph.PREV/REW30/PLAY/PAUSE/FWD30/NEXT`）；跳转 10 段 → 5 段（命中带 36px）；识别结果从横幅挪到左上角两行；凝视目标 22 → 15。设置从「− 值 +」四行 + 3×2 文字按钮改为 2 列 × 5 行卡片（336×68，一格一目标，右侧值/胶囊开关），因为 40px 列表行在凝视下只有 2.4° 不可用。配色藏青 → 石墨灰（`#0E1B2C→#131316` 等 6 个常量 + 新增 `C_DIM`）。图标统一走 `glyph()`，新增 `GRID/CLOCK/CC/FRAME/MORE/SLIDERS` 等；修正 4 个缩小后糊掉的图标（网格/±60s/齿轮/太阳）。新增 `tools/mock_design.py`（按实现坐标出稿）。验证：`run-format-check` 30/30、`run-pose-check` 28/28、`assembleDebug`、`check_structure` 通过（Kotlin 63 文件 / 15410 行）。**未上真机**。 |
 | V2.41 | **版本号 1.1.0-alpha28**（`versionCode 101000028`）。删除「俯仰反向」整段（`PoseMath.flipPitch`、Provider 的 `setFlipPitch/isFlipPitch`、`flip_pitch`/`pitch_checked`、方向自检卡与 `VrAction.PitchIs*`）：它是关于水平面的镜像（det=−1），重建后的效果是世界绕横滚轴转 2p，真机即「点一下之后画面在转」。修正 `yawPitchRollDeg` 的 yaw 符号（与 `gazeYawDeg` 统一为向右为正，这是 V2.37「开关没反应」的成因）。新增 `VrSettings.flipVertical` + `ProjectionMesh.curved(flipV)`：只翻球面 v，与姿态解耦；入口为手机设置 + VR 内「设置 → 画面上下」。拆包核对 VRTV / SourceVR：头追与畸变全部来自 Google VR SDK（`libgvr.so`），两家均无「俯仰反向」；并查明 `app/libs/cardboard-sdk.aar` 是 Unity C-API 版（无 `libcardboard_sdk_jni.so`、无 `Java_com_google_cardboard_sdk_*` 符号），`Initialize` 必抛 `UnsatisfiedLinkError`，这就是 SDK 从未生效的原因。验证：`run-pose-check.sh` 28/28（新增球面 u/v 断言）、`run-format-check.sh` 30/30、`assembleDebug` 通过、`check_structure.py` 通过（Kotlin 63 文件 / 15206 行）。**未上真机**。 |
@@ -882,7 +944,9 @@ SKYBOX 是 Quest 手柄/指针操作，右栏那些小条目点得到。我们�
 
 ### 4. 顺带查出的状态漂移（2026-11-11 已按本节修表，原文保留作核对记录）
 
-> 下表「表中写的」一列记的是**修表前**的旧状态；现已全部更新，保留原文只为回溯「当时为什么判定它过期」。
+> 下表「表中写的」一列记的是**修表前**的旧状态；2026-11-11 已全部更新，保留原文只为回溯「当时为什么判定它过期」。
+>
+> **2026-11-12 / V2.47 复核注记**：B4 / B5 两行写的是**alpha18 时**的状态，之后又经 alpha25（跟随视线倒计时卡）、alpha31（方向真机通过）、alpha34（纸盒物理触发键 `ArmGaze` 定正前方）三次改写。**这两行是有意保留的历史核对记录、不是遗留待办，也不代表当前代码**；当前 B4 / B5 口径以「本轮新增（alpha34）」与裁决记录 V2.47 为准。别再把它们读成「表还没修」。
 
 | 条目 | 表中写的 | alpha18 代码现状 / 建议 |
 |---|---|---|
@@ -930,4 +994,71 @@ SKYBOX 是 Quest 手柄/指针操作，右栏那些小条目点得到。我们�
 | 粗调 + 微调组合 | 没有 drop-in 的 Android/VR 库；行业通用契约是「离散主档 + 细步进叠加到同一值」（Material `Slider.stepSize`、相机 EV 补偿、无障碍 single-switch scanning 的 auto-repeat） | **自研，但只自研这一个控件**：0.5mm 整数单位、粗 2.0mm / 微 0.5mm 叠加、触发键切模式、音量键临时借用。不引入额外硬件、不引入位置追踪 |
 
 **本轮自研的边界**：只写「一个可操作、交互感知淡出、按真实值填充的调节条」+ 瞳距的粗微步长与持久化迁移；**Cardboard SDK 的光学参数、每眼投影、畸变、QR 解析一行都不自己写**。V2.33 已按此边界落地并编译；**手机侧入口已于 V2.34 / alpha21 补上**（配置页底部「设置」→ `dialog_settings.xml`，滑杆 50.0–75.0mm / 0.5mm 步进 + `±0.5mm` + 恢复默认），裁决见「瞳距要不要戴镜前入口」一行；它只是同一个 `ipdHalfMm` 的另一个入口，没有新增自研的数值逻辑。
+
+---
+
+### 7. V2.47 / alpha34 开工前的成熟方案核查（2026-11-12 晚，先于代码写）
+
+> 触发：用户长期要求「**做任何功能的时候先留意是否有成熟方案**」，以及本轮「这些和数据层问题一起修复，现在可以开始了」。
+> **核查方式**：回源码逐条找工程里已有的成熟实现；官方 / 平台契约核 Android SDK 与本地 `cardboard-sdk.aar`；算法契约照 AOSP 与 SQLite 标准。**核查完才动代码**，不做事后补票。
+
+| 需求 | 成熟方案（已核实） | 结论与自研边界 |
+|---|---|---|
+| 手机物理屏幕中心线 | **Google Cardboard 官方设置流程里就有「把屏幕中线对准纸盒隔板」这一步**（扫码配置 Viewer Profile 前后的对齐页）；实现形态是**屏幕空间的一条线**，不进 3D、不参与畸变。Android 侧标准做法是 `FrameLayout` 叠一层自定义 `View.onDraw()`，或 `ViewOverlay` | **照官方形态，自研只写一个 `onDraw()` 画竖线的 View**（约 40 行）。**明确不画在 `VrUiLayer` 的 `W/2`**：`VrRenderer` 左右半屏各 `glViewport` 一次、UI 纹理每眼各画一遍，`W/2` 是每眼视口中心；`Optics.lensShiftDeg()` 还让每眼光轴偏移，画布中心 ≠ 光轴 ≠ 物理屏幕中线。屏幕空间层与「卡片跟随视线」是两层，不冲突，也**不等于**回头走 B6 那块被否掉的第二 quad |
+| 「戴稳了？」跟着视线走 | 工程**已有验证过的成熟实现**：`VrUiLayer.panelSpec(yaw,pitch)` → `ProjectionMesh.uiQuad()` 的四角共面转向（`C = 2f`、`r = (cosθ,0,sinθ)`、`u = r×f`），V2.38 的重定倒计时卡每帧就是这么做的。V2.19c 算过平移在 60° 会压扁到 `cos60°=0.5` | **不新增 quad、不改渲染几何**，只让未上膛态也走 `panelSpec()` 的同一条路径。Android / Cardboard SDK 没有「UI 跟随视线」的现成控件，这是产品语义，但**几何完全复用工程已有实现**，零新数学 |
+| 按物理触发键定正前方 | 工程已有 `VrHeadsetProvider.recenterTo(pose, durationMs)`：`O' = H⁻¹·O` + 两参考系之间的四元数 slerp，`recenterNow()` 已在用。**官方 Cardboard SDK 没有「延迟到触发键」的 API**（只有 `recenter()` / 头追姿态），这属于交互时机，是产品决策 | **只改「何时调用」，不改姿态数学**。`ArmGaze` 取当时的 `headRotation()` 调已有 `recenterTo`。**额外必须处理 `pendingInitialRecenter`**：两个 Provider 的 `start()` 都置 true，姿态一稳就自动 `recenterLocked()` 覆盖用户定的方向；定案为「任何显式 `recenterTo` 都撤销 pending」，这条语义对倒计时 / 双击同样成立 |
+| 凝视进度条落点 | **Android `AbsSeekBar` / `SeekBar` 的契约**：`onTouchEvent` 里按触点 x 相对 `paddingLeft..width-paddingRight` 连续换算 progress；Material `Slider` 同理。播放器侧 `Player.seekTo(positionMs)` 本身接受任意位置。Canvas 手绘没有可复用的 View，但**契约可直接照抄** | 原来把细线切成 5 段、每段绑死 `(i+0.5)/5`（10/30/50/70/90%），本质是「离散按钮」冒充「滑杆」，准星在第 1 段左缘仍跳 10%。**照契约改成一条带 + 连续 fraction**；进度环同时从 `target.rect.centerX/Y()` 挪到真实 `cursor`。**视觉与数值必须对准同一个点**，只修一半等于没修 |
+| 片库默认按文件名排序 | SQLite 标准 `ORDER BY title COLLATE NOCASE ASC, path ASC`（`COLLATE NOCASE` 是 SQLite 内建，无需自定义 collation）；Java/Kotlin 侧 `String.CASE_INSENSITIVE_ORDER` + `thenBy`；`titleOf()` 已经是「path 最后一段 → URL decode → 去扩展名」，就是用户看到的文件名 | **不新增 `fileName` 列、不按 path 最后一段重算**：`content://` 本地片源的 path 只剩自增 id，按 path 排会变成一串数字；HTTP 目录页 path 还可能带 `%20`。定案四处共用一份 `FileNameOrder.COMPARATOR`。**落地时纠正**：集合内原本降序、文件夹集合升序、日期集合降序，三套方向混用正是「乱」的来源；集合内与集合之间统一升序，分组方式（文件夹 / 拍摄日期）本身不变 |
+| 隐藏片源被自动连播 | SQLite / Room 标准做法：`WHERE source_id IN (SELECT id FROM source WHERE enabled = 1)`；工程里 `VrCoordinator.loadItems()` 已有 `enabledSourceIds` 过滤 | **不新写一套查询语义**，让 `nextOf/previousOf` 与片库页共用同一份「未隐藏 + 文件名升序」列表，避免两处口径再次打架 |
+| 重复片源 | Room 标准：`@Entity(indices = [Index(value=["type","address","recursive"], unique=true)])` + `@Insert(onConflict = IGNORE)` + `MIGRATION_3_4` | **核查过，主动不用**（详见裁决 V2.47）：要升 `AppDatabase` version 3→4 并手写逐字对齐 Room 生成 DDL 的迁移，本工程 `exportSchema=false` 没有 schema JSON 可抄，`MIGRATION_2_3` 曾因多写一个 `DEFAULT 0` 触发 destructive migration **把库删了、断点全丢**；且现存库里可能已有重复行，建唯一索引前还得先清理。本 App 只有 UI 单线程添加片源、无并发写，`SourceDao` 查重 + 业务幂等可达同样效果且**零迁移风险** |
+| 共享凭证误删 | 关系型数据的标准引用计数：`SELECT COUNT(*) FROM source WHERE credential_ref = :ref`，为 0 才删 | 照搬，不加外键级联（避免连坐删片源）。编辑片库换凭证时同样在旧 ref 无人引用后才清 |
+| 重扫幽灵卡片 | SQLite 标准差集：`DELETE FROM media_item WHERE source_id = :sid AND path NOT IN (:paths)`，或先取 existing paths 再 `deleteByPaths()` | 照搬，但**只在 `list()` 正常返回、`upsert` 成功之后执行**：网络半包若被当成「全量」，差集会把整库索引清空，比幽灵卡片严重得多；实现时再加「一条视频都没读到但库里有片子 → 整批跳过」的闸门，`seen` 只收真正算作视频的路径。删行按精确 `media_key` 连带清断点与格式记忆；海报是内容寻址缓存，行删掉后不会再被引用，不跟着删 |
+| 播放失败记录常驻 | Android 无官方「启动成功标记」API，但 ACRA / Crashlytics / 各类启动守护用的都是**boot marker** 模式：启动时写标记 → 成功启动清标记 → 下次启动若标记还在说明上次没走完。工程 `CrashLog.markBooting()/bootMarker()/clearBootMarker()/blockCardboard()` **函数全在，是零调用** | **不引入新库、不新增崩溃上报框架**，只把已有函数接线：在 `boot()` 之前读标记（第一句 `stage("database")` 就会覆盖），命中就 `blockCardboard()`；成功进 VR 清 `last_crash.txt`。`showFailure()` 补 `clearBootMarker()`，否则 Java 层异常被 try-catch 接住也会在下次被误判成 native 崩溃 |
+
+**本轮自研的边界**：只写「一个画竖线的屏幕空间 View」「把已有 `panelSpec()` 用到未上膛态」「`ArmGaze` 的调用时机与 pending 撤销」「进度条从 5 段改连续」「一份文件名比较器」「五处数据语义的接线」。**头追姿态数学、球面网格、每眼投影、桶形畸变、QR 解析一行都不自己写，也不改动 `HeadPose.kt` 与球面渲染链路。** 成熟方案核查了、边界写清了，不等于必须照搬（唯一主动不用的 Room 唯一索引已在裁决记录里逐条算过风险）。
+
+---
+
+### 8. V2.48 开工前的成熟方案核查（2026-11-12 22:0x 真机反馈后；**只读核查，代码一行未动**）
+
+用户要求：重定向 / UI 跟随 / 抬头低头方向一律参考成熟 App，最终指定 **SourceVR**（自述未实测，理由是 SKYBOX 的表现），此前也提过 VRTV（**实测过**：方向没问题、手机平放也没有我们说的奇点）与「以 VRTV 为基础把 UI 和解码器改了」。核心诉求原话：**「用成熟的方案，不要再自己乱写了，总解决不了问题」**。
+
+| 核查对象 | 结论 | 对本案的意义 |
+|---|---|---|
+| 成熟 App 为什么不出这些问题 | V2.41 拆包已核实：VRTV 4.1.0 / SourceVR 0.2.3.3 的头追、畸变、镜片参数**全部来自 Google VR SDK**（`libgvr.so` / `GvrApi` / `GvrLayout`），两家都**没有方向开关**；方向由 SDK 的坐标约定保证 | 用户「VRTV 平放从没出现奇点」不是巧合：**卡尔曼融合四元数不做欧拉分解、不用重力定 up**，结构上没有退化点。我们 `PostureTracker.yawOf/pitchOf` 是 `asin/atan2` 欧拉分解，`HeadPose` 是手写 `getRotationMatrixFromVector` + 自写 `screenToDevice`。**再调符号治不了架构** |
+| 官方 Cardboard SDK 头追（官方文档） | `developers.google.cn/cardboard/reference/c/group/head-tracker`：`CardboardHeadTracker_create()` / `getPose(tracker, timestamp_ns, viewport_orientation, float* position, float* orientation)` / `pause` / `resume` / `recenter` / `setLowPassFilter(cutoff)`。**加速度计 + 陀螺仪 + 卡尔曼滤波**，输出四元数 + 预测姿态；World frame 就是 OpenGL 约定（x 右 / y 上 / z 后，−z 前视）；`recenter()` 直接「把朝向对齐零 yaw」 | 这**就是 VRTV/SourceVR 那套成熟方案的 Cardboard 版本**：方向不再靠符号推导，重定向不再需要自研 `O'=H⁻¹·O` + slerp，平放奇点由四元数天然消除 |
+| 本地 `app/libs/cardboard-sdk.aar` 能不能用 | **之前 V2.41 的结论只说对了一半。** 本轮重新提取 `libGfxPluginCardboard.so` 的字符串，C API **完整导出**：`Cardboard_initializeAndroid`、`CardboardHeadTracker_create/getPose/pause/resume/recenter/setLowPassFilter`、`CardboardLensDistortion_*`、`CardboardDistortionRenderer_*`，符号里还有 `AccelerometerData` / `GyroscopeData` 回调。缺的只是 **Java JNI 入口**（`System.loadLibrary("cardboard_sdk_jni")` 对应的 `Java_com_google_cardboard_sdk_*` 一个都没有）→ Java 层 `Initialize.initialize()` 必抛 `UnsatisfiedLinkError`，但**C API 从头到尾是可用的** | 这是 V2.41 拆包结论的盲区，须承认。成熟方案**不用下载、不用换 AAR、不用反编译任何 App**：写一层标准 JNI 绑定调官方 `CardboardHeadTracker` 即可（胶水不是自研算法）。官方 NDK 快速入门给的调用序列就是 `Cardboard_initializeAndroid(vm, context)` → `CardboardHeadTracker_create()` → 每帧 `getPose()` |
+| 「以 SourceVR / VRTV 为基础，把 UI 和解码器改了」是否可行 | 两者都是**闭源商业 APK**，本工程只有拆包记录、没有源码；VRTV 的 `libgvr.so` 导出 `Java_com_google_vr_ndk_base_GvrApi_*`（老 Daydream API），与 `com.google.cardboard.sdk.*` 不兼容；用户也未实测过 SourceVR | **不建议**。反编译改包既不可维护也有合规问题，等于拿一个未验证的闭源底座替换现有 65 个可编译 Kotlin 文件、连同已落地的片库/解码/断点全部重写。用户真正要的是「和这些 App 一样的头追质量」，不是它们的外壳 |
+| 「戴稳了？」为什么闪 | 本工程把**世界锁定**的 UI 平面每帧按 `updatePosture()` 量化的 yaw/pitch 转向视线（`panelSpec` → `uiQuad` 重建顶点），本质是「用世界坐标模拟头锁定」。头动 → 传感器 → 主线程 state → GL 线程重建几何，天然差 1–2 帧，加上量化跳变，卡片就在视野里抖 | 这是自研把戏，不是成熟做法。官方 SDK 示例 / 成熟 App 的提示层是**头锁定层**（视图矩阵固定，卡片永远贴在眼前），根本不需要每帧追视线，也就不会闪。控制台要能凝视选择，仍须世界锁定——**两层分开**，即长期挂着的 B6 三层拆分 |
+
+**待用户裁决，代码一行未动**：① 是否把头追源换成官方 `CardboardHeadTracker`（这会动 `HeadPose.kt`，与既有「不许动」铁律冲突，前提已被 V2.48 推翻但需授权）；② 「以闭源 App 为基座」是否排除；③ 是否先装回 alpha31 包做一次只验抬头/低头的判定实验。控制台不自动隐藏这一条**回源码尚未定位到确定根因**（已排除「头动当操作」与 hover 续时：`touch()` 只由输入分发调用，`tick()` 里没有每帧续时），需真机 `RunLog` 或复现步骤，不许凭猜改。
+
+---
+
+### 9. SourceVR / SKYBOX 界面设计参考（2026-11-12 22:2x 用户要求「给我展示 sourcevr 的界面设计」；**只读资料 + 设计稿，代码一行未动**）
+
+**用户约束**：「UI 方面我无法直接测试 sourcevr」——他手里没有可运行的 SourceVR（2019 Daydream 版），要的是**看得见的界面**，不是文字描述，更不是让我凭印象画一张「大概长这样」。
+
+**先核实身份，避免找错对象**：用户口中的「SourceVR」= **SKYBOX VR Video Player 0.2.3.3**，包名 `xyz.skybox.player`，发行商 **Source Technology**（Steam 商店页 Publisher 字段），2019-10 的 Android Daydream 版。与工程《两个参照 App 拆包核对》里 SourceVR 0.2.3.3 的 `libSkyBoxMediaMetadataRetriever`、版本号完全对上。**因此「以 SourceVR 为基础」和「SKYBOX 的表现」是同一个产品**；此前把它们并列成两个 App 是错的。VRTV 4.1.0 是另一个（实测过方向没问题），不能混。
+
+**资料来源与诚实边界**（三条证据等级，不许互相冒充）：
+
+| 等级 | 来源 | 能证明什么 |
+|---|---|---|
+| A · 视觉证据 | SKYBOX 官方 Steam 商店页 8 张产品截图（经 Steam `appdetails` API 取原图，存 `output/sourcevr-ref/skybox_steam_0..7.jpg`） | **PC VR 版（Rift/Vive/WMR，2017 上线、截图 2021 更新）的单眼画面**。是官方图，不是我画的；但**不是用户那个 Daydream APK 的真机截图** |
+| B · 结构证据 | 知乎《关于 Oculus Quest2 的使用体验（skybox VR）》对 20 张截图的逐图文字说明 | 2022 Quest 2 版的界面结构：首页=最近看过、顶部可点文件路径、左侧 VR 视频筛选、本地网络文件夹、设置/字幕/屏幕大小、4 个场景、模式选择。**只用来补结构，不当视觉证据** |
+| C · 拆包证据 | 本表《两个参照 App 拆包核对》+ Steam 功能描述 | 头追/畸变来自 Google VR SDK；自动识别 180/360/SBS/TAB、UPnP/DLNA、影院模式、「Beautiful user interface and VR environment」 |
+
+**从 8 张官方截图读出来的设计语言**（这是可复用的部分，不是照抄）：
+
+1. **场景是容器**：UI 不是铺满视野的画布，而是空间里几块悬浮深色玻璃（左 CHANNELS / 中 ALL FILES / 右 HISTORY），背景是住宅、影院、太空、太空舱。方向感由环境提供，头动时世界一起转。→ 直接对上我们「1024×512 画布每帧转向视线」造成的闪烁。
+2. **三栏一次给全**，不用在片库页/设置页/换柜页之间跳；找片靠**可点击的文件路径**，不靠搜索框或海报墙 —— 反而与凝影「按文件夹+拍摄时间组织的自拍片段」同构。
+3. **一个强调色**：琥珀 `#F5B83D`，只给当前选中频道、Home 面包屑、文件夹、已播进度、当前格式；其余白/灰。
+4. **没有海报也不编片名**：盘符用设备图形、文件夹用纯色块 + 图标，只有 HISTORY 用真实缩略图 + 时长。
+5. **控制连续常驻**：进度条是一条可点任意位置的轨道、播放键是一排大圆按钮、格式是 2D/3D SBS/3D TAB/Cinema/180/360 六个大图标的一级矩阵 + Auto + Reset。→ 对上我们「5 段固定跳转」「8 秒淡出」「格式藏在 2×5 设置卡」。
+6. **头锁定层与世界锁定层天然分开**：提示贴眼前、内容挂在空间里，不需要每帧追视线重建几何。
+
+**交付物**：`output/sourcevr-ref/sourcevr-ui-reference.html` —— 单文件、8 张官方图 base64 内嵌（离线可看）、4 个标签（官方截图 / 可点击的界面还原 / 设计语言 / 与凝影对照）、附诚实边界与 A/B/C 三条重做路线。生成脚本 `output/sourcevr-ref/build_reference.py` 可复现。已用无头 Chrome 实渲染校验：首页、三面板层、播放控制层均无溢出/重叠，标签配平。**它是设计参考资料，不是 SKYBOX 官方物料，也不是可运行的原版 UI。**
+
+**仍未裁决**：A 只重做 VR 内 UI / **B 先换官方 `CardboardHeadTracker` 基座再按这套语言重做 UI（助手倾向）** / C 另起工程从头来。用户已授权「没有什么是不能推翻的，甚至从头开始做都可以」（裁决记录 V2.49），但没指定路线；**代码一行未动**。
 
