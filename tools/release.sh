@@ -35,6 +35,13 @@ DIRTY=$(git status --porcelain | wc -l | tr -d ' ')
 if [ "$DIRTY" != "0" ]; then
     echo "工作树有 $DIRTY 项未提交改动："
     git status --short
+    # 实测踩到过：发版在 bump 之后被中断（超时/重试），留下一个「版本号已升但没提交、
+    # tag 也没打」的文件。下次发版只会看到「1 项未提交」，不知道该还原还是该提交。
+    if [ "$DIRTY" = "1" ] && [ -n "$(git status --porcelain -- version.properties)" ]; then
+        die "只有 version.properties 是脏的，通常是上次发版中断留下的。先跑：
+    git checkout -- version.properties
+然后重发（否则会把一个没发出去的版本号带进这次提交）"
+    fi
     die "先提交或 stash，再发版（否则 tag 指向的代码与 APK 不一致）"
 fi
 
