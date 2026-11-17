@@ -3,7 +3,7 @@
 > **给谁用**：戴上头显的人。不需要懂代码，照着每项的「步骤」做、「判据」对比即可。
 > **为什么单独成文**：`PROJECT_PLAN.md §6` 只是索引；这份是执行稿。离线断言已经证明「数学对」，
 > 但证明不了「戴着舒服、看着正」——那只能靠这 9 项。
-> **当前状态**：9 项 **全部未验**。任何一项没勾，`2.2.0` 就不算可用。
+> **当前状态**：9 项 **在 alpha6 上全部未验**。其中 V9 在 alpha5 上真机暴露过问题（低头约 90° 才见、抬头找不到细条），根因是对称轴取错，已在 alpha6 修正，**待复验**；其余 8 项从未上机。任何一项没勾，`2.2.0` 就不算可用。
 
 ---
 
@@ -11,10 +11,10 @@
 
 ```bash
 # 1) 装包（保留数据升级；首次装用 install 不带 -r 也行）
-adb install -r output/GazeReel-2.2.0-alpha5.apk
+adb install -r output/GazeReel-2.2.0-alpha6.apk
 
-# 2) 确认版本对得上（应输出 versionName='2.2.0-alpha5'）
-aapt2 dump badging output/GazeReel-2.2.0-alpha5.apk | head -1
+# 2) 确认版本对得上（应输出 versionName='2.2.0-alpha6'）
+aapt2 dump badging output/GazeReel-2.2.0-alpha6.apk | head -1
 ```
 
 **取证三件套**（每项失败都要，否则我无法定位）：
@@ -125,7 +125,7 @@ adb logcat -d -b crash > crash-v4.txt
 ## 3. 记录表（复制到对话里填）
 
 ```
-版本：2.2.0-alpha5    设备：<型号> / Android <版本>
+版本：2.2.0-alpha6    设备：<型号> / Android <版本>
 
 V1 360        □过 □不过   备注：
 V2 180        □过 □不过   备注：
