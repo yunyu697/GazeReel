@@ -9,7 +9,7 @@
   2) 影院（PLANE_2D）的实际轴 = 银幕中心仰角，由 screenCenterY / SCREEN_DISTANCE
      现算；wakeAxisDeg() 必须按投影分流，命中区与 quad 必须共用它
   3) 上下热区由「当前轴 ± 单侧张角」推导（不许两个独立字面量）
-  4) 上 / 下关于当前轴对称，且用户从内容正前方低头/抬头 78° 正好命中
+  4) 上 / 下关于当前轴对称，且从内容正前方低头/抬头到带子中心正好命中
   5) 热区在画布 [0, H] 之外（100% 与 140% 缩放都成立）
   6) drawConsoleWakeHint 内零 canvas 绘制（视觉全在独立徽标 quad 上）
   7) VrRenderer 的徽标角度取自 VrUiLayer.wakeUpDeg/wakeDownDeg，无第二份硬编码
@@ -86,7 +86,7 @@ def main() -> int:
     print(f"带子内/外缘 ±{inner:.0f}° / ±{outer:.0f}°"
           f"（中心 ±{span:.0f}°，半高 {half:.1f}°）")
     print(f"热区 上 {up - half:+.1f}°~{up + half:+.1f}°   下 {down - half:+.1f}°~{down + half:+.1f}°")
-    print(f"用户量法（从当前内容正前方起）：上 +{inner:.0f}~+{outer:.0f}°，下 −{outer:.0f}~−{inner:.0f}°")
+    print(f"从当前内容正前方起量：上 +{inner:.0f}~+{outer:.0f}°，下 −{outer:.0f}~−{inner:.0f}°")
     print(f"纹理 {tex_w}×{tex_h}")
     print()
 
@@ -132,7 +132,7 @@ def main() -> int:
     print(f"中心/半高由 内缘+外缘 推导  {'OK' if edges_derived else 'FAIL 又写死中心或半高了'}")
     ok &= edges_derived
 
-    # 3) 关于当前轴对称；用户从内容正前方低头/抬头 78° 必须正好落进带子
+    # 3) 关于当前轴对称；从内容正前方低头/抬头到带子中心必须正好落进带子
     sym = abs((up + down) - 2 * axis) < 1e-6
     print(f"上下关于当前轴 {axis:+.1f}° 对称（{up:+.1f} / {down:+.1f}）  {'OK' if sym else 'FAIL'}")
     ok &= sym
@@ -140,15 +140,16 @@ def main() -> int:
     mapped_up, mapped_down = up - axis, axis - down
     map_ok = abs(mapped_up - span) < 1e-6 and abs(mapped_down - span) < 1e-6
     print(f"从当前正前方抬头/低头 {mapped_up:.0f}° / {mapped_down:.0f}° 命中  "
-          f"{'OK' if map_ok else 'FAIL 用户量法与热区不一致'}")
+          f"{'OK' if map_ok else 'FAIL 量法与热区不一致'}")
     ok &= map_ok
 
-    # 3b) 用户 20:1x 给的口径：上下都落在 75°~81°（此前 38°~44° 判「太靠中间」）。
+    # 3b) 口径：中心 ±68°（内缘 65、外缘 71），带宽仍是 6°。
+    # 20:1x 定在 75~81，2026-11-19 真机「够得到但难操作」内收到这里。
     # 这两个数就是需求本身，改它们必须是有意为之 —— 钉在脚本里，随手漂移会 FAIL。
-    SPEC_INNER, SPEC_OUTER = 75.0, 81.0
+    SPEC_INNER, SPEC_OUTER = 65.0, 71.0
     spec_ok = abs(inner - SPEC_INNER) < 1e-6 and abs(outer - SPEC_OUTER) < 1e-6
     print(f"带子口径 ±{inner:.0f}°~±{outer:.0f}°（需求 {SPEC_INNER:.0f}~{SPEC_OUTER:.0f}）"
-          f"  {'OK' if spec_ok else 'FAIL 偏离用户口径'}")
+          f"  {'OK' if spec_ok else 'FAIL 偏离口径'}")
     ok &= spec_ok
 
     tex_ar = tex_w / tex_h
@@ -159,8 +160,8 @@ def main() -> int:
 
     print()
 
-    # 横向必须足够长：20:1x 用户「唤醒条横向太短了，非常难找到」。
-    # 位置外移到 ±78° 后，误触发由位置挡，横向不再需要靠「做小」来防，
+    # 横向必须足够长：20:1x「唤醒条横向太短了，非常难找到」。
+    # 位置外移到视野边缘后，误触发由位置挡，横向不再需要靠「做小」来防，
     # 反而要够宽才好压中。下限 10°（整条 20°），防止以后又缩回 3.2°。
     wide_ok = half_w >= 10.0
     print(f"横向半宽 {half_w:.1f}°（整条 {half_w * 2:.1f}°，需 ≥10°）  "

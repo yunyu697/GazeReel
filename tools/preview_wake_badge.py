@@ -64,7 +64,7 @@ TEX_LINE_DEG = LINE_PX / TEX_H * math.degrees(2 * math.atan((QUAD_H / 2) / 2.0))
 PITCH = -math.degrees(grab(r"CONSOLE_DROP_RAD = ([\d.]+)f", src, "DROP"))
 PANEL_H = grab(r"val h = ([\d.]+)f \* k", src, "面板高")
 
-# 影院银幕中心 = 用户认定的「当前正前方」；与 Kotlin 的 screenCenterY(100) 同式。
+# 影院银幕中心 = 认定的「当前正前方」；与 Kotlin 的 screenCenterY(100) 同式。
 SC_D = grab(r"const val SCREEN_DISTANCE = ([\d.]+)f", mesh, "SCREEN_DISTANCE")
 SC_W = grab(r"const val SCREEN_WIDTH = ([\d.]+)f", mesh, "SCREEN_WIDTH")
 FLOOR_Y = grab(r"const val ROOM_FLOOR_Y = (-?[\d.]+)f", mesh, "ROOM_FLOOR_Y")
@@ -81,7 +81,7 @@ CANVAS_HI = PITCH + half_h
 CANVAS_LO = PITCH - half_h
 
 W_IMG, H_IMG = 1180, 742
-# 20:1x 热区外移到 ±75°~81°，剖面必须装得下 ±90°，否则两条带子画到图外。
+# 热区中心内收到 ±68°，剖面装得下 ±90°，两条带子都在图内。
 PX_PER_DEG = 3.1
 TOP_DEG, BOT_DEG = 90.0, -90.0
 PROFILE_H = (TOP_DEG - BOT_DEG) * PX_PER_DEG
@@ -134,10 +134,10 @@ d.line([LX, y_axis, LX + LW, y_axis], fill=(198, 210, 228), width=3)
 d.text((LX + LW - 8, y_axis - 26), f"对称轴：当前内容正前方 {AXIS:+.1f}°",
        font=font(13), fill=(214, 224, 238), anchor="ra", stroke_width=3, stroke_fill=BG)
 
-# 画布/银幕说明
-d.text((LX + 8, py(CANVAS_LO) - 22),
+# 画布/银幕说明：放在画布带中部右侧，避开对称标注的 68° 文字
+d.text((LX + LW - 10, py((CANVAS_HI + CANVAS_LO) / 2)),
        f"UI 画布只覆盖 {CANVAS_HI:+.1f}° ~ {CANVAS_LO:+.1f}°（在它之外画不出来）",
-       font=font(12), fill=(120, 130, 148))
+       font=font(12), fill=(120, 130, 148), anchor="ra", stroke_width=3, stroke_fill=(34, 38, 47))
 
 # 热区
 for center, label in ((UP, "上区"), (DOWN, "下区")):
@@ -204,7 +204,7 @@ for k, ((bw, bh), col, label) in enumerate((
 
 notes = [
     f"• 轴 {AXIS:+.1f}°（当前内容正前方）：上 {UP:+.0f}° / 下 {DOWN:+.0f}°，各 {HALF*2:.1f}° 高。",
-    "• 从 ±38~44° 外移到 ±75~81°：误触发交给位置挡，不再靠做小热区。",
+    "• ±38~44° → ±75~81°（防误触发）→ ±65~71°（够得到但难操作，内收）。",
     f"• 横向 6.4° → {HALFW*2:.1f}°：位置够偏，宽一点更好压中。",
     f"• 半高 {HALF:.1f}° = 抖动(±1.5°)的 {HALF/1.5:.1f} 倍，真去瞄仍压得准。",
     f"• 细线宽 == 命中宽 {HALFW*2:.1f}°，线厚 {TEX_LINE_DEG:.2f}°。",
