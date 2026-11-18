@@ -6,16 +6,16 @@
 
 ---
 
-## 1. 基线快照（2026-11-17 实测）
+## 1. 基线快照（2026-11-19 实测）
 
 | 维度 | 实测值 | 取数方式 |
 |---|---|---|
-| 版本 | `2.2.0-alpha6` / `versionCode 202000006` | `version.properties` + `aapt2 dump badging` |
-| 代码规模 | 69 个 Kotlin 文件 / 19,381 行 | `find app/src/main/java -name *.kt` |
+| 版本 | `2.2.0-alpha7` / `versionCode 202000007` | `version.properties` + `aapt2 dump badging` |
+| 代码规模 | 69 个 Kotlin 文件 / 19,387 行 | `find app/src/main/java -name *.kt` |
 | 自动化断言 | **308 条**记名断言（160 格式与视图 + 61 识别器 + 87 姿态），失败 0；另 8 支领域校验脚本（结构/播放/唤醒带/IPD/影院几何/着色器/缓冲解码/库支持）不逐条计数 | 三支自检 + 11 支 `check_*.py` |
 | 校验脚本 | 11 个 Python 断言脚本 + 6 个 shell 驱动 + 10 个版面预览生成器 | `ls tools/` |
-| 产物 | `output/GazeReel-2.2.0-alpha6.apk`，16,539,913 B | `ls -l output/` |
-| 配置管理 | ✅ 已归档，并已进入「每 alpha 一 tag」常态：`v2.2.0-alpha4` / `v2.2.0-alpha5` / `v2.2.0-alpha6`，工作树 0 项 | `git status` / `git tag` |
+| 产物 | `output/GazeReel-2.2.0-alpha7.apk`，16,539,913 B | `ls -l output/` |
+| 配置管理 | ✅ 已归档，已进入「每 alpha 一 tag」常态：`v2.2.0-alpha4/5/6/7`，工作树 0 项，main 与 alpha7 tag 均已 push 到 origin | `git status` / `git tag` |
 | 提交纪律 | 仓库既有 **40 个 tag**（`v1.0.0-alpha1`…`v1.1.0-alpha33`，缺 alpha19——那次改动从未落提交），**2.0.0 起中断**，本次恢复 | `git tag -l` |
 | 真机验证 | **0 / 9 项**（见 §6 验收清单）；V9 的轴口径在 alpha6 上已实测正确，68° 手感待复验 | 暂无真机条件 |
 | 文档 | README 203 行、UI_GRID 121 行、STATE.md 为存根 | `wc -l` |
