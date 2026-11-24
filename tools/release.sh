@@ -135,28 +135,50 @@ fi
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 unzip -o -q "$DEST" 'classes*.dex' -d "$TMP" || die "解不开 dex"
+
+# 符号清单在 tools/release-symbols.txt，不写死在这里：
+# 加一条主链路只改那个文件，脚本不用跟着改；清单为空也判失败，防止「核对形同虚设」。
+SYMBOLS_FILE="tools/release-symbols.txt"
+[ -f "$SYMBOLS_FILE" ] || die "缺少 $SYMBOLS_FILE，无法核对包内容"
+SYMBOLS=$(grep -v -E '^\s*(#|$)' "$SYMBOLS_FILE" | tr -d '\r' || true)
+COUNT=$(printf '%s\n' "$SYMBOLS" | grep -c . || true)
+# grep -c 在零匹配时返回 1，set -e 虽被 || true 兜住，但变量会是空串，
+# 下面 -gt 比较会报 "integer expression expected"。这里补成 0。
+COUNT=${COUNT:-0}
+[ "$COUNT" -gt 0 ] || die "$SYMBOLS_FILE 里没有符号，核对没有意义"
+
 missing=0
-for s in fisheye FisheyePreset; do
-    if grep -a -q -l -- "$s" "$TMP"/*.dex > /dev/null 2>&1; then
+while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    if grep -a -q -- "$s" "$TMP"/*.dex > /dev/null 2>&1; then
         printf '  %-24s OK\n' "dex:$s"
     else
         printf '  %-24s MISSING\n' "dex:$s"
         missing=1
     fi
-done
-[ "$missing" = "0" ] || die "包内缺少预期符号，产物可疑"
+done <<< "$SYMBOLS"
+[ "$missing" = "0" ] || die "包内缺少预期符号（$COUNT 项已核），产物可疑"
 
 # ── 6. 提交与打 tag（仅 --commit）────────────────────────────────────────
 if [ "$COMMIT" = "1" ]; then
     say "提交并打 tag"
-    git add -A
-    git commit -q -m "chore(release): $VERSION
+    # 只提交版本号。用 git add -A 会把构建过程中任何意外产物一起吞进来，
+    # 而工作树在发版前已经检查过必须干净，这里唯一该变的就是 version.properties。
+    git add version.properties
+    if git diff --cached --quiet; then
+        say "版本号没有变化（--no-bump？），跳过提交，只打 tag"
+    else
+        # 断言条数不写进提交信息：这个数字每次都在变，写死过一次「283 条」，
+        # 后来变成 323 条就成了假话，且改脚本还得同步改这里（自我指涉）。
+        git commit -q -m "chore(release): $VERSION
 
-一键发版：283 条断言全过，clean 构建通过。
-真机状态见 PROJECT_PLAN.md §6 验收清单。"
+一键发版：全量断言通过（明细见各 tools/check_*.py 输出），clean 构建通过，
+产物符号清单已核。真机状态见 PROJECT_PLAN.md §6 验收清单。"
+    fi
     git tag -a "v$VERSION" -m "$VERSION"
     git log -1 --oneline
     echo "tag: $(git tag -l "v$VERSION")"
+    echo "提醒：tag 只在本地，推送需另跑 git push origin v$VERSION"
 else
     say "未提交（要提交请加 --commit）"
     echo "当前工作树："
