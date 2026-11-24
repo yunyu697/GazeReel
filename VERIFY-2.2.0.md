@@ -5,7 +5,7 @@
 > 但证明不了「戴着舒服、看着正」——那只能靠这 9 项。
 > **当前状态**：9 项在 alpha6 上除 V9 外仍未验。V9 在 alpha6 上真机验证：轴修正通过——
 > 上下带都能唤出控制台、也能刻意误触；但 ±78°「确实有点难操作」，已按此在 alpha7
-> 内收到 ±68°、alpha8 又换掉了 SMB 共享枚举（与这 9 项无关），**V9 待复验**。
+> 内收到 ±68°、alpha8 换掉了 SMB 共享枚举、alpha9 只动发版脚本（均与这 9 项无关），**V9 待复验**。
 > 其余 8 项从未上机。任何一项没勾，`2.2.0` 就不算可用。
 
 ---
@@ -14,10 +14,10 @@
 
 ```bash
 # 1) 装包（保留数据升级；首次装用 install 不带 -r 也行）
-adb install -r output/GazeReel-2.2.0-alpha8.apk
+adb install -r output/GazeReel-2.2.0-alpha9.apk
 
-# 2) 确认版本对得上（应输出 versionName='2.2.0-alpha8'）
-aapt2 dump badging output/GazeReel-2.2.0-alpha8.apk | head -1
+# 2) 确认版本对得上（应输出 versionName='2.2.0-alpha9'）
+aapt2 dump badging output/GazeReel-2.2.0-alpha9.apk | head -1
 ```
 
 **取证三件套**（每项失败都要，否则我无法定位）：
@@ -131,7 +131,7 @@ adb logcat -d -b crash > crash-v4.txt
 ## 3. 记录表（复制到对话里填）
 
 ```
-版本：2.2.0-alpha8    设备：<型号> / Android <版本>
+版本：2.2.0-alpha9    设备：<型号> / Android <版本>
 
 V1 360        □过 □不过   备注：
 V2 180        □过 □不过   备注：
