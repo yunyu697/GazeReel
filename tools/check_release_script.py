@@ -30,6 +30,8 @@
  10) 断言用通配遍历，新增 check_*.py 自动纳入发版门禁
  11) 中断可续：`--commit` 下版本号提交紧跟 bump（早于断言/构建），
      且脏版本号的提示必须给出 `--no-bump` 续发路径，不能只剩「还原重来」
+ 12) `$VERSION` 的所有引用都在赋值之后（`set -u` 下提前引用会 unbound variable，
+     bash -n 查不出这类问题）
 """
 
 import re
@@ -198,7 +200,20 @@ def main() -> int:
     ok &= has_resume_hint
 
     print()
-    print("=== 12. 语法 ===")
+    print("=== 12. 变量定义顺序 ===")
+    # `set -u` 下提前引用未赋值变量会直接崩。曾经把「版本号落盘」的提交块插在
+    # VERSION=$(...) 之前，脚本跑两步就 `VERSION: unbound variable` ——
+    # 而 bash -n 只查语法，查不出这个。所有 $VERSION 都必须在赋值之后。
+    pos_assign = body.find("VERSION=$(grep")
+    uses = [m.start() for m in re.finditer(r"\$VERSION\b", body)]
+    early = [p for p in uses if pos_assign == -1 or p < pos_assign]
+    var_order_ok = pos_assign != -1 and not early
+    detail = "OK" if var_order_ok else f"FAIL 有 {len(early)} 处在赋值前引用（set -u 会崩）"
+    print(f"$VERSION 使用都在赋值之后  {detail}")
+    ok &= var_order_ok
+
+    print()
+    print("=== 13. 语法 ===")
     bash = shutil.which("bash")
     if bash:
         r = subprocess.run([bash, "-n", str(SCRIPT)], capture_output=True, text=True)

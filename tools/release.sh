@@ -55,26 +55,29 @@ fi
 if [ "$BUMP" != "none" ]; then
     say "升版本（$BUMP）"
     python tools/bump_version.py "$BUMP"
-
-    # --commit 模式下，版本号**立刻**落盘，不等到最后。
-    #
-    # 为什么：原先把 bump 放在最前、提交放在最后，中间夹着全量断言和一次构建，
-    # 中断窗口最大。实测连续两次在这里被打断（构建耗时较长），留下
-    # 「版本号已升但没提交」的脏 version.properties —— 下次发版被脏检查拦住，
-    # 只能人工判断该还原还是该提交，而且那个版本号白涨一格。
-    # 先提交掉：中断后工作树仍然干净，重跑 `--no-bump --commit` 就能续上同一个版本。
-    if [ "$COMMIT" = "1" ]; then
-        git add version.properties
-        git commit -q -m "chore(release): $VERSION 版本号
-
-先落盘再构建：发版中途被打断时工作树保持干净，
-重跑 tools/release.sh --no-bump --commit 可续发同一个版本。"
-        say "版本号已落盘（$(git log -1 --format=%h)），中断可用 --no-bump 续"
-    fi
 fi
 VERSION=$(grep -E '^version=' version.properties | cut -d= -f2 | tr -d '\r')
 [ -n "$VERSION" ] || die "读不到 version.properties 里的 version"
 say "目标版本 $VERSION"
+
+# --commit 模式下，版本号**立刻**落盘，不等到最后。
+#
+# 为什么：原先把 bump 放在最前、提交放在最后，中间夹着全量断言和一次构建，
+# 中断窗口最大。实测连续两次在这里被打断（构建耗时较长），留下
+# 「版本号已升但没提交」的脏 version.properties —— 下次发版被脏检查拦住，
+# 只能人工判断该还原还是该提交，而且那个版本号白涨一格。
+# 先提交掉：中断后工作树仍然干净，重跑 `--no-bump --commit` 就能续上同一个版本。
+#
+# 注意：这段必须放在 VERSION 赋值之后（set -u 下提前引用会 unbound variable，
+# 已经踩过一次）；check_release_script 有判据盯着这个顺序。
+if [ "$COMMIT" = "1" ] && [ "$BUMP" != "none" ]; then
+    git add version.properties
+    git commit -q -m "chore(release): $VERSION 版本号
+
+先落盘再构建：发版中途被打断时工作树保持干净，
+重跑 tools/release.sh --no-bump --commit 可续发同一个版本。"
+    say "版本号已落盘（$(git log -1 --format=%h)），中断可用 --no-bump 续"
+fi
 
 # ── 2. 全量断言 ─────────────────────────────────────────────────────────
 say "跑全量断言"
