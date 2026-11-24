@@ -28,6 +28,8 @@
   8) tag 是 annotated（-a）且命名为 v$VERSION
   9) 产物名必须含目标版本号，否则中止
  10) 断言用通配遍历，新增 check_*.py 自动纳入发版门禁
+ 11) 中断可续：`--commit` 下版本号提交紧跟 bump（早于断言/构建），
+     且脏版本号的提示必须给出 `--no-bump` 续发路径，不能只剩「还原重来」
 """
 
 import re
@@ -176,7 +178,27 @@ def main() -> int:
     ok &= globbed
 
     print()
-    print("=== 11. 语法 ===")
+    print("=== 11. 中断可续 ===")
+    # 曾经连续两次在 bump 之后、构建完成之前被打断（构建耗时较长），
+    # 留下「版本号已升但没提交」的脏文件，下次发版被脏检查拦住，只能人工处理。
+    # 结构上的解：--commit 模式下 bump 之后立刻提交，让中断窗口里工作树保持干净。
+    #
+    # 只在「bump → 断言」这段区间里找 git commit：步骤 0 的报错提示文本里也提到了
+    # git commit（给出续发命令），全文 find 会误命中那里。
+    pos_checks = body.find("tools/check_*.py")
+    between = body[pos_bump:pos_checks] if (pos_bump != -1 and pos_checks != -1) else ""
+    resume_ok = pos_bump != -1 and pos_checks != -1 and pos_bump < pos_checks and "git commit" in between
+    print(f"版本号提交紧跟 bump（早于断言/构建）  {'OK' if resume_ok else 'FAIL 中断仍会留脏版本号'}")
+    ok &= resume_ok
+
+    # 脏版本号的提示必须给出「保留并续发」这条路，不能只说「还原重来」
+    hint = re.search(r"只有 version.properties 是脏的(.{0,700}?)\"\n", text, re.S)
+    has_resume_hint = bool(hint and "--no-bump" in hint.group(1))
+    print(f"脏版本号提示含 --no-bump 续发路径  {'OK' if has_resume_hint else 'FAIL 只剩「还原重来」一条路'}")
+    ok &= has_resume_hint
+
+    print()
+    print("=== 12. 语法 ===")
     bash = shutil.which("bash")
     if bash:
         r = subprocess.run([bash, "-n", str(SCRIPT)], capture_output=True, text=True)

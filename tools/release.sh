@@ -37,10 +37,16 @@ if [ "$DIRTY" != "0" ]; then
     git status --short
     # 实测踩到过：发版在 bump 之后被中断（超时/重试），留下一个「版本号已升但没提交、
     # tag 也没打」的文件。下次发版只会看到「1 项未提交」，不知道该还原还是该提交。
+    #
+    # 现在 --commit 模式在 bump 后立刻提交，正常不会走到这里；这段是给
+    # 「只构建不提交」（不带 --commit）被打断的情况留的两条出路。
     if [ "$DIRTY" = "1" ] && [ -n "$(git status --porcelain -- version.properties)" ]; then
-        die "只有 version.properties 是脏的，通常是上次发版中断留下的。先跑：
-    git checkout -- version.properties
-然后重发（否则会把一个没发出去的版本号带进这次提交）"
+        die "只有 version.properties 是脏的，通常是上次发版中断留下的。两条路：
+  A) 丢掉这个没发出去的版本号：
+       git checkout -- version.properties && tools/release.sh alpha --commit
+  B) 想保留它（例如只是想重出这个版本的包）：
+       git add version.properties && git commit -m 'chore(release): <版本号> 版本号'
+       tools/release.sh --no-bump --commit"
     fi
     die "先提交或 stash，再发版（否则 tag 指向的代码与 APK 不一致）"
 fi
@@ -49,6 +55,22 @@ fi
 if [ "$BUMP" != "none" ]; then
     say "升版本（$BUMP）"
     python tools/bump_version.py "$BUMP"
+
+    # --commit 模式下，版本号**立刻**落盘，不等到最后。
+    #
+    # 为什么：原先把 bump 放在最前、提交放在最后，中间夹着全量断言和一次构建，
+    # 中断窗口最大。实测连续两次在这里被打断（构建耗时较长），留下
+    # 「版本号已升但没提交」的脏 version.properties —— 下次发版被脏检查拦住，
+    # 只能人工判断该还原还是该提交，而且那个版本号白涨一格。
+    # 先提交掉：中断后工作树仍然干净，重跑 `--no-bump --commit` 就能续上同一个版本。
+    if [ "$COMMIT" = "1" ]; then
+        git add version.properties
+        git commit -q -m "chore(release): $VERSION 版本号
+
+先落盘再构建：发版中途被打断时工作树保持干净，
+重跑 tools/release.sh --no-bump --commit 可续发同一个版本。"
+        say "版本号已落盘（$(git log -1 --format=%h)），中断可用 --no-bump 续"
+    fi
 fi
 VERSION=$(grep -E '^version=' version.properties | cut -d= -f2 | tr -d '\r')
 [ -n "$VERSION" ] || die "读不到 version.properties 里的 version"
@@ -159,17 +181,16 @@ while IFS= read -r s; do
 done <<< "$SYMBOLS"
 [ "$missing" = "0" ] || die "包内缺少预期符号（$COUNT 项已核），产物可疑"
 
-# ── 6. 提交与打 tag（仅 --commit）────────────────────────────────────────
+# ── 6. 打 tag（仅 --commit）──────────────────────────────────────────────
 if [ "$COMMIT" = "1" ]; then
-    say "提交并打 tag"
-    # 只提交版本号。用 git add -A 会把构建过程中任何意外产物一起吞进来，
-    # 而工作树在发版前已经检查过必须干净，这里唯一该变的就是 version.properties。
+    say "打 tag"
+    # 版本号在步骤 1 就已经提交了（为了中断可续）。这里的 add/commit 是兜底：
+    # --no-bump 续发时版本号可能还没提交，或者上次中断残留了未提交的版本号。
+    # 只 add version.properties：git add -A 会把构建过程中任何意外产物一起吞进 tag。
     git add version.properties
-    if git diff --cached --quiet; then
-        say "版本号没有变化（--no-bump？），跳过提交，只打 tag"
-    else
+    if ! git diff --cached --quiet; then
         # 断言条数不写进提交信息：这个数字每次都在变，写死过一次「283 条」，
-        # 后来变成 323 条就成了假话，且改脚本还得同步改这里（自我指涉）。
+        # 后来变成 300+ 就成了假话，且改脚本还得同步改这里（自我指涉）。
         git commit -q -m "chore(release): $VERSION
 
 一键发版：全量断言通过（明细见各 tools/check_*.py 输出），clean 构建通过，
