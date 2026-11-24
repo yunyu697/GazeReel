@@ -162,11 +162,13 @@ dependencies {
     implementation(libs.jsoup)
     coreLibraryDesugaring(libs.desugar.jdk.libs.nio)
 
-    // E7 / 检查表：只用于「共享枚举 + 取名」的双跑对照日志，播放与目录遍历不碰它。
+    // 共享枚举 + 设备名的默认路径（SmbShareLister）：srvsvc 的 NetrShareEnum 与
+    // NetrServerGetInfo 都走它的 dcerpc/msrpc 实现，手写 DCE/RPC 已整段删除。
+    // 播放与目录遍历仍走 smbj，两者各管一段，不互相替代。
     // 不排除 bcprov：jcifs 的 NtlmPasswordAuthenticator 算 NTLM 哈希时直接引用
     // org/bouncycastle（已用 javap 核实），排除会在认证时 NoClassDefFoundError。
     // Android 系统内置的是 com.android.org.bouncycastle，包名不同，不会冲突。
-    // 代价是 APK 变大；这条链整体包在 Throwable 隔离里，失败只写一行日志。
+    // 代价是 APK 变大。
     implementation(libs.jcifs.ng) {
         // provided 作用域不会传递，这里显式挡掉 servlet 相关类，避免误打包。
         exclude(group = "javax.servlet", module = "javax.servlet-api")

@@ -272,11 +272,14 @@ class SmbSessionPool {
     /**
      * 只填 IP 后的第一层「共享」。
      *
-     * 先让设备自己报（IPC$ + srvsvc），这一步给出的是完整列表；
-     * 设备不支持或账号没权限时才退回并发试连常见共享名，并带上原因。
-     * V2.29：加缓存（key 含 host + 凭据标识）；RPC 与试连都放在锁外，
+     * 先让设备自己报（srvsvc 的 NetrShareEnum，由 jcifs-ng 实现），这一步给出的是
+     * 完整列表；设备不支持或账号没权限时才退回并发试连常见共享名，并带上原因。
+     * V2.29：加缓存（key 含 host + 凭据标识）；枚举与试连都放在锁外，
      * 避免一次慢枚举把其它 SMB 操作全堵住。失败 / 空探测结果不缓存，
      * 免得把一次网络抖动固化成 60 秒的「设备没共享」。
+     *
+     * 枚举这条链**不再用 smbj 的会话**：jcifs 自己建连、自己关。只有走到试连兜底
+     * 才需要 [session]，所以正常路径上少占一条到设备的连接。
      */
     fun listShares(host: String, credentials: SmbCredentials): ShareListing {
         val cacheKey = "shares|$host|${credKey(credentials)}"
@@ -285,9 +288,8 @@ class SmbSessionPool {
             return it
         }
         val started = System.currentTimeMillis()
-        val active = session(host, credentials)
-        val viaRpc = runCatching { SrvsvcShareEnum.list(active, host) }
-        val names = viaRpc.getOrNull()
+        val viaSrvsvc = runCatching { SmbShareLister.listShares(host, credentials) }
+        val names = viaSrvsvc.getOrNull()
         val result = if (names != null) {
             RunLog.append(
                 "smb",
@@ -295,15 +297,11 @@ class SmbSessionPool {
             )
             ShareListing(names.filterNot { isHiddenShare(it) }.distinct(), true)
         } else {
-            val probed = probeCommon(active, host)
-            ShareListing(probed, false, describe(viaRpc.exceptionOrNull()))
+            val reason = describe(viaSrvsvc.exceptionOrNull())
+            RunLog.append("smb", "共享枚举失败，转试连兜底 · $host · $reason")
+            val probed = probeCommon(session(host, credentials), host)
+            ShareListing(probed, false, reason)
         }
-        // E7 / V2.32：jcifs-ng 双跑对照。放在 result 算完之后，srvsvc 成功和
-        // 试连兜底两条路径都能拿到对照证据；提交只是往后台队列丢一个 Runnable，
-        // 不占这次会话、不进网络、不改 result，失败也只多写一行日志。
-        JcifsCrossCheck.compareShares(
-            host, credentials, names, result.names, result.authoritative
-        )
         // 枚举成功（哪怕真的是空列表）或试连有命中才缓存；整条失败不缓存。
         if (result.authoritative || result.names.isNotEmpty()) {
             SmbScanCache.put(cacheKey, result)

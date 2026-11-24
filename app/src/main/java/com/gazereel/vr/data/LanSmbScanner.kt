@@ -165,24 +165,15 @@ class LanSmbScanner(
     }
 
     /**
-     * srvsvc 的 NetrWkstaGetInfo：不依赖 137，只要 445 通就能拿到计算机名。
+     * srvsvc 的 NetrServerGetInfo（层级 100）：不依赖 137，只要 445 通就能拿到计算机名。
      * V2.29：把已保存的凭据递给 [SmbNameProbe]，需账号的 NAS 用已认证会话
      * 才肯答；guest 匿名只作为最后的兜底（名称来源由 SmbNameProbe 记日志）。
      */
     private fun smbName(ip: String): String? {
         val credentials = runCatching { credentialProvider(ip) }.getOrNull()
-        val handwritten = runCatching {
+        return runCatching {
             sanitize(SmbNameProbe.machineName(ip, credentials).orEmpty())
         }.getOrNull()
-        // E7 / V2.32：jcifs-ng 双跑对照。这里传的是 **srvsvc 自己问到的名字**，
-        // 不是最终按优先级挑中的名字（那个可能是 mDNS / NetBIOS / 反向 DNS），
-        // 否则两条结果根本不是同一条链，对照没有意义。
-        // compareName 内部只做一次非阻塞提交（ConcurrentHashMap + execute），
-        // 真正的 jcifs 网络往返在独立单线程后台，不占这 48 路的 2600ms 预算。
-        JcifsCrossCheck.compareName(
-            ip, credentials, handwritten?.takeIf { it.isNotBlank() }
-        )
-        return handwritten
     }
 
     private fun reachable(ip: String): Boolean = runCatching {
