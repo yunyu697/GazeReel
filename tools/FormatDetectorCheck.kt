@@ -262,6 +262,36 @@ fun main() {
         expect("equirect 360 mono 不切幅", r.format.layout.name, "MONO")
     }
 
+    println("[11] 11:3x：离线测试片源（tools/make_testclips.py）必须落到它宣称的格式")
+    // 这段不是重复覆盖：[10] 用的是「相机怎么命名」，这里用的是**我们真的会放到手机上
+    // 那六段片子的文件名 + 真实宽高**。片源生成了、识别却判成别的格式，
+    // 验收人会以为「播放器坏了」，其实是指针错了。两边必须钉在同一张表上。
+    run {
+        val r = d.detect("test-360-equirect-mono.mp4", 2048, 1024)
+        expect("片源 360 → 整球不切幅", short(r.format), "SPHERE_360/MONO/FOV_360")
+    }
+    run {
+        val r = d.detect("test-180-sbs.mp4", 2048, 1024)
+        expect("片源 180 → 半球 SBS", short(r.format), "HALF_SPHERE_180/SBS/FOV_180")
+    }
+    run {
+        val r = d.detect("test-2d-grid-720p.mp4", 1280, 720)
+        expect("片源 2D → 银幕", short(r.format), "PLANE_2D/MONO/FLAT")
+    }
+    run {
+        val r = d.detect("test-fisheye-circle-mono.mp4", 1024, 1024)
+        expect("片源鱼眼圆 → 鱼眼不切幅", short(r.format), "FISHEYE/MONO/FOV_FISHEYE")
+    }
+    run {
+        val r = d.detect("test-fisheye-fullframe-mono.mp4", 1280, 720)
+        expect("片源鱼眼全画幅 → 鱼眼", short(r.format), "FISHEYE/MONO/FOV_FISHEYE")
+    }
+    run {
+        val r = d.detect("test-dual-fisheye-unstitched.mp4", 2048, 1024)
+        expect("片源双鱼眼 → 明确拒绝", r.refusal?.name ?: "null", "DUAL_FISHEYE_360")
+        expect("片源双鱼眼 → 降级 2D", r.format.projection.name, "PLANE_2D")
+    }
+
     println()
     println("通过 $passed · 失败 $failed")
     if (failed > 0) throw AssertionError("$failed 条断言未通过")
