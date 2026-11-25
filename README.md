@@ -104,6 +104,19 @@ adb push ../output/testclips/. /sdcard/Movies/
 三种投影画的是同一套角度图案，所以「换了投影还对不对」也能直接比。
 判读口诀与每段证明哪一项，见 [`docs/TESTCLIPS.md`](docs/TESTCLIPS.md)。
 
+### 真机验收：一条命令
+
+手机塞进纸盒之后没法翻页，所以「放指定的那一部片」由命令点名：
+
+```bash
+bash tools/verify_device.sh            # 装包 → 推片 → V1..V9 逐项起播 → 截图 + 日志切片 → 记录表
+bash tools/verify_device.sh V4 V5      # 只跑两项
+bash tools/verify_device.sh --list     # 看项号对应哪段片
+```
+
+它只保证「放的是那一部片、证据按项存好了、没起播立刻报错」；
+**合格与否仍要人眼看**——判据见 [`VERIFY-2.2.0.md`](VERIFY-2.2.0.md)。
+
 ## 先判断我的片子是什么格式
 
 不知道片子是什么格式，不用装工具。最快是两步：先看分辨率数字，再看画面长相，照着下表对号入座。

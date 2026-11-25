@@ -5,24 +5,48 @@
 > 但证明不了「戴着舒服、看着正」——那只能靠这 9 项。
 > **当前状态**：9 项在 alpha6 上除 V9 外仍未验。V9 在 alpha6 上真机验证：轴修正通过——
 > 上下带都能唤出控制台、也能刻意误触；但 ±78°「确实有点难操作」，已按此在 alpha7
-> 内收到 ±68°；alpha8 换掉了 SMB 共享枚举，alpha9~alpha11 只动发版脚本，
-> **2.2.1-alpha1 补齐了 V1–V7 的片源**（见 `docs/TESTCLIPS.md`），这几项与它们均无关。
+> 内收到 ±68°；alpha8 换掉了 SMB 共享枚举，alpha9~alpha11 只动发版脚本。
+> **2.2.1-alpha1 补齐了 V1–V7 的片源**（`docs/TESTCLIPS.md`），
+> **alpha2 把装包、推片、逐项起播、截图与日志归档压成一条命令**（`tools/verify_device.sh`）。
 > **V9 待复验**，其余 8 项从未上机。任何一项没勾，这一代就不算可用。
 
 ---
 
-## 0. 开始之前（3 分钟）
+## 0. 开始之前（一条命令）
 
 ```bash
-# 1) 装包（保留数据升级；首次装用 install 不带 -r 也行）
-adb install -r ../output/GazeReel-2.2.1-alpha1.apk
+bash tools/verify_device.sh
+```
 
-# 2) 确认版本对得上（应输出 versionName='2.2.1-alpha1'）
-aapt2 dump badging ../output/GazeReel-2.2.1-alpha1.apk | head -1
+做四件事：装 `../output/` 里当前版本的包、把六段测试片推到 `/sdcard/Movies/`、
+**逐项点名起播**（V1→V9，V8 起播不了就跳过并提示手动）、每项截一张图并把这一项自己写的那几行
+运行日志切出来，最后打印一张可直接填「过/不过」的记录表。
 
-# 3) 把测试片源推进去（六段，约 5 MB）
+```bash
+bash tools/verify_device.sh V4 V5     # 只跑两项
+bash tools/verify_device.sh --list    # 看项号与片源的对应
+WAIT_SEC=20 bash tools/verify_device.sh   # 慢机器上多等一会儿
+```
+
+产物在 `../output/verify/<版本>/`：`v4.png`、`v4-run_log.txt`、…… 文件名就是项号。
+
+> **它不判合格与否。** 「圆是不是正圆」「地平线歪不歪」只能人眼看——脚本只保证
+> ① 放的是**那一部**片；② 证据存下来了、名字对得上；③ 没起播时立刻红，
+> 不让人对着黑屏猜「是不是播放器坏了」。
+
+**第一次仍需手动做的一件事**：在配置页点一次「手机里的视频」，让片库把
+`/sdcard/Movies` 索引进去。之后重跑脚本即可；片库是空的或片源被隐藏时，
+脚本会在该项打印 `未命中` 并停下，不会把黑屏当成证据。
+
+**手动兜底**（脚本不可用时）：
+
+```bash
+adb install -r ../output/GazeReel-2.2.1-alpha2.apk
 python tools/make_testclips.py
 adb push ../output/testclips/. /sdcard/Movies/
+# 点名起播某一段（片名可带路径与扩展名，大小写与分隔符都无所谓）
+adb shell am start -n com.gazereel.vr/.ui.VerifyLaunchActivity \
+  -e gazereel.clip test-fisheye-circle-mono -e gazereel.item V4
 ```
 
 > **片源不用另外找**：`test-360-equirect-mono.mp4` / `test-180-sbs.mp4` /
@@ -31,16 +55,10 @@ adb push ../output/testclips/. /sdcard/Movies/
 > 已经把每个世界方向涂成固定颜色（前=红、右90=绿、左90=蓝、后=黄），
 > 戴上只需回答「红块在不在正中、转头 90° 看到的是不是绿」。判读口诀见 `docs/TESTCLIPS.md`。
 
-**取证三件套**（每项失败都要，否则我无法定位）：
+**取证三件套**（每项失败都要，否则我无法定位）：脚本已经替你存了截图与日志；
+崩溃另取：
 
 ```bash
-# 截图：戴镜时看不到手机屏，用 scrcpy 或让旁人拍
-adb exec-out screencap -p > v4-fisheye-circle.png
-
-# 运行日志（debug 包可直接 run-as 读）
-adb shell run-as com.gazereel.vr cat files/run_log.txt > run_log-v4.txt
-
-# 崩溃（若闪退）
 adb logcat -d -b crash > crash-v4.txt
 ```
 
@@ -142,7 +160,7 @@ adb logcat -d -b crash > crash-v4.txt
 ## 3. 记录表（复制到对话里填）
 
 ```
-版本：2.2.0-alpha11    设备：<型号> / Android <版本>
+版本：2.2.1-alpha2    设备：<型号> / Android <版本>
 
 V1 360        □过 □不过   备注：
 V2 180        □过 □不过   备注：

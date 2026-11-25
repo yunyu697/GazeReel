@@ -75,3 +75,20 @@ adb push ../output/testclips/. /sdcard/Movies/
 
 失败时把「哪一段、看到什么颜色在第几格、头转了多少度」记在 `VERIFY-2.2.0.md` 的记录表里。
 一句话能定位的 bug，比「鱼眼不对」这种描述省一轮真机窗口。
+
+---
+
+## 5. 不用手动翻页：一条命令跑完
+
+`tools/verify_device.sh` 会装包、推这六段片、按项号**点名起播**，并为每一项截一张图
+（`v4.png`）和切一份这一项自己写的那几行运行日志（`v4-run_log.txt`），最后打印记录表。
+
+```bash
+bash tools/verify_device.sh           # V1..V9 全跑
+bash tools/verify_device.sh V4        # 只跑鱼眼圆
+```
+
+点名靠的是 `adb shell am start -e gazereel.clip <片名>`：片名可带路径与扩展名，
+大小写与分隔符都无所谓（`test_180_sbs` / `Test-180-SBS.mp4` 都行），
+但**必须能在片库里找到** —— 找不到时脚本会红，不会把黑屏当证据记进表里。
+
