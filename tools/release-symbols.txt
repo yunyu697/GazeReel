@@ -23,3 +23,8 @@ FisheyePreset
 # SMB 主链路 + 它依赖的第三方库类（库类进包证据）
 SmbShareLister
 DcerpcHandle
+
+# 真机验收入口（2.2.1-alpha2）：点名起播的字符串规则与跳板 Activity。
+# 少一个，验收脚本就会「装得上、点不播」—— 而那时设备已经在纸盒里了。
+ClipRequest
+VerifyLaunchActivity

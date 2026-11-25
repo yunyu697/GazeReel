@@ -1,6 +1,7 @@
 package com.gazereel.vr.ui
 
 import android.os.SystemClock
+import com.gazereel.vr.core.ClipRequest
 import com.gazereel.vr.core.InputChannel
 import com.gazereel.vr.core.MediaRef
 import com.gazereel.vr.core.SourceType
@@ -721,6 +722,35 @@ class VrCoordinator(
         if (index >= 0) uiState = uiState.copy(selectedIndex = index)
         RunLog.append("ui", "重试当前片 · mediaId=$id")
         openSelected()
+    }
+
+    /**
+     * 真机验收专用：按片名片段点名起播，返回命中的标题；没命中返回 null。
+     *
+     * 走的是和「凝视点格子」完全同一条路（选中 → openSelected），所以验收看到的就是
+     * 用户看到的：格式识别、拒绝卡、预设记忆一个都不绕过。只用一条 adb 命令替代翻页，
+     * 免得手机在纸盒里、人却要伸手去点 3×3 格子。
+     *
+     * 命中失败一律返回 null 并由调用方写日志：**没有「大概就是这一部」**，
+     * 验错片比没验更糟。柜子先回到「全部」，否则目标可能被当前柜子过滤掉。
+     */
+    fun playByTitle(query: String): String? {
+        val q = ClipRequest.normalize(query) ?: return null
+        val ordered = FileNameOrder.sorted(rawItems)
+        val at = ClipRequest.pick(ordered.map { it.title }, q)
+        if (at < 0) return null
+        val target = ordered[at]
+        uiState = uiState.copy(cabinet = 0L, activeStack = null)
+        // 重算可见列表：刚才把柜子改回「全部」了，items 还是旧柜子的切片。
+        loadItems(rawItems)
+        val index = uiState.items.indexOfFirst { it.id == target.id }
+        if (index < 0) return null          // 片源被隐藏了：片子还在库里，但不在这一屏
+        uiState = uiState.copy(
+            selectedIndex = index,
+            page = index / VrUiState.PAGE_SIZE
+        )
+        openSelected()
+        return target.title
     }
 
     private fun openSelected() {

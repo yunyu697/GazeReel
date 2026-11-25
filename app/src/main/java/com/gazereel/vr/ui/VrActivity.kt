@@ -15,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.gazereel.vr.R
 import com.gazereel.vr.core.ActionDispatcher
+import com.gazereel.vr.core.ClipRequest
 import com.gazereel.vr.core.InputChannel
 import com.gazereel.vr.core.TriggerEvent
 import com.gazereel.vr.core.TriggerKind
@@ -157,10 +158,48 @@ class VrActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         immersive()
+        // 真机验收入口（tools/verify_device.sh）：extra 里点名要播哪一部片。
+        // 只有带着这个 extra 进来才会自动起播；正常从配置页进 VR 时它是 null，
+        // 这条路径完全不走（片库照旧停在原地等凝视）。
+        pendingClip = ClipRequest.normalize(intent?.getStringExtra(ClipRequest.EXTRA_CLIP))
+        pendingItem = ClipRequest.item(intent?.getStringExtra(ClipRequest.EXTRA_ITEM))
         try {
             boot()
         } catch (t: Throwable) {
             showFailure(t)
+        }
+    }
+
+    /** 验收请求：片名片段；null 表示这次进 VR 不是验收驱动。 */
+    private var pendingClip: String? = null
+
+    /** 验收项号，只写日志。 */
+    private var pendingItem: String? = null
+
+    /** 只尝试一次：片库 Flow 每次变动都会回调，重复起播会把正在看的片顶掉。 */
+    private var pendingClipTried = false
+
+    /**
+     * 验收请求的落地时刻：片库第一次非空之后。
+     *
+     * 太早（items 还没到）会把「片库为空」当成「没找到」；太晚（等用户操作）就不是自动了。
+     * 命中与没命中都写日志，`verify` 标签是脚本读回执的唯一依据 —— 没有这一行，
+     * 脚本就分不清「片子没起播」和「起播了但不是这一部」。
+     */
+    private fun consumePendingClip() {
+        if (pendingClipTried) return
+        val clip = pendingClip ?: return
+        if (coordinator.uiState.items.isEmpty()) return
+        pendingClipTried = true
+        val hit = runCatching { coordinator.playByTitle(clip) }
+            .onFailure { RunLog.append(this, "verify", "起播失败 ${it.javaClass.simpleName}: ${it.message?.take(120)}") }
+            .getOrNull()
+        val tag = ClipRequest.describe(pendingItem, clip)
+        if (hit == null) {
+            RunLog.append(this, "verify", "未命中 · $tag（片库没有这部片：先加片库、等索引完成再重试）")
+            coordinator.showMessage("片库里没有《$clip》")
+        } else {
+            RunLog.append(this, "verify", "命中 · $tag → $hit")
         }
     }
 
@@ -330,7 +369,10 @@ class VrActivity : AppCompatActivity() {
             }
         }
         lifecycleScope.launch {
-            database.mediaDao().observeAll().collect { items -> coordinator.loadItems(items) }
+            database.mediaDao().observeAll().collect { items ->
+                coordinator.loadItems(items)
+                consumePendingClip()
+            }
         }
         lifecycleScope.launch {
             database.progressDao().observeAll().collect { all -> coordinator.loadProgress(all) }

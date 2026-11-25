@@ -62,6 +62,18 @@
             android:configChanges="orientation|screenSize|keyboardHidden|navigation|uiMode"
             android:theme="@style/Theme.GazeReel.Immersive" />
 
+        <!-- 真机验收跳板（tools/verify_device.sh）：`am start` 的身份是 shell，
+             只能进导出组件，所以单独开一个只转发 extra、不画界面的壳；
+             VrActivity 保持 exported=false 不变。没有 intent-filter，
+             也就不会被任何「打开视频」的隐式请求撞上。
+             noHistory + excludeFromRecents：它自己不留页面，也不进最近任务。 -->
+        <activity
+            android:name=".ui.VerifyLaunchActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <service
             android:name=".player.PlaybackService"
             android:exported="false"

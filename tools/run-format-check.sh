@@ -36,7 +36,15 @@ java -cp "$COMPILER:$STDLIB:$COROUTINES:$TROVE:$ANNOT" org.jetbrains.kotlin.cli.
   app/src/main/java/com/gazereel/vr/core/PoseMath.kt \
   app/src/main/java/com/gazereel/vr/core/SphericalMetadata.kt \
   app/src/main/java/com/gazereel/vr/core/Refusal.kt \
+  app/src/main/java/com/gazereel/vr/core/ClipRequest.kt \
   app/src/main/java/com/gazereel/vr/core/FormatDetector.kt \
-  tools/FormatDetectorCheck.kt
+  tools/FormatDetectorCheck.kt \
+  tools/ClipRequestCheck.kt
 
 java -Dfile.encoding=UTF-8 -cp "$OUT/classes:$STDLIB" check.FormatDetectorCheckKt
+
+# 验收入口（点名起播）单独一份自检：它决定「脚本点的是哪一部片」，
+# 错了不会崩，只会悄悄播另一部 —— 那种错必须由断言挡，不能靠人眼。
+echo
+echo "================ 验收入口（ClipRequest）================"
+java -Dfile.encoding=UTF-8 -cp "$OUT/classes:$STDLIB" check.ClipRequestCheckKt
