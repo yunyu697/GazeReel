@@ -90,6 +90,20 @@ python3 tools/check_structure.py          # 结构校验，秒级
 Cardboard SDK 以本地 aar 形式随仓库提供（`app/libs/cardboard-sdk.aar`），CI 不需要额外下载。
 不放这个 aar 也能编译，只是会退回纯传感器实现。
 
+### 没有片源怎么验
+
+六段带方位色标的测试片，一条命令生成（需要 `ffmpeg`，产物在 `../output/testclips/`，不入库）：
+
+```bash
+python tools/make_testclips.py     # 360 / 180SBS / 2D / 鱼眼圆 / 鱼眼全画幅 / 未缝双鱼眼
+python tools/check_testclips.py    # 64 条自检：投影公式、锚点取色、交付规格
+adb push ../output/testclips/. /sdcard/Movies/
+```
+
+每个世界方向一个固定颜色（前=红、右90=绿、左90=蓝、后=黄、上62°=品红、下62°=青），
+三种投影画的是同一套角度图案，所以「换了投影还对不对」也能直接比。
+判读口诀与每段证明哪一项，见 [`docs/TESTCLIPS.md`](docs/TESTCLIPS.md)。
+
 ## 先判断我的片子是什么格式
 
 不知道片子是什么格式，不用装工具。最快是两步：先看分辨率数字，再看画面长相，照着下表对号入座。

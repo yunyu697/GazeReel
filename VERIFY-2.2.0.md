@@ -5,8 +5,9 @@
 > 但证明不了「戴着舒服、看着正」——那只能靠这 9 项。
 > **当前状态**：9 项在 alpha6 上除 V9 外仍未验。V9 在 alpha6 上真机验证：轴修正通过——
 > 上下带都能唤出控制台、也能刻意误触；但 ±78°「确实有点难操作」，已按此在 alpha7
-> 内收到 ±68°、alpha8 换掉了 SMB 共享枚举、alpha9~alpha11 只动发版脚本（均与这 9 项无关），**V9 待复验**。
-> 其余 8 项从未上机。任何一项没勾，`2.2.0` 就不算可用。
+> 内收到 ±68°；alpha8 换掉了 SMB 共享枚举，alpha9~alpha11 只动发版脚本，
+> **2.2.1-alpha1 补齐了 V1–V7 的片源**（见 `docs/TESTCLIPS.md`），这几项与它们均无关。
+> **V9 待复验**，其余 8 项从未上机。任何一项没勾，这一代就不算可用。
 
 ---
 
@@ -14,11 +15,21 @@
 
 ```bash
 # 1) 装包（保留数据升级；首次装用 install 不带 -r 也行）
-adb install -r output/GazeReel-2.2.0-alpha11.apk
+adb install -r ../output/GazeReel-2.2.1-alpha1.apk
 
-# 2) 确认版本对得上（应输出 versionName='2.2.0-alpha11'）
-aapt2 dump badging output/GazeReel-2.2.0-alpha11.apk | head -1
+# 2) 确认版本对得上（应输出 versionName='2.2.1-alpha1'）
+aapt2 dump badging ../output/GazeReel-2.2.1-alpha1.apk | head -1
+
+# 3) 把测试片源推进去（六段，约 5 MB）
+python tools/make_testclips.py
+adb push ../output/testclips/. /sdcard/Movies/
 ```
+
+> **片源不用另外找**：`test-360-equirect-mono.mp4` / `test-180-sbs.mp4` /
+> `test-2d-grid-720p.mp4` / `test-fisheye-circle-mono.mp4` /
+> `test-fisheye-fullframe-mono.mp4` / `test-dual-fisheye-unstitched.mp4`
+> 已经把每个世界方向涂成固定颜色（前=红、右90=绿、左90=蓝、后=黄），
+> 戴上只需回答「红块在不在正中、转头 90° 看到的是不是绿」。判读口诀见 `docs/TESTCLIPS.md`。
 
 **取证三件套**（每项失败都要，否则我无法定位）：
 
